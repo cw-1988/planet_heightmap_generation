@@ -132,7 +132,8 @@ export function livingPlace(r, p, tech, g, out = {}, G = GATHER, K = FARMING) {
         out.second = go >= G.close * gv && go > 0 ? gOther : landClose ? r.staple : Staple.NONE;
         out.secondLife = landClose ? landLife : Lifestyle.NONE;
     } else if (r.staple && land >= G.minPeople) {
-        out.lifestyle = landLife; out.staple = r.staple; out.people = land; out.score = r.score;
+        // (farmers and herders fish too: the water's catch comes on top of the land's food — fish needs no field)
+        out.lifestyle = landLife; out.staple = r.staple; out.people = land + g.fish; out.score = r.score;
         const gatherClose = held >= G.close * land && g.people >= G.minPeople;
         out.second = landSecond || (gatherClose ? gFood : Staple.NONE);
         out.secondLife = gatherClose ? Lifestyle.GATHERING : landSecond ? STAPLE_LIFE[landSecond] : Lifestyle.NONE;

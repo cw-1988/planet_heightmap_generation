@@ -30,8 +30,8 @@ export const FARMING_LAYERS = new Set(['farmLand', 'farmStaple', 'farmLife', 'fa
 export const FARMING_NAMES = { farmLand: 'Farmland', farmStaple: 'Staple food', farmLife: 'Lifestyle', farmPeople: 'People', farmCity: 'City size', farmSoil: 'Soil', farmSeason: 'Growing season' };
 /** The techniques chosen and the looks (the legend's chips) — every view's, for as long as the page is open. `only`: the
  *  Staple food view's one food shown alone (a Staple, or 0 for all); `life` the Lifestyle view's (a Lifestyle); `reach`
- *  the City size view's (km: city-view.js). */
-export const farmOptions = { flood: true, canal: true, terrace: true, raised: true, classes: false, watered: false, only: 0, life: 0, reach: 50 };
+ *  the City size view's (days by cart: city-view.js). */
+export const farmOptions = { flood: true, canal: true, terrace: true, raised: true, classes: false, watered: false, only: 0, life: 0, reach: 1 };
 /** The options as a key (a picture or a legend made with other options is made again) — but the one option `skip`. */
 export const farmOptionsKey = (skip = null) => Object.entries(farmOptions).filter(([k]) => k !== skip).map(([k, v]) => `${k}=${+v}`).join(',');
 export const TECHNIQUE_WORDS = { flood: ['Flood farming', 'Sowing the silt a big river’s flood leaves on its plain (Egypt)'], canal: ['Canals', 'Water led off rivers and lakes onto the land beside them — farther from a bigger river (Mesopotamia)'],
@@ -312,7 +312,7 @@ export function farmingLegendHTML(layer, fin) {
             bar(PEOPLE_LOG, '1 · 5 · 20 · 60 · 150+ a km²') +
             note(`The whole land could feed about ${millions(count.people)} — ${Math.round(count.people / Math.max(1, count.land))} a km² on average (${by}); its richest river plains well over 100. ` +
                 'Each place by its way of life (the Lifestyle view): poor ground farmed in long fallows — a rainforest’s fields cropped a year or two in ten, so it feeds a few a km² — ' +
-                'herders a km² or two, gatherers a tenth to a few. What it could support, not how many would live there');
+                'herders a km² or two, gatherers a tenth to a few. Near a rich shore, lake or river its catch comes on top, for farmers and herders too. What it could support, not how many would live there');
     }
     // Farmland
     const any = farmOptions.flood || farmOptions.canal;
@@ -352,7 +352,7 @@ export function farmingLines(fin, u, v, sea, layer = null) {
     if (K.koppen[i] === KOPPEN_ID.EF) return [L('Farmland', 'none — under ice')];
     const p = {}, opt = farmOptions, r = placeAt(F, i, p, new Float64Array(2 * CROPS.length), opt, { scores: new Float64Array(STAPLES.length), foods: new Float64Array(STAPLES.length) }), lines = [];
     if (!hasHarvests(F)) return [L('Farmland', 'add detail again to see it')];
-    const lv = livingAt(F, i, 90 - v * 180, u * 360 - 180, p, r, groundOf(fin), opt, {}, {});
+    const g = {}, lv = livingAt(F, i, 90 - v * 180, u * 360 - 180, p, r, groundOf(fin), opt, g, {});
     // (its way of life and its staple food — a second where it does nearly as well)
     lines.push(L('Lifestyle', lv.lifestyle ? `<b>${LIFESTYLE_WORDS[lv.lifestyle]}</b>${lv.secondLife ? ` · and ${LIFESTYLE_WORDS[lv.secondLife].toLowerCase()}` : ''}` : 'uninhabited'));
     if (lv.staple) lines.push(L('Staple food', `<b>${STAPLE_WORDS[lv.staple]}</b>${lv.second ? ` · then ${STAPLE_WORDS[lv.second].toLowerCase()}` : ''}`));
@@ -361,7 +361,9 @@ export function farmingLines(fin, u, v, sea, layer = null) {
     const n = v => (v < 10 ? v.toFixed(v < 1 ? 2 : 1) : String(Math.round(v)));
     const every = Math.round(1 / croppedShare(p, opt)), rested = lv.lifestyle === Lifestyle.FARMING && every >= 2 ? ` · a field cropped ~1 year in ${every}` : '';
     const instead = lv.lifestyle === Lifestyle.GATHERING && lv.landPeople >= 0.05 ? ` · ${r.staple === Staple.HERDING ? 'herding' : 'farming'} ~${n(lv.landPeople)} — not ${GATHER.hold}× as many` : '';
-    lines.push(L('People', lv.people < 0.005 ? 'too few to count' : `could feed ~${n(lv.people)} a km²${rested}${instead}`));
+    // (farmers' and herders' catch, on top of the land's food)
+    const fish = lv.lifestyle !== Lifestyle.GATHERING && g.fish >= 0.05 ? ` · ~${n(g.fish)} of it on fish` : '';
+    lines.push(L('People', lv.people < 0.005 ? 'too few to count' : `could feed ~${n(lv.people)} a km²${fish}${rested}${instead}`));
     if (layer === 'farmCity') lines.unshift(L('City', cityLine(fin, u, v)));
     const cls = farmClass(r.tech), clsRain = farmClass(r.rain);
     // (the harvests a year: whole ones in words, a part one as "about"; the second crop of a rotation counted in them)

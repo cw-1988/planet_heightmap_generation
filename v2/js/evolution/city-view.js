@@ -1,17 +1,30 @@
 // City size (fork addition): how many people a city at each place could live on — the people the land within its
-// reach could feed (the People view's a km², farming-view.js peopleGrid, summed over the disc of that radius around it).
-// A heat map on a log scale, from the richest place's count down ten-thousandfold. The reach (km) is the Food row's
-// slider, or Shift+scroll over the planet (view/planet-view.js), kept in farmOptions.reach.
+// reach could feed (the People view's a km², farming-view.js peopleGrid). The reach is what a haul may cost, in days by
+// cart (CART_KM a day), kept in farmOptions.reach and set by the Food row's slider or Shift+scroll over the planet
+// (view/planet-view.js). Its count is
+// the larger of the land within that disc by cart alone (below) and what boats bring by river, lake and sea for the
+// same cost (city-haul.js). A heat map on a log scale, from the richest place's count down ten-thousandfold.
 //
 // The sum: the people of the farming picture summed into a grid coarse enough that the disc spans a few dozen rows at
-// most (a reach of 1000 km on 20 km pixels would be slow), each row's running total read at fractions of a pixel, the
+// most (a reach of 300 km on 5 km pixels would be slow), each row's running total read at fractions of a pixel, the
 // disc cut into thin strips of latitude, each as wide as the circle is there — so even a reach smaller than a pixel
 // sums its own area, not the pixel's.
 import { farmOptions, farmOptionsKey, peopleGrid, ramp } from './farming-view.js';
+import { HAUL, waterHaul } from './city-haul.js';
 
 const R = 6371;
-/** The slider's range (km): from a walk to market to a river-and-sea empire's grain. */
-export const CITY_REACH = { min: 5, max: 1000, step: 5 };
+/** The slider's range, in days by cart (farmOptions.reach): from half a day to market to a capital's grain carted
+ *  ~300 km (about twice its price); CART_KM a loaded cart's day. */
+export const CITY_REACH = { min: 0.5, max: 12, step: 0.5 };
+export const CART_KM = 25;
+/** The reach as km by cart. */
+export const reachKm = () => farmOptions.reach * CART_KM;
+const days = d => `${d} day${d === 1 ? '' : 's'}`;
+/** The slider's label: the days by cart. */
+export const reachText = () => days(farmOptions.reach);
+/** The share of the land's food a town could get: farmers eat most of their harvest, so towns held ~10–15 % of the
+ *  people before industry (the richest lands, Song China, the Low Countries, Roman Italy, up to ~15–20 %). */
+export const SURPLUS = 0.15;
 const SPAN = 4;            // (decades the colours span, below the richest place's count)
 // pale where few could be fed, through straw and orange to red and a deep wine where the most
 const HEAT = [[0, [216, 210, 198]], [0.3, [238, 214, 130]], [0.55, [236, 150, 60]], [0.8, [200, 56, 44]], [1, [100, 16, 48]]];
@@ -22,16 +35,16 @@ const cache = new WeakMap();
 export function cityGrid(fin) {
     const F = fin.raster.farming, key = farmOptionsKey(), kept = cache.get(F);
     if (kept?.key === key) return kept;
-    const dens = peopleGrid(fin), reach = farmOptions.reach, rowKmF = Math.PI * R / F.h;
+    const dens = peopleGrid(fin), reach = reachKm(), rowKmF = Math.PI * R / F.h;
     // (b: F's pixels to a cell a side — a power of two dividing the picture, the cells no finer than a sixth of the
     // reach, nor the grid wider than 2048)
     let b = 1;
     while (F.w % (2 * b) === 0 && F.h % (2 * b) === 0 && (2 * b * rowKmF <= reach / 6 || F.w / b > 2048)) b *= 2;
     const w = F.w / b, h = F.h / b, rowRad = Math.PI / h, cellRad = 2 * Math.PI / w;
-    // the people each cell's land could feed: a km² × its area
+    // the townsfolk each cell's land could feed: its surplus, SURPLUS of the people a km² × its area
     const mass = new Float64Array(w * h), dl = 2 * Math.PI / F.w, dt = Math.PI / F.h;
     for (let y = 0; y < F.h; y++) {
-        const top = Math.PI / 2 - y * dt, area = R * R * dl * (Math.sin(top) - Math.sin(top - dt)), row = Math.floor(y / b) * w;
+        const top = Math.PI / 2 - y * dt, area = SURPLUS * R * R * dl * (Math.sin(top) - Math.sin(top - dt)), row = Math.floor(y / b) * w;
         for (let x = 0, i = y * F.w; x < F.w; x++, i++) if (dens[i] > 0) mass[row + Math.floor(x / b)] += dens[i] * area;
     }
     // each row's running total (w + 1 a row), read at a fraction t of a cell, round the world as often as it goes
@@ -59,19 +72,23 @@ export function cityGrid(fin) {
                 const o = rows[s] * (w + 1), hw = half[s];
                 v += 2 * hw >= w ? pre[o + w] : at(o, x + 0.5 + hw) - at(o, x + 0.5 - hw);
             }
-            v *= wt;
-            sum[y * w + x] = v;
-            if (v > most) most = v;
+            sum[y * w + x] = v * wt;
         }
     }
-    const out = { key, w, h, sum, most };
+    // by water (city-haul.js): the larger of the two, the land's kept for the readout
+    const land = sum.slice(), haul = waterHaul(fin, { w, h, mass }, reach);
+    for (let i = 0; i < w * h; i++) {
+        if (haul && haul.sum[i] > sum[i]) sum[i] = haul.sum[i];
+        if (sum[i] > most) most = sum[i];
+    }
+    const out = { key, w, h, sum, land, most };
     cache.set(F, out);
     return out;
 }
 
 /** The people within reach at a picture `W` wide's pixel (x, y): the grid read smoothly between its cells. */
-function sampler(G, W) {
-    const { w, h, sum } = G, s = w / W;
+function sampler(G, W, sum = G.sum) {
+    const { w, h } = G, s = w / W;
     return (x, y) => {
         const gx = (x + 0.5) * s - 0.5, gy = Math.min(h - 1, Math.max(0, (y + 0.5) * s - 0.5)), x0 = Math.floor(gx), y0 = Math.floor(gy), fx = gx - x0, fy = gy - y0;
         const xa = (x0 + w) % w, xb = (x0 + 1) % w, ya = y0 * w, yb = Math.min(h - 1, y0 + 1) * w;
@@ -90,15 +107,21 @@ const count = v => (v >= 1e9 ? `${(v / 1e9).toFixed(1)} billion` : v >= 1e7 ? `$
     : v >= 1e4 ? `${Math.round(v / 1e3)} thousand` : v >= 100 ? String(Math.round(v / 10) * 10) : String(Math.round(v)));
 /** The readout's line at (u, v) of the map (0…1). */
 export function cityLine(fin, u, v) {
-    const G = cityGrid(fin), people = sampler(G, G.w)(u * G.w - 0.5, v * G.h - 0.5);
-    return `<b>~${count(people)}</b> could be fed within ${farmOptions.reach} km`;
+    const G = cityGrid(fin), x = u * G.w - 0.5, y = v * G.h - 0.5, people = sampler(G, G.w)(x, y), land = sampler(G, G.w, G.land)(x, y);
+    const by = people > 1.05 * land ? `, most by boat (cart ${count(land)})` : ' by cart';
+    return `<b>~${count(people)}</b> could be fed within ${days(farmOptions.reach)}’ haul${by}`;
 }
+/** How far the reach carries by each way (km), for the legend. */
+const ways = r => `${r} km by cart, ${Math.round(r / HAUL.river)} by river, ${Math.round(r / HAUL.lake)} by lake or ${Math.round(r / HAUL.sea)} by sea`;
 /** The legend, with the Food legend's parts: head, note, chips (the techniques), bar(stops, label). */
 export function cityLegendHTML(fin, { head, note, chips, bar }) {
-    const G = cityGrid(fin), r = farmOptions.reach;
-    return head(`City size — the people the land within ${r} km could feed`) + `<div class="evo-farm-chips">${chips}</div>` +
+    const G = cityGrid(fin), r = reachKm();
+    return head(`City size — the people ${days(farmOptions.reach)} by cart could feed`) + `<div class="evo-farm-chips">${chips}</div>` +
         bar(HEAT, `${count(G.most / 10 ** SPAN)} → ${count(G.most)} people`) +
-        note(`The most around any one place: ~${count(G.most)}. A pre-industrial city lived off its hinterland — grain went about a day’s cart ride ` +
-            '(~30 km) by land, but hundreds of kilometres by river and sea. Each place counted by its own way of life (the People view). ' +
-            'Set the reach with the slider above the map, or Shift+scroll over the planet');
+        note(`The most around any one place: ~${count(G.most)}. A pre-industrial city lived off its hinterland: grain went about a day’s cart ride ` +
+            `(~15–30 km) by road, but far by water, which cost about a twentieth as much by sea and a fifth by river (navigable from ${HAUL.navQ} m³/s). ` +
+            `The reach is counted in what a day by cart (${CART_KM} km) costs; this one buys ${ways(r)}, the legs added up: cart to the water, boat, cart from the fields. ` +
+            `Each place is counted by its own way of life (the People view), and only its surplus: farmers eat most of what they grow, so towns got ~${Math.round(100 * SURPLUS)} % of it. ` +
+            'A ceiling for one city taking all of it: neighbouring towns shared the same land. Set the reach with the slider above the map, or Shift+scroll over the planet. ' +
+            'The ring at the pointer is the reach by cart');
 }

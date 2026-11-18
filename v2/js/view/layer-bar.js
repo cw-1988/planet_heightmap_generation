@@ -11,7 +11,7 @@ import { AGES } from '../geology/ages.js';
 import { CLIMATE_LAYERS, SEASONAL_LAYERS, FINISHED_ONLY_LAYERS } from '../evolution/climate-view.js';
 import { GEOLOGY_LAYERS } from '../evolution/geology-view.js';
 import { FARMING_LAYERS, farmOptions } from '../evolution/farming-view.js';
-import { CITY_REACH } from '../evolution/city-view.js';
+import { CITY_REACH, reachText } from '../evolution/city-view.js';
 
 /** Every climate layer but Satellite, which comes with detail: the main five as tabs, the rest under More. */
 export const CLIMATE_SUB = new Set([...CLIMATE_LAYERS].filter(l => !FINISHED_ONLY_LAYERS.has(l)));
@@ -131,8 +131,8 @@ export function mountLayerBar({ comes = 'Comes with Add detail', platesTip = '',
                 <button class="map-tab" data-layer="farmSeason" title="The months crops grow: warm enough and wet enough — by rain alone, or watered">Growing season</button>
                 <span class="evo-beta">Beta</span>
             </div>
-            <label id="cityReach" class="city-reach" title="The City size view's reach: how far round a place its food could come from — Shift+scroll over the planet sets it too" hidden>Reach
-                <input type="range" min="${CITY_REACH.min}" max="${CITY_REACH.max}" step="${CITY_REACH.step}" value="${farmOptions.reach}"><output>${farmOptions.reach} km</output></label>
+            <label id="cityReach" class="city-reach" title="The City size view's reach: how many days by cart its food may cost to bring — far further by river, lake or sea, as cheaper; Shift+scroll over the planet sets it too" hidden>Reach
+                <input type="range" min="${CITY_REACH.min}" max="${CITY_REACH.max}" step="${CITY_REACH.step}" value="${farmOptions.reach}"><output>${reachText()}</output></label>
             <select id="season" aria-label="Season">
                 <option value="year" selected>Year</option>
                 <option value="jan">January</option>
@@ -184,7 +184,7 @@ export class LayerBar {
         const reach = $('cityReach').querySelector('input');
         let redraw = 0;
         reach.addEventListener('input', () => {
-            farmOptions.reach = +reach.value; reach.nextElementSibling.textContent = `${reach.value} km`;
+            farmOptions.reach = +reach.value; reach.nextElementSibling.textContent = reachText();
             clearTimeout(redraw); redraw = setTimeout(onPick, 120);
         });
         this.reach = reach;
