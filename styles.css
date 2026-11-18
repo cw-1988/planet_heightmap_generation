@@ -1262,6 +1262,27 @@ body.terrain-tool-on #planetCanvas, body.terrain-tool-on canvas { cursor: crossh
 .terrain-marks .guide { stroke-width: 1.5; stroke-dasharray: 6 5; opacity: 0.85; }
 .terrain-marks .line { stroke-width: 3; }
 
+/* Region pick and the region's window (fork) — js/region-pick.js, v2/js/region/region-view.js */
+.terrain-tools.region-pick { bottom: auto; top: 140px; left: auto; right: 16px; transform: none; max-width: min(400px, calc(100vw - 32px)); justify-content: flex-end; border-radius: 24px; }
+.region-pick .region-more { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding-left: 8px; }
+.region-pick .region-more[hidden] { display: none; }
+.region-pick [data-n] { color: var(--muted); padding: 0 4px; }
+.region-pick select { font: inherit; }
+.region-view { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; background: var(--bg); color: var(--ink); font: 500 13px/1.4 var(--font-ui); }
+.region-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 16px; background: var(--surface); border-bottom: var(--line-hair) solid var(--rule); }
+.region-bar .region-title { margin-right: auto; }
+.region-bar button { min-height: var(--size-touch); padding: 0 12px; border-radius: var(--radius-full); border: var(--line-hair) solid var(--rule); background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.region-bar button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.region-bar select { font: inherit; }
+.region-seg { display: flex; gap: 4px; }
+.region-view canvas { flex: 1; min-height: 0; width: 100%; cursor: grab; touch-action: none; }
+.region-view canvas:active { cursor: grabbing; }
+.region-stage { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 12px 18px; background: var(--surface); border-radius: var(--radius-full); box-shadow: var(--shadow-card); }
+.region-stage[hidden], .region-readout[hidden] { display: none; }
+.region-readout { position: absolute; left: 16px; bottom: 16px; max-width: calc(100vw - 32px); padding: 8px 12px; background: var(--surface); border: var(--line-hair) solid var(--rule); border-radius: 8px; box-shadow: var(--shadow-card); pointer-events: none; }
+.region-scale { position: absolute; right: 16px; bottom: 16px; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; padding: 4px 8px; background: var(--surface); border-radius: 6px; pointer-events: none; }
+.region-scale i { display: block; height: 4px; border: 2px solid var(--ink); border-top: 0; }
+
 /* Refresh FAB — hidden on desktop */
 .refresh-fab { display: none; }
 

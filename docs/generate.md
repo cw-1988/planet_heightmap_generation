@@ -119,6 +119,10 @@ size at the pointer, and the split's line (with its whole great circle dashed) w
 
 Strokes and splits live with the page, not in the planet code: a new world clears them, Rebuild keeps them.
 
+### Region (fork addition)
+
+Choose pieces and open them as a flat regional map with its own erosion and rivers: [region.md](region.md).
+
 ## Mobile Support
 
 Generate is fully usable on phones and tablets:

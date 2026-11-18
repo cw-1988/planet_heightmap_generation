@@ -164,7 +164,7 @@ function piecesOf(w) {
 // the ground showing through. Each piece is a mask on the picture's grid, its pixels the ones whose nearest region is
 // the piece's — so it follows the piece's own outline, not a scatter of squares. ──
 const MASK_W = 4096;                                  // (the masks' grid: ~10 km a pixel at the equator; the overlay's width)
-const EDIT_TINT = { raise: [70, 230, 110], sink: [30, 100, 255], hover: [255, 255, 255] };
+const EDIT_TINT = { raise: [70, 230, 110], sink: [30, 100, 255], hover: [255, 255, 255], region: [235, 60, 210] };
 const EDIT_ALPHA = { pending: 0.38, hover: 0.22 };
 
 /** A piece's mask: its box on the MASK_W grid (x0 may be negative, x1 past the edge: a piece across the date line) and,
@@ -234,7 +234,7 @@ function tintPiece(ctx, w, id, W, rgb, alpha) {
  * view the pieces whose edit is pending (tinted by what they will become) and the piece under the pointer while editing
  * (lightened).
  */
-export function drawPlateLines(ctx, W, view, w, { pending, hovered }) {
+export function drawPlateLines(ctx, W, view, w, { pending, hovered, chosen }) {
     if (!w) return;
     if (view.layer === 'plates') {
         ctx.save();
@@ -246,6 +246,7 @@ export function drawPlateLines(ctx, W, view, w, { pending, hovered }) {
         }
         ctx.stroke(); ctx.restore();
     }
+    for (const id of chosen ?? []) tintPiece(ctx, w, id, W, EDIT_TINT.region, EDIT_ALPHA.pending);      // (region-pick.js)
     for (const id of pending) tintPiece(ctx, w, id, W, w.plateIsOcean.has(id) ? EDIT_TINT.raise : EDIT_TINT.sink, EDIT_ALPHA.pending);
     if (hovered >= 0) tintPiece(ctx, w, hovered, W, EDIT_TINT.hover, EDIT_ALPHA.hover);
 }
