@@ -107,7 +107,7 @@ last stroke or split. Marks over the planet (`js/edit-marks.js`, placed by `Glob
 size at the pointer, and the split's line (with its whole great circle dashed) while it is dragged.
 
 - **Raise / Lower / Smooth / Flatten** (`js/terrain-brush.js`): drag to brush the ground; Size is the brush's radius in
-  km (Ctrl+wheel over the planet changes it, 15 % a notch), Strength the change per stamp (Raise/Lower up to 1 km at the centre; Smooth/Flatten the pull). Flatten holds the
+  km (Shift+wheel over the planet changes it, Alt+wheel the strength: 15 % a notch, wheel down for more), Strength the change per stamp (Raise/Lower up to 1 km at the centre; Smooth/Flatten the pull). Flatten holds the
   height where the stroke began. Strokes are kept as places on the sphere, so the worker lays them again after every
   Rebuild, Reapply or plate edit; the finish (rivers, climate) runs on the brushed ground, so a raise above sea level
   is land.

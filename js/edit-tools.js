@@ -61,15 +61,17 @@ export function mountEditTools(pv, hooks) {
         shownKm = easing ? shownKm + (goal - shownKm) * 0.25 : goal;
         if (easing || key !== seen) { seen = key; drawMarks(); }
     })();
-    // (Ctrl+wheel over the planet: the brush's size, 15 % a notch, instead of the zoom or the browser's page zoom)
+    // (over the planet, instead of the zoom: Shift+wheel the brush's size, Alt+wheel its strength, 15 % a notch, wheel
+    // down for more. Ctrl stays the piece selection's. Shift+wheel can come as a sideways scroll: deltaX)
     addEventListener('wheel', (e) => {
-        if (!(e.ctrlKey || e.metaKey) || ed.tool === 'look' || ed.tool === 'split' || !onPlanet(e.target)) return;
+        const input = e.shiftKey ? size : e.altKey ? str : null;
+        if (!input || e.ctrlKey || e.metaKey || ed.tool === 'look' || ed.tool === 'split' || !onPlanet(e.target)) return;
         e.preventDefault(); e.stopPropagation();
-        const notch = Math.max(-3, Math.min(3, e.deltaY / (e.deltaMode ? 3 : 100)));
-        // (at least one 10 km step, so small brushes still change; a stroke under way keeps its size)
-        const was = +size.value, to = Math.round(was * Math.pow(1.15, -notch) / 10) * 10;
-        size.value = String(to !== was ? to : was + (notch < 0 ? 10 : -10));
-        size.dispatchEvent(new Event('input'));
+        const notch = Math.max(-3, Math.min(3, (e.deltaY || e.deltaX) / (e.deltaMode ? 3 : 100)));
+        // (at least one step, so small values still change; a stroke under way keeps its own)
+        const step = +input.step || 1, was = +input.value, to = Math.round(was * Math.pow(1.15, notch) / step) * step;
+        input.value = String(to !== was ? to : was + Math.sign(notch) * step);
+        input.dispatchEvent(new Event('input'));
     }, { capture: true, passive: false });
     const stampAt = (pt) => {
         const s = drag.stroke, w = hooks.world();
