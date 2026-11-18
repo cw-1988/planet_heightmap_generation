@@ -22,22 +22,26 @@ export function floodGrid(w, V, pc, W, H) {
             h[p] = r.heightM[q]; low = Math.min(low, h[p]);
         }
     }
-    // the seeds: each cell's centre, but an edge river's (split by its wall) and a stream's whose banks differ
-    const buckets = [];
+    // the seeds: each land cell's centre. A river cell's only for a valley with no land cell (its halves alone): its
+    // pixels' bank is read off the cell's straight line, and the drawn wall, smoothed, can pass on the other side of
+    // them, so the far bank's valley started a pocket on the near bank. The banks' floods reach the river from their side
+    const buckets = [], has = new Set();
     const push = (p, lev) => (buckets[lev] ??= []).push(p);
     const seed = (p, u) => { if (G[p] === -2 && !M[p] && u >= 0) { G[p] = u; push(p, h[p] - low); } };
-    for (let c = 0; c < n; c++) {
+    for (let pass = 0; pass < 2; pass++) for (let c = 0; c < n; c++) {
         const u = V.unit[c];
-        if (u < 0) continue;
+        if (u < 0 || (pass === 0) === !!(V.wall[c] && V.half)) continue;
         const i = Math.min(W - 1, Math.floor((Math.atan2(xyz[3 * c + 1], xyz[3 * c]) / Math.PI + 1) / 2 * W));
         const j = Math.min(H - 1, Math.floor((Math.asin(Math.max(-1, Math.min(1, xyz[3 * c + 2]))) / Math.PI + 0.5) * H));
-        if (!V.wall[c] || !V.half) { seed(j * W + i, u); continue; }
+        if (pass === 0) { seed(j * W + i, u); has.add(u); continue; }
+        if (has.has(V.half[2 * c]) && has.has(V.half[2 * c + 1])) continue;
         // (a river cell: each half on its own bank — the pixels round its centre off the wall, by the bank they lie on)
         for (let b = Math.max(0, j - 1); b <= Math.min(H - 1, j + 1); b++) for (let a = i - 1; a <= i + 1; a++) {
             const p = b * W + ((a % W) + W) % W;
             if (M[p] || G[p] !== -2) continue;
             const lat = -Math.PI / 2 + (b + 0.5) / H * Math.PI, lon = (a + 0.5) / W * 2 * Math.PI - Math.PI;
-            seed(p, unitAt(V, mesh, c, Math.cos(lat) * Math.cos(lon), Math.cos(lat) * Math.sin(lon), Math.sin(lat)));
+            const v = unitAt(V, mesh, c, Math.cos(lat) * Math.cos(lon), Math.cos(lat) * Math.sin(lon), Math.sin(lat));
+            if (!has.has(v)) seed(p, v);
         }
     }
     // (a pixel only to a valley of its own cell or a cell beside it: lowest first over the whole planet, a valley seeded

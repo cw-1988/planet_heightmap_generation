@@ -29,11 +29,16 @@ export function halves(mesh, full, unit, { wall, recv, main, np }) {
         for (let b = 0; b < 2; b++) {
             const l = link.get(n + 2 * r + b) ?? [];
             votes.clear();
-            for (let i = 0; i < l.length; i += 2) if (l[i] < n) votes.set(unit[l[i]], (votes.get(unit[l[i]]) ?? 0) + l[i + 1]);
-            // (no land edge long enough along it, the half pinched at a bend: the land whose centre is on its side)
-            if (!votes.size) for (let e = adjOffset[r]; e < adjOffset[r + 1]; e++) {
-                const d = adjList[e];
-                if (wall[d] || unit[d] < 0 || bankAt(mesh.xyz, recv, main, np, r, mesh.xyz[3 * d], mesh.xyz[3 * d + 1], mesh.xyz[3 * d + 2]) !== b + 1) continue;
+            // (only land on this bank by its centre, as the land's water chose its bank (region-basin.js): a neighbour's
+            // edge can reach across the line at a bend, and its valley then took both halves)
+            const on = (d) => bankAt(mesh.xyz, recv, main, np, r, mesh.xyz[3 * d], mesh.xyz[3 * d + 1], mesh.xyz[3 * d + 2]) === b + 1;
+            for (let i = 0; i < l.length; i += 2) if (l[i] < n && on(l[i])) votes.set(unit[l[i]], (votes.get(unit[l[i]]) ?? 0) + l[i + 1]);
+            // (no land edge long enough along it, the half pinched at a bend: the land whose centre is on its side, the
+            // corner neighbours too — 4 in 10 river steps go corner to corner, and a bank's only land was often a corner
+            // cell: with the true neighbours alone the half had none and took the far bank's valley from the next half)
+            if (!votes.size) for (let e = full.adjOffset[r]; e < full.adjOffset[r + 1]; e++) {
+                const d = full.adjList[e];
+                if (wall[d] || unit[d] < 0 || !on(d)) continue;
                 votes.set(unit[d], (votes.get(unit[d]) ?? 0) + 1);
             }
             let most = 0;

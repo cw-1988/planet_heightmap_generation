@@ -2,8 +2,8 @@
 // borders first. A border is a divide, a river, or both, and each weighs in metres of barrier:
 //   · a divide: how far it stands above the two pieces (the mean height of the cells on it less the pieces' mean
 //     heights, m), so a low saddle between two plains joins early and a ridge or a range late or never;
-//   · a river between them (one piece on each bank: region-bank.js): one that drains a valley's land or more (riv.edgeKm2)
-//     is a valley's edge, never crossed; a thinner one is the valley's own stream, up to STREAM_M by its share of that.
+//   · a river between them (one piece on each bank: region-bank.js): one that carries a valley's water or more
+//     (riv.edgeKm2; riv.qe its water as land, region-basin.js wetKm2) is a valley's edge, never crossed; a thinner one is the valley's own stream, up to STREAM_M by its share of that.
 // Smaller pairs go first (SIZE_M of barrier per valley's worth of size), so the valleys come out even. Without a ceiling
 // the weakest-first joining crossed anything once the cheap borders ran out: an edge river or a ridge of HARD_M is never
 // crossed, however small the valleys stay.
@@ -19,8 +19,8 @@ const NECK_M = 400, NECK_R = 0.35;                                           // 
  * `unit` (a piece per cell, −1 the sea) relabelled in place to the valleys: first the slivers under `min` cells join their
  * weakest neighbour, then all pairs join weakest border first while the two are under 1.6 × `target` cells together,
  * then what is left under a quarter of `target` joins its weakest neighbour (to 2.2 × `target`), and under `min` any
- * but across an edge river. z: each cell's height (km), or null. riv: the rivers ({ wall, recv, main, np, qe (land
- * drained, km²), edgeKm2 }: region-basin.js).
+ * but across an edge river. z: each cell's height (km), or null. riv: the rivers ({ wall, recv, main, np, qe (water,
+ * as km² of land at the mean runoff), edgeKm2 }: region-basin.js).
  */
 export function joinByBarrier(mesh, z, unit, units, riv, min, target) {
     const { adjOffset, adjList, xyz } = mesh, n = unit.length, zc = z ?? new Float32Array(n), { wall, recv, main, np, qe, edgeKm2, corner } = riv;
@@ -126,7 +126,7 @@ export function joinByBarrier(mesh, z, unit, units, riv, min, target) {
 
 /**
  * Per piece, the edge rivers it lies along and on which bank: Map(stem → 1 left | 2 right | 3), null if none. A stem is
- * a river's main line (followed up each confluence by the larger land), and only its stretch that drains a valley's land
+ * a river's main line (followed up each confluence by the larger land), and only its stretch that carries a valley's water
  * or more counts. A valley may hold one bank of each: never both, even joined round the river's head, where it is
  * still a stream (a valley wrapped round a great river's upper end was drawn on both its banks).
  */
@@ -146,7 +146,9 @@ function banksOf(mesh, unit, units, { wall, recv, main, np, qe, edgeKm2 }) {
         if (unit[r] >= 0) mark(unit[r], stem[r], 1);                           // (a river's cells: its left bank's piece)
         for (let e = adjOffset[r]; e < adjOffset[r + 1]; e++) {
             const d = adjList[e];
-            if (unit[d] < 0 || wall[d]) continue;
+            // (the bank's own streams too, but not the river's line: a valley held both banks through a stream's cells
+            // that run along the far one)
+            if (unit[d] < 0 || d === recv[r] || d === main[r]) continue;
             mark(unit[d], stem[r], bankAt(xyz, recv, main, np, r, xyz[3 * d], xyz[3 * d + 1], xyz[3 * d + 2]));
         }
     }

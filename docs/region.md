@@ -37,8 +37,13 @@ sea or a lake. T is the valley size (never under a dozen cells), S a fifth of it
   meet only at a corner on the map. The valleys use only the pairs whose shared Voronoi edge is at least 0.4 of their
   distance; joined over a corner, a valley was drawn in two pieces.
 - **Rivers**: every river that drains S or more, wet or dry, parts the land into pieces (a desert's great basin is cut
-  along its wadis too). One that drains T or more is a valley's edge, never crossed; a thinner one is a stream inside a
-  valley. Lakes (fresh or salt) count as water, dry pans as land.
+  along its wadis too). A river is an edge by its water, as the map draws it (its width is its discharge): its flow is
+  read as the land that would shed it at the planet's mean runoff (`wetKm2`: the water reaching the sea over all the
+  land), and one whose water is T or more is a valley's edge, never crossed; a thinner one is a stream inside a valley.
+  By the land drained alone, a dry river the map draws thin or not at all was an edge and a wet one drawn thick ran
+  through a valley (at large, half the rivers drawn at 3,000 m³/s or more were not edges). Now every river drawn at
+  1,000 m³/s or more is an edge at small, 3,000 at medium, 10,000 at large, and 94–98% of the edges' pixels lie on a
+  drawn river. Lakes (fresh or salt) count as water, dry pans as land.
 - **Pieces**: a river's stretches break at a head, a confluence, or a length over 2√S km, and each land cell joins the
   stretch its water first reaches, on the bank it comes in from. The bank is read from the arc round the river cell
   between its way in (the main stem, followed up each confluence by the larger land) and its way out: a straight line
@@ -58,7 +63,11 @@ sea or a lake. T is the valley size (never under a dozen cells), S a fifth of it
   smaller piece's whole rim, so valleys come out as blobs, not lobes and tails.
 - **River halves** (`js/region-halves.js`): a river runs through its cells' centres, so a river cell is cut by its
   line in two halves. Each half goes to the valley that most of the land along it is in, measured on the cells' shared
-  edges (a half pinched at a bend, with no edge long enough: the land whose centre is on its side). A half with no land
+  edges, counting only land whose centre is on its side (at a bend a neighbour's edge reaches across the line, and its
+  valley took both halves). A half pinched at a bend, with no edge long enough: the land whose centre is on its side,
+  corner neighbours included (4 in 10 river steps go corner to corner, and a bank's only land is often a corner cell;
+  without them the half took the far bank's valley from the next half: at large 43 of 928 edge-river cells had one
+  valley on both halves, now 1, and that one with that valley on both banks). A half with no land
   at all, between two rivers or at a confluence, takes the valley of the nearest half along the river that has one.
   A half moves only if its valley stays one piece without it (a valley that crosses a stream may hang together only
   through the stream's cells), judged with every other half already where it is going: a row of far-bank halves once
@@ -71,7 +80,9 @@ sea or a lake. T is the valley size (never under a dozen cells), S a fifth of it
   with the most weight), so edges are smooth lines, not the pixels' steps. **The pixels follow the terrain, not the
   cells** (`js/region-flood.js`): a pixel given its nearest cell's valley put every edge on a ~50 km cell's straight
   sides (across slopes and plains, through summits, a river's bank 20 km off its line). So each valley grows from its
-  cells' centres (a river cell's: from each bank's side) over the finished planet's height picture (`raster.heightM`),
+  land cells' centres (a river cell's only for a valley with no land cell: its pixels' bank is read off the cell's
+  straight line, the drawn wall is smoothed and can pass on the other side of them, and the far bank's valley started a
+  pocket on the near bank) over the finished planet's height picture (`raster.heightM`),
   lowest ground first, and two valleys meet on the ridge between them. A pixel goes only to a valley of its own
   cell or a cell beside it, so the heights move an edge by at most a cell (lowest first over the whole planet, a valley
   seeded low ran up its neighbours' gullies: combs of fingers). The edge rivers are drawn in as walls the
@@ -82,7 +93,9 @@ sea or a lake. T is the valley size (never under a dozen cells), S a fifth of it
 - **Checked** on the test planet with `tuning/region-check.js` (`onePiece`): small 3,721 valleys, medium 1,130, large
   471, none in two pieces on the map or on the mesh. Before the repair, the cells alone left 62 valleys at medium in
   two or more patches (968 px).
-- **Limits**: the map is ~20 km a pixel, so an edge is within ~10 km of the ridge or river it follows. At small, a
+- **Limits**: the map is ~20 km a pixel, so an edge is within ~10 km of the ridge or river it follows. Pixels cut off
+  from the rest of their valley by an edge river: 0.24% of land at small, 0.05% at medium, 0.12% at large; most are
+  single pixels shut in by a wall's corner, the largest a valley that holds both banks at cell level. At small, a
   few slivers of 4–6 cells between edge rivers end up with no pixels (131 of 3,797); their land goes to their
   neighbours.
 - **Checking by eye** (dev only): `tuning/region-agent.js` lets an image-checking agent pick its own valleys with curl

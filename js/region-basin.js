@@ -1,8 +1,9 @@
 // Valleys (fork addition): the planet's land cut along its natural borders, for the region pick (region-pick.js). From
 // the finish's drainage (world.fin.drain: where each cell's water goes, the land it drains, the sea and lakes, each
-// cell's height), at the valley size T alone: a river that drains at least T is a valley's edge, never crossed (a
+// cell's height, its water), at the valley size T alone: a river whose water is a valley's worth (T km² of land at
+// the planet's mean runoff, wetKm2: the map draws a river as wide as its water) is a valley's edge, never crossed (a
 // valley is the land between such rivers, one bank each); a thinner one lies inside a valley, as its own stream. The
-// rivers from S (a fifth of T, at least a dozen cells) are cut into stretches at each confluence and every ~2√S km;
+// rivers from S (a fifth of T, at least a dozen cells; by land drained or water) are cut into stretches at each confluence and every ~2√S km;
 // each land cell belongs to the stretch its water first reaches, on the bank it comes in from (the land above a river's
 // head is its own piece). Land whose water reaches the sea or a lake before any river is a piece per outlet. A piece in
 // patches is split into one per patch. The pieces then join over their weakest borders first (region-join.js): a low
@@ -33,7 +34,24 @@ export function valleysOf(w, sizeKm2) {
     return v;
 }
 
-/** The drainage pieces cut by the rivers from S km²: { unit, units, wall (the rivers' cells), main, np, qe (land drained) }. */
+/**
+ * Each cell's water (drain.q, m³/s) as the land that sheds it at the planet's mean runoff (km²): the water reaching the
+ * sea over all the land that drains there.
+ */
+function wetKm2(mesh, drain, sea) {
+    const { recv, q } = drain, n = recv.length;
+    let out = 0, land = 0;
+    for (let c = 0; c < n; c++) {
+        if (sea[c]) continue;
+        land++;
+        const r = recv[c];
+        if (r < 0 || drain.sea[r]) out += q[c];
+    }
+    const k = Math.max(1e-9, out / (land * mesh.cellAreaKm2));
+    return Float32Array.from(q, (v) => v / k);
+}
+
+/** The drainage pieces cut by the rivers from S km²: { unit, units, wall (the rivers' cells), main, np, qe (water, as land: wetKm2) }. */
 function pieces(mesh, drain, S) {
     const { numCells: n, xyz, edgeKm } = mesh, { recv, area } = drain;
     // (water: the sea and the standing lakes, fresh or salt; a dry pan is land)
@@ -44,12 +62,15 @@ function pieces(mesh, drain, S) {
     let a = 0, b = 0;
     for (let c = 0; c < n; c++) if (!up[c]) order[b++] = c;
     while (a < b) { const r = recv[order[a++]]; if (r >= 0 && --up[r] === 0) order[b++] = r; }
-    // the rivers by the land they drain, wet or dry (a desert's great basin is cut along its wadis too: a valley is its
-    // land, not its water), that land as a border weighs them, and their stretches: a new one at a head, a confluence,
-    // or past the length cap
-    const river = (c) => !sea[c] && area[c] >= S, np = new Uint8Array(n), par = new Int32Array(n).fill(-1);
-    const qe = new Float32Array(n);
-    for (let c = 0; c < n; c++) if (river(c)) qe[c] = area[c];
+    // the rivers that cut the land into pieces: by the land they drain, wet or dry (a desert's great basin is cut along
+    // its wadis too), or by their water. A river weighs as a border by its water, as the map draws it (finish-view.js:
+    // its width is its discharge): qe, in km² of the planet's land at its mean runoff, so a river whose water is a
+    // valley's worth or more (T) is an edge. By the land drained alone, a dry river that the map draws thin or not at all
+    // was an edge, and a wet one drawn thick ran through a valley. Their stretches: a new one at a head, a confluence, or
+    // past the length cap
+    const qe = wetKm2(mesh, drain, sea);
+    const river = (c) => !sea[c] && (area[c] >= S || qe[c] >= S), np = new Uint8Array(n), par = new Int32Array(n).fill(-1);
+    for (let c = 0; c < n; c++) if (!river(c)) qe[c] = 0;
     for (let c = 0; c < n; c++) { const r = recv[c]; if (r >= 0 && river(c) && river(r)) { np[r] = Math.min(255, np[r] + 1); par[r] = c; } }
     // (each river's main stem up through a confluence: the larger land, so its left and right stay apart)
     const main = new Int32Array(n).fill(-1);
