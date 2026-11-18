@@ -542,6 +542,19 @@ export function hydrology(ctx, F) {
         else { L.lat.push(Math.asin(Math.max(-1, Math.min(1, xyz[3 * c + 2]))) * 180 / Math.PI); L.lon.push(Math.atan2(xyz[3 * c + 1], xyz[3 * c]) * 180 / Math.PI); }
         L.q.push(qq); L.season.push(ss); L.cell.push(from);
     };
+    // (a mouth into the sea or a lake: the shore, halfway from the river's last cell to the water's — where the map's
+    // picture puts the coast, each pixel the water's or land's by its weightiest cell. At the water cell's centre the
+    // line ran on a median 32 km out to sea, up to 100 km, and two rivers into one sea cell met there in a V)
+    const pushShore = (c, r, qq, ss) => {
+        const v = [c, r].map(k => {
+            if (!lat) return [xyz[3 * k], xyz[3 * k + 1], xyz[3 * k + 2]];
+            const a = lat[k] * Math.PI / 180, o = lon[k] * Math.PI / 180;
+            return [Math.cos(a) * Math.cos(o), Math.cos(a) * Math.sin(o), Math.sin(a)];
+        });
+        const x = v[0][0] + v[1][0], y = v[0][1] + v[1][1], z = v[0][2] + v[1][2], m = Math.hypot(x, y, z);
+        L.lat.push(Math.asin(Math.max(-1, Math.min(1, z / m))) * 180 / Math.PI); L.lon.push(Math.atan2(y, x) * 180 / Math.PI);
+        L.q.push(qq); L.season.push(ss); L.cell.push(c);
+    };
     let reaches = 0, biggest = 0;
     for (let i = count - 1; i >= 0; i--) {
         const s = order[i];
@@ -554,7 +567,11 @@ export function hydrology(ctx, F) {
             const r = recv[c];
             if (r < 0) break;
             // (the mouth: into the sea, a lake, or another river's confluence — its point ends this reach)
-            if (rank[r] === -2 || lakeKind[r] || !on(r) || upCount[r] !== 1) { if (rank[r] === -2 || lakeKind[r] || on(r)) pushPoint(r, q[c], q[c] > 0 ? qw[c] / q[c] : 0, c); break; }
+            if (rank[r] === -2 || lakeKind[r] || !on(r) || upCount[r] !== 1) {
+                const ss = q[c] > 0 ? qw[c] / q[c] : 0;
+                if (rank[r] === -2 || lakeKind[r]) pushShore(c, r, q[c], ss); else if (on(r)) pushPoint(r, q[c], ss, c);
+                break;
+            }
             c = r;
         }
         reaches++;

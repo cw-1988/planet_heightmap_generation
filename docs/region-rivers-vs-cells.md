@@ -65,18 +65,36 @@ The river edges no longer approximate the line; they use it (`js/region-lines.js
 
 - **The line:** `edgeLines` rebuilds the edge rivers from `fin.rivers` with the map's own reaches and Chaikin
   smoothing; a step is an edge if its cell is (a cut corner only if both its steps are). x is unwrapped along a reach.
-- **Its sides:** `cutAlong` reads each segment's left and right valley from the flood 1.5–3.5 px off it, then gives
-  every pixel within 2 px of the line its side's valley. `packLines` keeps, per texel within 3.5 px, the nearest
-  segment (its ends in 1/32 px) and both valleys in three byte textures.
-- **Drawn and picked alike:** the shader (`v2/js/app/region-glsl.js` `regionLine`) and the pick (`region-grid.js`
-  `gridAt` → `lineAt`) test the 3 × 3 texels round a point, take the nearest segment and return the valley on its
-  side, so the rim and the chosen area sit on the river at any zoom. Past a real end of the line (a river's tip) the
-  label grid decides; the coast stays the grid's.
+  Chaikin leaves steps of a fifth of a pixel; the points are kept 1 px apart (`STEP`), so the line is chords that share
+  their points and stray a few hundredths of a pixel from the drawn curve.
+- **The pixels:** the walls are every pixel the line passes through, so every other pixel's centre lies wholly on one
+  side and the flood labels it right. `cutAlong` then gives each wall pixel the valley of a neighbour it reaches without
+  its step crossing any chord near it.
+- **The texels:** `packLines` keeps, per texel within 3.5 px, its nearest chord (its ends in 1/32 px). A run's end that
+  stops short of the river it joins is drawn on 1 px (`GROW`) to meet it; nothing else is extended.
+- **Drawn and picked alike:** the shader (`v2/js/app/region-glsl.js` `regionAt`) and the pick (`region-grid.js`
+  `gridAt` → `readAt`) take, of the four texels round a point, the valley with the most weight, counting only the
+  texels the point reaches without crossing one of the chords the 3 × 3 texels round it keep (none of the four: the
+  nearest such of the 3 × 3). So the edge is the river's line at any zoom and a place takes a valley its own side
+  holds. The coast stays the grid's.
 
-**Measured** (medium, the test planet): 12,211 edge segments; 0.05 px off the line on either side gives two different
-valleys at 89.4% of them, and the side 0.2 px off agrees with the one 3 px off at 93%. All the rest lie within 10 px
-of a run's end (1,142 within 3 px): short stubs and tips inside one valley, where both banks are one valley by the
-partition, so there is no edge to draw. Every valley is still one piece. The grid takes ~1.2 s a size (was ~0.6 s).
+**What went wrong before** (all measured as stray specks of a valley, cut off from it on the map as drawn):
+
+- Each segment carried one valley a side, probed off the flood, and gave it to every pixel near it. Where a valley is
+  a strip thinner than the probe beside the river, the segment took the valley beyond it: 165 specks, 251 after a vote.
+- With the crossing test, wall pixels at a confluence of three runs were checked against one run's segment only: 34
+  specks, all at confluences. Every chord near the step is checked now.
+- Each texel's piece was drawn on 1 px straight past both ends to close gaps between neighbours. At a bend that
+  overshoot is a line where the river is not, and it cut a sliver off the outer side: the spikes, and 31 specks. The
+  chords sharing their points leave no gap, so only a short tributary end is drawn on now.
+
+**Measured** (medium, the test planet; `tuning/region-check.js`): 7,227 chords; 0.05 px either side of a chord's middle
+gives two different valleys at 90.3% of them. The rest are tips and stubs inside one valley, where both banks are one
+valley by the partition. Read 3 × finer than the grid, 9 sample-sized specks are left; 8 of them join their valley at
+24 × finer (a wedge's tip where three rivers meet, thinner than the sample step). One is real: a point of 1/576 px²
+inside a wedge narrower than 0.2 px that holds no texel of its own valley. Samples one sample thin: 5,309 with the
+lines, 4,842 on the plain grid. On the grid every valley is one piece. The shader rendered over three windows round
+confluences matches `readAt` at 49,143 of 49,152 points; the 9 others are ties on one texel diagonal in that wedge.
 
 What stays raster: the edges along ridges and divides (nothing is drawn there to match), and which rivers are edges
 (the valleys' size, not the map's `riverQ` slider).

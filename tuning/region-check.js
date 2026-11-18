@@ -2,11 +2,13 @@
 // grid is the map the overlay draws and the pick reads (region-grid.js; raw: off the cells, region-bank.js unitAt,
 // before the map's repair); a valley drawn in two or more patches (4-connected, wrapping east–west) is a fault. Also
 // checks the mesh: each valley's cells one patch. In the page: await (await
-// import('/tuning/region-check.js')).onePiece(regionChosen) → { valleys, split, strayPx, meshSplit, worst }.
+// import('/tuning/region-check.js')).onePiece(regionChosen) → { valleys, split, strayPx, meshSplit, worst }; drawnPieces
+// the same on the map as drawn, 3 × finer, the edge rivers' lines included; lineSides whether the edge is the line.
 
 import { unitAt } from '../js/region-bank.js';
 import { edgeMesh } from '../js/region-mesh.js';
 import { valleyGrid, W, H } from '../js/region-grid.js';
+import { readAt } from '../js/region-lines.js';
 
 export async function onePiece(C, raw = false) {
     const { world, V } = C, mesh = world.tMesh, U = new Int32Array(W * H);
@@ -39,6 +41,52 @@ export async function onePiece(C, raw = false) {
     let meshSplit = 0;
     for (const l of cells.values()) if (l.length > 1) meshSplit++;
     return { valleys: per.size, split, strayPx, meshSplit, worst: worst.slice(0, 6) };
+}
+
+/**
+ * Every valley one piece as drawn, finer than the grid: the map read at F × F places a texel (region-lines.js readAt,
+ * the shader's own reading, edge rivers' lines included) → { valleys, split, strays, worst: [{ u, size, x, y }] } (size
+ * in fine places, x and y in grid px from the west and the south).
+ */
+export async function drawnPieces(C, F = 3) {
+    const G = await valleyGrid(C.world, C.V), Ls = C.V.lines, FW = W * F, FH = H * F, lab = new Int32Array(FW * FH);
+    for (let J = 0; J < FH; J++) for (let I = 0; I < FW; I++) lab[J * FW + I] = readAt(G, Ls, W, H, (I + 0.5) / F - 0.5, (J + 0.5) / F - 0.5);
+    const seen = new Uint8Array(FW * FH), per = new Map(), stack = [];
+    for (let s = 0; s < FW * FH; s++) {
+        const u = lab[s];
+        if (u < 0 || seen[s]) continue;
+        let size = 0, sx = 0, sy = 0;
+        seen[s] = 1; stack.push(s);
+        while (stack.length) {
+            const p = stack.pop(), i = p % FW, j = (p - i) / FW;
+            size++; sx += i; sy += j;
+            for (const q of [j * FW + (i + 1) % FW, j * FW + (i + FW - 1) % FW, j > 0 ? p - FW : -1, j < FH - 1 ? p + FW : -1]) {
+                if (q >= 0 && !seen[q] && lab[q] === u) { seen[q] = 1; stack.push(q); }
+            }
+        }
+        (per.get(u) ?? per.set(u, []).get(u)).push({ u, size, x: +((sx / size + 0.5) / F).toFixed(1), y: +((sy / size + 0.5) / F).toFixed(1) });
+    }
+    const worst = [];
+    let split = 0;
+    for (const l of per.values()) if (l.length > 1) { split++; l.sort((a, b) => b.size - a.size); worst.push(...l.slice(1)); }
+    worst.sort((a, b) => b.size - a.size);
+    return { valleys: per.size, split, strays: worst.length, worst: worst.slice(0, 8) };
+}
+
+/**
+ * Whether the edge is the river's drawn line: per edge segment, the valleys read d px either side of its middle
+ * (readAt) → { segments, split: the share with two different valleys }. Where both sides are one valley the river is not
+ * that valley's edge there (a tip, or a stub inside one valley).
+ */
+export async function lineSides(C, d = 0.05) {
+    const G = await valleyGrid(C.world, C.V), L = C.V._edgeLines, S = L.seg, n = S.length / 4;
+    let split = 0;
+    for (let k = 0; k < n; k++) {
+        const dx = S[4 * k + 2] - S[4 * k], dy = S[4 * k + 3] - S[4 * k + 1], l = Math.hypot(dx, dy) || 1;
+        const x = (S[4 * k] + S[4 * k + 2]) / 2 - 0.5, y = (S[4 * k + 1] + S[4 * k + 3]) / 2 - 0.5, ox = -dy / l * d, oy = dx / l * d;
+        if (readAt(G, C.V.lines, W, H, x + ox, y + oy) !== readAt(G, C.V.lines, W, H, x - ox, y - oy)) split++;
+    }
+    return { segments: n, split: +(split / n).toFixed(3) };
 }
 
 /** Per label (≥ 0), the sizes of its connected patches: Map(label → [size…]). */

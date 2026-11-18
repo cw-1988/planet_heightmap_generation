@@ -482,11 +482,11 @@ void main() {
     // ── (fork addition) the region pick's valleys, drawn by the shader over the picture (REGION_GLSL; js/region-overlay.js) ──
     /**
      * The valley + 1 under each texel of a W × H grid (RGBA bytes, RGB the number, the first row the south), or null:
-     * none; `lines` the edge rivers' texels (js/region-lines.js packLines: { geo, lid, rid }, region-glsl.js).
+     * none; `lines` the edge rivers' texels (js/region-lines.js packLines: { geo, on }, region-glsl.js).
      */
     setRegionCells(data, W, H, lines = null) {
         const U = this.patch;
-        for (const [k, d] of [['uRegionId', data], ['uRegionGeo', lines?.geo], ['uRegionLeft', lines?.lid], ['uRegionRight', lines?.rid]]) {
+        for (const [k, d] of [['uRegionId', data], ['uRegionGeo', lines?.geo], ['uRegionLine', lines?.on]]) {
             U[k].value?.dispose();
             U[k].value = data ? regionTexture(THREE, d ?? null, W, H) : null;
         }

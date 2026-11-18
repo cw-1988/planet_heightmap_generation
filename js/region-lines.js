@@ -1,18 +1,22 @@
 // The edge rivers as the map draws them (fork addition, for the region pick: region-grid.js, region-walls.js and the
 // globe's REGION_GLSL, v2/js/app/region-glsl.js). A valley's edge along a river is that river's drawn line itself: the
 // same points (world.fin.rivers, its cells' centres), the same reaches, smoothed by Chaikin twice as finish-view.js
-// riverSegments smooths them. Near such a line (within BAND px of the valleys' 2048 × 1024 map) a place's valley is the
-// one on its side of the line, not the map's pixel's, so the edge is the river at any zoom; elsewhere the pixels decide.
+// riverSegments smooths them. Near such a line a place reads only the map's texels on its own side of it (readAt, and
+// the shader alike), so the edge is the river at any zoom; elsewhere the four texels round it decide.
 // Why: docs/region-rivers-vs-cells.md.
 
 const D = Math.PI / 180;
-export const BAND = 2;                       // (px: within it of an edge river, the line's side decides)
 const KEEP = 3.5, BOX = 3.96, Q = 32;        // (a texel keeps its nearest line within KEEP px, clipped to ±BOX, in 1/Q px)
+const STEP = 1;                              // (px: the drawn line's points kept at least this far apart, a chord between them)
+const GROW = 1;                              // (px: a run's end drawn on to meet the river it joins, where it stops short)
+const dist = (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1]);
 
 /**
  * The edge rivers' segments on a W × H map (rows from the south; x unwrapped along a reach, so a line crosses the date
  * line whole): { seg: [x0, y0, x1, y1, …], end: per segment, bit 1 its start and bit 2 its end a river's real end
- * (where it stops being an edge: a place past it is the pixels'), run }. Kept on V.
+ * (where it stops being an edge: a place past it is the pixels'), bits 4 and 8 the same ends drawn on (realEnds), run }.
+ * The drawn line's points are kept STEP px apart (Chaikin leaves steps of a fifth of a pixel): a chord between them
+ * strays a few hundredths of a pixel from the drawn curve. Kept on V.
  */
 export function edgeLines(w, V, W, H) {
     if (V._edgeLines?.W === W) return V._edgeLines;
@@ -31,10 +35,19 @@ export function edgeLines(w, V, W, H) {
         if (p.length < 2) continue;
         for (let it = 0; it < 2; it++) [p, s] = chaikin(p, s);
         for (let k = 0; k < s.length; k++) {
-            if (!s[k]) continue;
-            if (k === 0 || !s[k - 1]) runs++;
-            seg.push(p[k][0], p[k][1], p[k + 1][0], p[k + 1][1]); run.push(runs);
-            end.push((k === 0 || !s[k - 1] ? 1 : 0) | (k === s.length - 1 || !s[k + 1] ? 2 : 0));
+            if (!s[k] || (k > 0 && s[k - 1])) continue;               // (each run of edge steps, points k … e)
+            let e = k;
+            while (e < s.length && s[e]) e++;
+            runs++;
+            const first = end.length;
+            for (let a = k; a < e;) {                                // (its points in chords of ≥ STEP px, no stub left at the end)
+                let b = a + 1;
+                while (b < e && dist(p[a], p[b]) < STEP) b++;
+                if (b < e && dist(p[b], p[e]) < STEP / 2) b = e;
+                seg.push(p[a][0], p[a][1], p[b][0], p[b][1]); run.push(runs); end.push(0);
+                a = b;
+            }
+            end[first] |= 1; end[end.length - 1] |= 2;
         }
     }
     const L = { W, H, seg: Float32Array.from(seg), end: Uint8Array.from(end), run: Int32Array.from(run) };
@@ -62,20 +75,31 @@ function toSeg(L, k, px, py) {
     return { d: Math.hypot(px - ax - t * dx, py - ay - t * dy), t, cr: dx * (py - ay) - dy * (px - ax) };
 }
 
-/** A run's end is a real one only with no other edge river within a pixel (a tributary ends on its main stem's line). */
-function realEnds(L) {
-    const C = 4, nx = Math.ceil(L.W / C), hash = new Map(), n = L.end.length, S = L.seg;
+/** The segments within a pixel of (x, y): (x, y) => indices (a 4-px bucket's, each segment in every bucket it comes within a pixel of). */
+function buckets(L) {
+    const C = 4, nx = Math.ceil(L.W / C), hash = new Map(), S = L.seg, none = [];
     const key = (i, j) => j * nx + ((i % nx) + nx) % nx;
-    for (let k = 0; k < n; k++) {
+    for (let k = 0; k < L.end.length; k++) {
         const i0 = Math.floor((Math.min(S[4 * k], S[4 * k + 2]) - 1) / C), i1 = Math.floor((Math.max(S[4 * k], S[4 * k + 2]) + 1) / C);
         const j0 = Math.floor((Math.min(S[4 * k + 1], S[4 * k + 3]) - 1) / C), j1 = Math.floor((Math.max(S[4 * k + 1], S[4 * k + 3]) + 1) / C);
         for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) (hash.get(key(i, j)) ?? hash.set(key(i, j), []).get(key(i, j))).push(k);
     }
-    for (let k = 0; k < n; k++) for (const b of [1, 2]) {
+    return (x, y) => hash.get(key(Math.floor(x / C), Math.floor(y / C))) ?? none;
+}
+
+/**
+ * A run's end is a real one only with no other edge river within a pixel (a tributary ends on its main stem's line);
+ * one that stops short of that river, not on it, is drawn on to meet it (end bit 4 its start, 8 its end: packLines).
+ */
+function realEnds(L) {
+    const S = L.seg, near = buckets(L);
+    for (let k = 0; k < L.end.length; k++) for (const b of [1, 2]) {
         if (!(L.end[k] & b)) continue;
         const px = S[4 * k + (b === 1 ? 0 : 2)], py = S[4 * k + (b === 1 ? 1 : 3)];
-        const near = (hash.get(key(Math.floor(px / C), Math.floor(py / C))) ?? []).some((m) => L.run[m] !== L.run[k] && toSeg(L, m, px, py).d < 1);
-        if (near) L.end[k] &= ~b;
+        let d = Infinity;
+        for (const m of near(px, py)) if (L.run[m] !== L.run[k]) d = Math.min(d, toSeg(L, m, px, py).d);
+        if (d < 1) L.end[k] &= ~b;
+        if (d < 1 && d > 0.01) L.end[k] |= 4 * b;
     }
 }
 
@@ -93,69 +117,75 @@ function nearest(L) {
     return { near, dist };
 }
 
-/** The side of segment k a point is on: 1 left, 0 right, −1 past a real end (no side). */
-function sideOf(L, k, px, py) {
-    const { t, cr } = toSeg(L, k, px, py);
-    if ((t <= 0 && L.end[k] & 1) || (t >= 1 && L.end[k] & 2)) return -1;
-    return cr > 0 ? 1 : 0;
-}
-
-/** The valley of map G at (x, y) off segment k's middle, `d` px to one side (+1 left, −1 right). */
-function offside(L, G, k, s, d) {
-    const S = L.seg, dx = S[4 * k + 2] - S[4 * k], dy = S[4 * k + 3] - S[4 * k + 1], l = Math.hypot(dx, dy) || 1;
-    const x = (S[4 * k] + S[4 * k + 2]) / 2 - s * d * dy / l, y = (S[4 * k + 1] + S[4 * k + 3]) / 2 + s * d * dx / l;
-    const j = Math.max(0, Math.min(L.H - 1, Math.floor(y))), i = ((Math.floor(x) % L.W) + L.W) % L.W;
-    return j * L.W + i;
+/** Whether the step a → b crosses the segment c → d (strictly: touching is not crossing). */
+export function crosses(ax, ay, bx, by, cx, cy, dx, dy) {
+    const o = (px, py, qx, qy, rx, ry) => (qx - px) * (ry - py) - (qy - py) * (rx - px);
+    return o(cx, cy, dx, dy, ax, ay) * o(cx, cy, dx, dy, bx, by) < 0 && o(ax, ay, bx, by, cx, cy) * o(ax, ay, bx, by, dx, dy) < 0;
 }
 
 /**
- * The flooded map G cut along the edge rivers' lines: each segment's valley on either side read off the flood a little
- * past the wall (M), then every pixel within BAND of a line given its side's. In place; the lines kept on V.
+ * The flooded map G cut along the edge rivers' lines. A wall pixel (M: one the line passes through) has no side of its
+ * own in the flood; it takes the valley of the land next to it that it reaches without crossing a line, nearest first,
+ * so every pixel's centre holds a valley of its own side. In place; the lines kept on V. (Before, each segment carried
+ * one valley a side, voted or probed off the flood, and gave it to every pixel near it: where a valley lies in a strip
+ * thinner than the probe beside the river, the segment took the valley beyond it and cut the strip into specks.)
  */
 export function cutAlong(w, V, G, M, W, H) {
-    const L = edgeLines(w, V, W, H), n = L.end.length, { near, dist } = nearest(L);
-    L.near = near; L.left = new Int32Array(n); L.right = new Int32Array(n);
-    for (let k = 0; k < n; k++) for (const s of [1, -1]) {
-        let u = -1;
-        for (const d of [1.5, 2, 2.5, 3, 3.5]) { const p = offside(L, G, k, s, d); if (G[p] >= 0 && !M[p]) { u = G[p]; break; } }
-        if (u < 0) for (const d of [1, 1.5, 2]) { const p = offside(L, G, k, s, d); if (G[p] >= 0) { u = G[p]; break; } }
-        (s > 0 ? L.left : L.right)[k] = u;
+    const L = edgeLines(w, V, W, H), { near } = nearest(L), S = L.seg, around = buckets(L);
+    L.near = near;
+    const open = (p, q) => {                                           // (a step between two pixels' centres no line cuts)
+        const ip = p % W, jp = (p - ip) / W, iq = q % W, jq = (q - iq) / W;
+        let bx = iq + 0.5;
+        bx += Math.round((ip + 0.5 - bx) / W) * W;
+        for (const k of around((ip + 0.5 + bx) / 2, (jp + jq) / 2 + 0.5)) {
+            const sh = Math.round((ip + 0.5 - (S[4 * k] + S[4 * k + 2]) / 2) / W) * W;
+            if (crosses(ip + 0.5, jp + 0.5, bx, jq + 0.5, S[4 * k] + sh, S[4 * k + 1], S[4 * k + 2] + sh, S[4 * k + 3])) return false;
+        }
+        return true;
+    };
+    let front = [];
+    for (let p = 0; p < W * H; p++) if (M[p] && G[p] >= 0) G[p] = -2;     // (−2: a wall pixel still to be given)
+    for (let p = 0; p < W * H; p++) if (G[p] >= 0 && near[p] >= 0) front.push(p);
+    while (front.length) {
+        const next = [];
+        for (const p of front) for (const q of four(p, W, H)) if (G[q] === -2 && open(p, q)) { G[q] = G[p]; next.push(q); }
+        front = next;
     }
-    for (let p = 0; p < W * H; p++) {
-        const k = near[p];
-        if (k < 0 || dist[p] >= BAND || G[p] < 0) continue;
-        const i = p % W, s = sideOf(L, k, i + 0.5, (p - i) / W + 0.5), u = s < 0 ? -1 : s ? L.left[k] : L.right[k];
-        if (u >= 0) G[p] = u;
-    }
+    for (let p = 0; p < W * H; p++) if (G[p] === -2) for (const q of four(p, W, H)) if (G[q] >= 0) { G[p] = G[q]; break; }
+    for (let p = 0; p < W * H; p++) if (G[p] === -2) G[p] = -1;
+}
+
+/** A pixel's 4 neighbours (east–west round the planet). */
+function four(p, W, H) {
+    const i = p % W, j = (p - i) / W, out = [j * W + (i + 1) % W, j * W + (i + W - 1) % W];
+    if (j > 0) out.push(p - W);
+    if (j < H - 1) out.push(p + W);
+    return out;
 }
 
 /**
- * The lines for the GPU and the pick, after the map is final (each side's valley read again off it, a pixel out, for a
- * patch the map gave to another valley): per texel near a line, its nearest segment clipped to the texel's ±BOX px
- * (geo: x0, y0, x1, y1 from its centre, in 1/Q px), the valley + 1 left (lid RGB) and right (rid RGB), lid A the flags
- * (1 a line, 2 its start a real end, 4 its end). V.lines.
+ * The lines for the GPU and the pick: per texel near a line, its nearest segment (the chords share their points, so the
+ * texels round a place, each holding its own piece, leave no gap in the line; drawn straight on past a point they would
+ * cut the outer side of a bend off), a run's end that stops short of the river it joins drawn on GROW px, clipped to the texel's ±BOX px (geo: x0, y0, x1, y1 from its centre, in 1/Q px); on: R 1 a line. V.lines.
  */
 export function packLines(V, G, W, H) {
-    const L = V._edgeLines, n = L.end.length, N = W * H, geo = new Uint8Array(4 * N), lid = new Uint8Array(4 * N), rid = new Uint8Array(4 * N);
-    for (let k = 0; k < n; k++) for (const s of [1, -1]) {
-        const u = G[offside(L, G, k, s, 1)];
-        if (u >= 0) (s > 0 ? L.left : L.right)[k] = u;
-    }
-    const S = L.seg, put = (T, p, u) => { u++; T[4 * p] = u & 255; T[4 * p + 1] = (u >> 8) & 255; T[4 * p + 2] = (u >> 16) & 255; };
+    const L = V._edgeLines, N = W * H, geo = new Uint8Array(4 * N), on = new Uint8Array(4 * N), S = L.seg;
     const byte = (v) => Math.max(0, Math.min(255, Math.round((v + 4) * Q)));
     for (let p = 0; p < N; p++) {
         const k = L.near[p];
-        if (k < 0 || (L.left[k] < 0 && L.right[k] < 0)) continue;
+        if (k < 0) continue;
         const i = p % W, ox = i + 0.5, oy = (p - i) / W + 0.5, sh = Math.round((ox - (S[4 * k] + S[4 * k + 2]) / 2) / W) * W;
-        const ax = S[4 * k] + sh - ox, ay = S[4 * k + 1] - oy, dx = S[4 * k + 2] + sh - ox - ax, dy = S[4 * k + 3] - oy - ay;
-        const c = clip(ax, ay, dx, dy);
+        let ax = S[4 * k] + sh - ox, ay = S[4 * k + 1] - oy, bx = S[4 * k + 2] + sh - ox, by = S[4 * k + 3] - oy;
+        const l = Math.hypot(bx - ax, by - ay) || 1, ex = (bx - ax) / l * GROW, ey = (by - ay) / l * GROW;
+        if (L.end[k] & 4) { ax -= ex; ay -= ey; }
+        if (L.end[k] & 8) { bx += ex; by += ey; }
+        const dx = bx - ax, dy = by - ay, c = clip(ax, ay, dx, dy);
         if (!c) continue;
         geo[4 * p] = byte(ax + c[0] * dx); geo[4 * p + 1] = byte(ay + c[0] * dy); geo[4 * p + 2] = byte(ax + c[1] * dx); geo[4 * p + 3] = byte(ay + c[1] * dy);
-        put(lid, p, L.left[k]); put(rid, p, L.right[k]);
-        lid[4 * p + 3] = 1 | (c[0] === 0 && L.end[k] & 1 ? 2 : 0) | (c[1] === 1 && L.end[k] & 2 ? 4 : 0);
+        on[4 * p] = 1;
     }
     L.near = null;
-    return (V.lines = { geo, lid, rid });
+    return (V.lines = { geo, on });
 }
 
 /** A segment a + t·d clipped to the box ±BOX (Liang–Barsky): [t0, t1], or null. */
@@ -170,29 +200,43 @@ function clip(ax, ay, dx, dy) {
 }
 
 /**
- * The valley a line decides at (px, py) on the map (px from 0 to W, rows from the south), or −2: none (no line within
- * BAND, or past a line's real end). The same as the globe's shader (region-glsl.js regionLine), so what is picked is
- * what is drawn: the nearest of the lines kept by the 3 × 3 texels round the point.
+ * The valley at (px, py) on map G (in texels less a half: texel i's centre at i; rows from the south), as the globe's
+ * shader reads it (region-glsl.js regionAt), so what is picked is what is drawn. Of the four texels round the point, the
+ * valley with the most weight (a smooth line, not the texels' steps); the sea if that is the sea (the coast is the
+ * map's). Near an edge river only the texels the point reaches without crossing one of the lines the 3 × 3 texels round
+ * it keep count (none of the four: the nearest such of the 3 × 3). So the edge is the river's line at any zoom, and
+ * every place takes a valley its own side's texels hold: the reading can make no piece the map does not have.
  */
-export function lineAt(lines, W, H, px, py) {
-    const { geo, lid, rid } = lines, ci = Math.floor(px), cj = Math.floor(py);
-    const at = (i, j) => (j < 0 || j >= H ? -1 : j * W + ((i % W) + W) % W);
-    const p0 = at(ci, cj);
-    if (p0 < 0 || !(lid[4 * p0 + 3] & 1)) return -2;
-    let best = Infinity, id = -2;
+export function readAt(G, lines, W, H, px, py) {
+    const i = Math.floor(px), j = Math.floor(py), fx = px - i, fy = py - j;
+    const at = (a, b) => Math.max(0, Math.min(H - 1, b)) * W + ((a % W) + W) % W;
+    const T = [[i, j], [i + 1, j], [i, j + 1], [i + 1, j + 1]], id = T.map(([a, b]) => G[at(a, b)]);
+    const wt = [(1 - fx) * (1 - fy), fx * (1 - fy), (1 - fx) * fy, fx * fy];
+    const most = (ok) => {
+        let best = -2, top = -1;
+        for (let a = 0; a < 4; a++) {
+            if (!ok[a]) continue;
+            let s = 0;
+            for (let b = 0; b < 4; b++) if (ok[b] && id[b] === id[a]) s += wt[b];
+            if (s > top) { top = s; best = id[a]; }
+        }
+        return best;
+    };
+    const all = most([1, 1, 1, 1]), ci = Math.round(px), cj = Math.round(py);
+    if (all < 0 || !lines || cj < 0 || cj >= H || !lines.on[4 * at(ci, cj)]) return all;
+    const { geo, on } = lines, seg = [];
     for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
-        const p = at(ci + di, cj + dj);
-        if (p < 0 || !(lid[4 * p + 3] & 1)) continue;
-        const ox = ci + di + 0.5, oy = cj + dj + 0.5, ax = ox + geo[4 * p] / Q - 4, ay = oy + geo[4 * p + 1] / Q - 4;
-        const dx = ox + geo[4 * p + 2] / Q - 4 - ax, dy = oy + geo[4 * p + 3] / Q - 4 - ay;
-        const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / Math.max(1e-6, dx * dx + dy * dy)));
-        const d = Math.hypot(px - ax - t * dx, py - ay - t * dy);
-        if (d >= best) continue;
-        best = d;
-        const f = lid[4 * p + 3];
-        if ((t <= 0 && f & 2) || (t >= 1 && f & 4)) { id = -2; continue; }
-        const T = dx * (py - ay) - dy * (px - ax) > 0 ? lid : rid;
-        id = T[4 * p] + 256 * T[4 * p + 1] + 65536 * T[4 * p + 2] - 1;
+        const a = ci + di, b = cj + dj, p = at(a, b);
+        if (b < 0 || b >= H || !on[4 * p]) continue;
+        seg.push([a + geo[4 * p] / Q - 4, b + geo[4 * p + 1] / Q - 4, a + geo[4 * p + 2] / Q - 4, b + geo[4 * p + 3] / Q - 4]);
     }
-    return best < BAND ? id : -2;
+    const clear = (a, b) => seg.every((s) => !crosses(px, py, a, b, s[0], s[1], s[2], s[3]));
+    const ok = T.map(([a, b], k) => id[k] >= 0 && clear(a, b));
+    if (ok.some(Boolean)) return most(ok);
+    let near = Infinity, u = all;
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        const a = ci + di, b = cj + dj, d = (a - px) ** 2 + (b - py) ** 2, v = G[at(a, b)];
+        if (d < near && v >= 0 && clear(a, b)) { near = d; u = v; }
+    }
+    return u;
 }

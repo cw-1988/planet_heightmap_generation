@@ -9,7 +9,7 @@
 
 import { floodGrid } from './region-flood.js';
 import { wallMask } from './region-walls.js';
-import { cutAlong, packLines, lineAt } from './region-lines.js';
+import { cutAlong, packLines, readAt } from './region-lines.js';
 
 export const W = 2048, H = 1024;
 const SLICE_MS = 8;
@@ -49,27 +49,15 @@ export function valleyGrid(w, V) {
 }
 
 /**
- * The valley at a point on the sphere off the grid, read as the globe's shader reads it (globe-view.js regionAt: the
- * valley with the most weight of the four pixels round the point, so a smooth line, not the pixels' steps): what is
+ * The valley at a point on the sphere off the grid, read as the globe's shader reads it (region-lines.js readAt: the
+ * valley with the most weight of the four pixels round the point, only those on its side of an edge river): what is
  * picked is what is drawn. Undefined while the grid is not built.
  */
 export function gridAt(V, x, y, z) {
     const G = V.grid;
     if (!G) return undefined;
     const px = (Math.atan2(y, x) + Math.PI) / (2 * Math.PI) * W - 0.5, py = (Math.asin(Math.max(-1, Math.min(1, z))) + Math.PI / 2) / Math.PI * H - 0.5;
-    const i = Math.floor(px), j = Math.floor(py), fx = px - i, fy = py - j;
-    const at = (a, b) => G[Math.max(0, Math.min(H - 1, b)) * W + ((a % W) + W) % W];
-    const id = [at(i, j), at(i + 1, j), at(i, j + 1), at(i + 1, j + 1)], wt = [(1 - fx) * (1 - fy), fx * (1 - fy), (1 - fx) * fy, fx * fy];
-    let best = id[0], most = -1;
-    for (let a = 0; a < 4; a++) {
-        let s = 0;
-        for (let b = 0; b < 4; b++) if (id[b] === id[a]) s += wt[b];
-        if (s > most) { most = s; best = id[a]; }
-    }
-    // (near an edge river, the side of its drawn line: the coast stays the map's)
-    if (best < 0 || !V.lines) return best;
-    const l = lineAt(V.lines, W, H, px + 0.5, py + 0.5);
-    return l >= 0 ? l : best;
+    return readAt(G, V.lines, W, H, px, py);
 }
 
 /** Each pixel's 4 neighbours (east–west round the planet). */
