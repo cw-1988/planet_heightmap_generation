@@ -1,11 +1,12 @@
 // The valleys' map (fork addition, for the region pick): which valley each pixel of a 2048 × 1024 grid is in. It is
 // the one picture of the valleys: the overlay draws it (region-overlay.js), the pointer picks from it and the region's
-// mask is cut from it (region-pick.js), so what is shown is what is chosen. A valley is one piece on it by
+// mask is cut from it (region-pick.js), so what is shown is what is chosen. Its pixels are filled over the planet's
+// heights from the valleys' cells, the edge rivers walls (region-flood.js). A valley is one piece on it by
 // construction: a cell's or a river half's pixels can fall apart on the grid (a Voronoi corner thinner than a pixel,
 // a half pinched at a bend), so each valley keeps its largest patch and every other patch goes to the valley round
 // it, the one it shares the longest border with.
 
-import { unitAt } from './region-bank.js';
+import { floodGrid } from './region-flood.js';
 
 export const W = 2048, H = 1024;
 const SLICE_MS = 8;
@@ -36,24 +37,31 @@ function pixelCells(w) {
  */
 export function valleyGrid(w, V) {
     return (V._grid ??= pixelCells(w).then((pc) => {
-        const G = new Int32Array(W * H), mesh = w.tMesh;
-        for (let p = 0; p < W * H; p++) {
-            const c = pc[p];
-            if (!V.wall[c]) { G[p] = V.unit[c]; continue; }
-            const i = p % W, j = (p - i) / W, lat = -Math.PI / 2 + (j + 0.5) / H * Math.PI, lon = (i + 0.5) / W * 2 * Math.PI - Math.PI;
-            G[p] = unitAt(V, mesh, c, Math.cos(lat) * Math.cos(lon), Math.cos(lat) * Math.sin(lon), Math.sin(lat));
-        }
+        const G = floodGrid(w, V, pc, W, H);
         onePiece(G, V, pc);
         return (V.grid = G);
     }));
 }
 
-/** The valley at a point on the sphere off the grid; undefined while the grid is not built. */
+/**
+ * The valley at a point on the sphere off the grid, read as the globe's shader reads it (globe-view.js regionAt: the
+ * valley with the most weight of the four pixels round the point, so a smooth line, not the pixels' steps): what is
+ * picked is what is drawn. Undefined while the grid is not built.
+ */
 export function gridAt(V, x, y, z) {
-    if (!V.grid) return undefined;
-    const lon = Math.atan2(y, x), lat = Math.asin(Math.max(-1, Math.min(1, z)));
-    const i = Math.min(W - 1, Math.floor((lon + Math.PI) / (2 * Math.PI) * W)), j = Math.min(H - 1, Math.floor((lat + Math.PI / 2) / Math.PI * H));
-    return V.grid[j * W + i];
+    const G = V.grid;
+    if (!G) return undefined;
+    const px = (Math.atan2(y, x) + Math.PI) / (2 * Math.PI) * W - 0.5, py = (Math.asin(Math.max(-1, Math.min(1, z))) + Math.PI / 2) / Math.PI * H - 0.5;
+    const i = Math.floor(px), j = Math.floor(py), fx = px - i, fy = py - j;
+    const at = (a, b) => G[Math.max(0, Math.min(H - 1, b)) * W + ((a % W) + W) % W];
+    const id = [at(i, j), at(i + 1, j), at(i, j + 1), at(i + 1, j + 1)], wt = [(1 - fx) * (1 - fy), fx * (1 - fy), (1 - fx) * fy, fx * fy];
+    let best = id[0], most = -1;
+    for (let a = 0; a < 4; a++) {
+        let s = 0;
+        for (let b = 0; b < 4; b++) if (id[b] === id[a]) s += wt[b];
+        if (s > most) { most = s; best = id[a]; }
+    }
+    return best;
 }
 
 /** Each pixel's 4 neighbours (east–west round the planet). */

@@ -52,6 +52,10 @@ sea or a lake. T is the valley size (never under a dozen cells), S a fifth of it
   it; the last slivers join anything but across an edge river. A valley never holds both banks of one edge river, even
   joined round its upper end where it is still a stream: each piece knows which bank of which river it lies on (the
   river's main stem, followed up each confluence by the larger land), and two pieces on opposite banks never join.
+  4 in 10 river steps go corner to corner (a cell's water to a cell it touches at a point only), past two land cells
+  that meet side by side across the river: that side counts as the river crossed, not open land (`cornersOf`), so no
+  join leaks through it. A join through a neck costs up to 250 m more, the shorter the border is against 0.3 of the
+  smaller piece's whole rim, so valleys come out as blobs, not lobes and tails.
 - **River halves** (`js/region-halves.js`): a river runs through its cells' centres, so a river cell is cut by its
   line in two halves. Each half goes to the valley that most of the land along it is in, measured on the cells' shared
   edges (a half pinched at a bend, with no edge long enough: the land whose centre is on its side). A half with no land
@@ -63,15 +67,26 @@ sea or a lake. T is the valley size (never under a dozen cells), S a fifth of it
   reads a point's valley off them.
 - **The valleys' map** (`js/region-grid.js`): which valley each pixel of a 2048 × 1024 grid is in (~20 km a pixel). It
   is the one picture of the valleys: the overlay draws it, the pointer picks from it, the region's mask is cut from it,
-  so what is shown is what is chosen. Built in slices between frames (~0.4 s the first time on a planet, then ~0.1 s a
-  size). **Every valley is one piece on it, by construction**: a cell's or a half's pixels can fall apart on a grid (a
-  Voronoi corner thinner than a pixel, a half pinched at a bend), so each valley keeps its largest patch and every
-  other patch goes to the valley it shares the longest border with, until none is left; a patch with no land round it
-  becomes a valley of its own.
+  so what is shown is what is chosen; a point reads the four pixels round it as the globe's shader does (the valley
+  with the most weight), so edges are smooth lines, not the pixels' steps. **The pixels follow the terrain, not the
+  cells** (`js/region-flood.js`): a pixel given its nearest cell's valley put every edge on a ~50 km cell's straight
+  sides (across slopes and plains, through summits, a river's bank 20 km off its line). So each valley grows from its
+  cells' centres (a river cell's: from each bank's side) over the finished planet's height picture (`raster.heightM`),
+  lowest ground first, and two valleys meet on the ridge between them. The edge rivers are drawn in as walls the
+  floods never cross (`js/region-walls.js`), the same lines the map draws (cell centres, smoothed by Chaikin twice,
+  4-connected), so a bank's edge is the drawn river. The coast is the picture's. About 0.6 s a size. **Every valley is
+  one piece on it, by construction**: each valley keeps its largest patch and every other patch goes to the valley it
+  shares the longest border with, until none is left; a patch with no land round it becomes a valley of its own.
 - **Checked** on the test planet with `tuning/region-check.js` (`onePiece`): small 3,721 valleys, medium 1,130, large
   471, none in two pieces on the map or on the mesh. Before the repair, the cells alone left 62 valleys at medium in
   two or more patches (968 px).
-- **Limits**: the overlay's grid is ~20 km a pixel, so edges look stepped close up.
+- **Limits**: the map is ~20 km a pixel, so an edge is within ~10 km of the ridge or river it follows. At small, a
+  few slivers of 4–6 cells between edge rivers end up with no pixels (131 of 3,797); their land goes to their
+  neighbours.
+- **Checking by eye** (dev only): `tuning/region-agent.js` lets an image-checking agent pick its own valleys with curl
+  through the dev server's relay (`tuning/shot-relay.mjs`): random, at a point, by id, or the whole atlas, each a PNG
+  drawn by `tuning/region-shots.js`. Start it in the generate page with
+  `(await import('/tuning/region-agent.js')).serve()`.
 
 ## How it is built (`v2/js/region/`)
 

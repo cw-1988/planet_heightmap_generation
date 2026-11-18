@@ -13,6 +13,7 @@ import { bankAt } from './region-bank.js';
 const SIZE_M = 300;                                                          // (m of barrier the size of a whole valley weighs)
 const STREAM_M = 100;                                                        // (m: a stream just short of an edge river)
 const HARD_M = 600;                                                          // (m: a ridge this high over both sides)
+const NECK_M = 250, NECK_R = 0.3;                                            // (m: a join by a point; the border share that costs none)
 
 /**
  * `unit` (a piece per cell, −1 the sea) relabelled in place to the valleys: first the slivers under `min` cells join their
@@ -22,9 +23,10 @@ const HARD_M = 600;                                                          // 
  * drained, km²), edgeKm2 }: region-basin.js).
  */
 export function joinByBarrier(mesh, z, unit, units, riv, min, target) {
-    const { adjOffset, adjList, xyz } = mesh, n = unit.length, zc = z ?? new Float32Array(n), { wall, recv, main, np, qe, edgeKm2 } = riv;
+    const { adjOffset, adjList, xyz } = mesh, n = unit.length, zc = z ?? new Float32Array(n), { wall, recv, main, np, qe, edgeKm2, corner } = riv;
     const root = new Int32Array(units).map((_, i) => i), find = (u) => { while (root[u] !== u) u = root[u] = root[root[u]]; return u; };
     const size = new Int32Array(units), sumZ = new Float64Array(units), ver = new Int32Array(units), coast = new Uint8Array(units);
+    const per = new Int32Array(units);                                       // (each piece's border, in cell sides)
     const nb = new Array(units).fill(null);
     // (does a river at wall cell r part it from its neighbour d? not along its own line, not at a head, not on its left —
     // the river's cells are its left bank's piece)
@@ -35,12 +37,13 @@ export function joinByBarrier(mesh, z, unit, units, riv, min, target) {
         size[u]++; sumZ[u] += zc[c];
         for (let e = adjOffset[c]; e < adjOffset[c + 1]; e++) {
             const d = adjList[e], v = unit[d];
-            if (v < 0) { coast[u] = 1; continue; }
+            if (v < 0) { coast[u] = 1; per[u]++; continue; }
             if (d <= c || v === u) continue;
+            per[u]++; per[v]++;
             const m = (nb[u] ??= new Map());
             let rec = m.get(v);
             if (!rec) { rec = { open: 0, h: 0, cross: 0, q: 0 }; m.set(v, rec); (nb[v] ??= new Map()).set(u, rec); }
-            const qx = Math.max(across(c, d) ? qe[c] : 0, across(d, c) ? qe[d] : 0);
+            const qx = Math.max(across(c, d) ? qe[c] : 0, across(d, c) ? qe[d] : 0, corner?.get(c * n + d) ?? 0);
             if (qx > 0) { rec.cross++; rec.q = Math.max(rec.q, qx); } else { rec.open++; rec.h += Math.max(zc[c], zc[d]); }
         }
     }
@@ -53,8 +56,13 @@ export function joinByBarrier(mesh, z, unit, units, riv, min, target) {
         const river = rec.cross ? STREAM_M * rec.q / edgeKm2 : 0;
         return rec.cross >= 2 || !rec.open ? Math.max(divide, river) : divide;
     };
+    // (a join through a neck — a border short against the smaller piece's whole rim — makes a valley of lobes and tails:
+    // up to NECK_M more, the shorter the border)
+    const neck = (u, v, rec) => NECK_M * Math.max(0, 1 - (rec.open + rec.cross) / (NECK_R * Math.max(1, Math.min(per[u], per[v]))));
     const merge = (u, v) => {
         const [t, s] = (nb[u]?.size ?? 0) >= (nb[v]?.size ?? 0) ? [u, v] : [v, u], mt = (nb[t] ??= new Map());
+        const shared = nb[s]?.get(t);
+        per[t] += per[s] - 2 * (shared ? shared.open + shared.cross : 0);
         root[s] = t; size[t] += size[s]; sumZ[t] += sumZ[s]; coast[t] |= coast[s]; ver[t]++;
         if (banks[s]) { const bt = (banks[t] ??= new Map()); for (const [k, m] of banks[s]) bt.set(k, (bt.get(k) ?? 0) | m); banks[s] = null; }
         for (const [x, rec] of nb[s] ?? []) {
@@ -67,11 +75,11 @@ export function joinByBarrier(mesh, z, unit, units, riv, min, target) {
         return t;
     };
     const weakest = (u, cap, hard) => {
-        let best = -1, low = hard;
+        let best = -1, low = Infinity;
         for (const [v, rec] of nb[u] ?? []) {
             if (size[u] + size[v] > cap) continue;
             const k = barrier(u, v, rec);
-            if (k < low) { low = k; best = v; }
+            if (k < hard && k + neck(u, v, rec) < low) { low = k + neck(u, v, rec); best = v; }
         }
         return best;
     };
@@ -101,7 +109,7 @@ export function joinByBarrier(mesh, z, unit, units, riv, min, target) {
         for (const [v, rec] of nb[u] ?? []) {
             const k = barrier(u, v, rec);
             if (size[u] + size[v] > cap || k >= HARD_M) continue;
-            heap.push(Math.max(0, k) + SIZE_M * (size[u] + size[v]) / target, u, v, ver[u], ver[v]);
+            heap.push(Math.max(0, k) + neck(u, v, rec) + SIZE_M * (size[u] + size[v]) / target, u, v, ver[u], ver[v]);
         }
     };
     for (let u = 0; u < units; u++) if (root[u] === u && size[u]) offer(u);
@@ -143,6 +151,28 @@ function banksOf(mesh, unit, units, { wall, recv, main, np, qe, edgeKm2 }) {
         }
     }
     return banks;
+}
+
+/**
+ * The river steps that go corner to corner (4 in 10: a cell's water to a cell it touches only at a point, mesh.adjList's
+ * neighbours but not `edges`' true ones): each passes between the two cells the two share, which meet side by side
+ * across the river. Map(a · n + b, a < b → the land the river drains there, km²), so the join counts that side as a
+ * river crossed, not open land.
+ */
+export function cornersOf(mesh, edges, { wall, recv, qe }) {
+    const n = wall.length, out = new Map(), A = mesh.adjOffset, L = mesh.adjList;
+    const touches = (m, a, b) => { for (let e = m.adjOffset[a]; e < m.adjOffset[a + 1]; e++) if (m.adjList[e] === b) return true; return false; };
+    for (let c = 0; c < n; c++) {
+        const r = recv[c];
+        if (!wall[c] || r < 0 || touches(edges, c, r)) continue;
+        const both = [];
+        for (let e = A[c]; e < A[c + 1]; e++) if (touches(mesh, r, L[e])) both.push(L[e]);
+        for (let i = 0; i < both.length; i++) for (let j = i + 1; j < both.length; j++) {
+            const a = Math.min(both[i], both[j]), b = Math.max(both[i], both[j]);
+            if (touches(edges, a, b)) out.set(a * n + b, Math.max(out.get(a * n + b) ?? 0, qe[c]));
+        }
+    }
+    return out;
 }
 
 /** Would two pieces together lie on both banks of one edge river? */

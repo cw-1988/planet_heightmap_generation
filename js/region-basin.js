@@ -9,7 +9,7 @@
 // saddle or a stream inside the valley early, a ridge late, a range or an edge river never. A river cell is half on
 // each bank (region-bank.js halves): each half goes to its bank's valley unless that splits a valley in two.
 
-import { joinByBarrier } from './region-join.js';
+import { joinByBarrier, cornersOf } from './region-join.js';
 import { bankAt } from './region-bank.js';
 import { halves } from './region-halves.js';
 import { edgeMesh } from './region-mesh.js';
@@ -26,6 +26,7 @@ export function valleysOf(w, sizeKm2) {
     const mesh = edgeMesh(w), a = mesh.cellAreaKm2, T = Math.max(12 * a, sizeKm2), S = Math.max(12 * a, T / 5), drain = w.fin.drain;
     const P = pieces(mesh, drain, S);
     const riv = { wall: P.wall, recv: drain.recv, main: P.main, np: P.np, qe: P.qe, edgeKm2: T };
+    riv.corner = cornersOf(w.tMesh, mesh, riv);
     joinByBarrier(mesh, drain.z ?? null, P.unit, P.units, riv, Math.max(4, Math.round(S / a / 3)), Math.round(T / a));
     const v = { unit: P.unit, cells: cellsOf(P.unit, P.units), sizeKm2, ...riv, half: halves(mesh, w.tMesh, P.unit, riv) };
     memo.set(sizeKm2, v);

@@ -42,7 +42,7 @@ async function run(p) {
     const name = `agent-${++count}-${p.cmd}`;
     if (p.cmd === 'atlas') return { file: DIR + name + '.png', ...(await atlas(C, name + '.png', +(p.w ?? 4096))) };
     const G = await valleyGrid(world, V), at = (lat, lon) => {
-        const i = Math.floor((lon + 180) / 360 * W) % W, j = Math.min(H - 1, Math.floor((90 - lat) / 180 * H));
+        const i = Math.floor((lon + 180) / 360 * W) % W, j = Math.min(H - 1, Math.floor((lat + 90) / 180 * H));   // (rows from the south)
         return G[j * W + i];
     };
     let u;
