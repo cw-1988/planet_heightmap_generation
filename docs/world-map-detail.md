@@ -1,7 +1,8 @@
 # World map detail (fork addition)
 
 The world map (the globe and the flat map on Generate) now zooms as deep as an opened region and draws the same kind of
-ground: rolling hills on the plains, ridges in the mountains, fractal coasts with coves, spits and islets.
+ground: a grain on the hills and mountains, fractal coasts with coves, spits and islets, and rivers that meander in
+valleys of their own.
 
 ## How deep
 
@@ -25,8 +26,12 @@ ground: rolling hills on the plains, ridges in the mountains, fractal coasts wit
 world tile.
 
 - The ladder starts at 2.5 picture pixels, as a region's does.
-- Each octave is weighted by how much of it the tile's pixels can hold (fine-detail.js's `fade`). A coarse tile and a
-  fine tile of the same place therefore agree, and zooming in keeps finding more.
+- Each octave is weighted by how much of it the tile's pixels can hold (`fadeFor` in `v2/js/finish/pixel-fade.js`). A
+  coarse tile and a fine tile of the same place therefore agree, and zooming in keeps finding more.
+- The waves are plain fractal noise: no warp, no ridged waves, no patchy roughness (`detailWaves` options
+  `{fineWarp: 0, rolling: true, broadTo: 0}`). Each octave is a little gentler than the one above it (`LADDER.fall`).
+- Every pixel gets the same share of the region's slope for its kind of ground (`LADDER.share`), not the picture's slope
+  at that pixel. The grain is as strong on a crest as on a flank.
 - The waves are read on the sphere, so neighbouring tiles match.
 - Near the coast, the waves may push land below the sea and raise the shallow sea floor above it.
 - Inland, a lowering is held above the sea by a soft cap, so plains get no pits of new sea.
@@ -35,6 +40,30 @@ world tile.
 `detailOf` (region-relief.js) eases the sea floor's detail into the land's over the first 60 m of height. Before this,
 it jumped at height 0, which a region hides because its coast lies there. Once the ladder moved the coast, the jump
 showed out at sea as a 2.8 m step along a straight line. This change also applies to regions.
+
+### What went wrong before (2026-11-18)
+
+- **Swirls and worms**: the finer octaves sat under the broad warp, and the ladder grew steeper at finer scales, so the
+  finest octaves led the shading.
+- **Blurred patches**: the grain was scaled by the picture's slope at each pixel. That slope is zero on crests, summits
+  and valley floors, so those went smooth beside textured flanks.
+- **Zigzags**: a noise frequency that varies from place to place, multiplied by an absolute position about 6,371 km from
+  the centre, turns the smallest change of that frequency into thousands of waves. Every noise here uses fixed
+  frequencies; only its amount varies.
+
+## Rivers
+
+`v2/js/finish/river-meander.js` bends each river's smoothed line (`riverParts` in river-valleys.js) to either side.
+
+- The bend is a sum of waves from 16 km down to what the river's width allows (`MEANDER.smallestK · √q`). Each wave
+  swings by `MEANDER.share` of its length and fades in with the same `fadeFor` as the ground.
+- Its phase is the distance along the river, so it runs on continuously whatever the flow does. A shared point gets the
+  same normal from both segments, so the bent line has no gaps at its joints.
+- The page's drawn line (`v2/js/evolution/river-draw.js`, `bendSegment`) and the valley cut under it
+  (`carveValleys`, `meanderAt`) bend by the same waves, so the river stays on its valley floor.
+- The valleys have gentle sides: `VALLEY.side` is 0.04 (about 2.3°). At 0.2, every river sat in a trench with a hard rim
+  up close.
+- Dashed rivers measure their dash phase along the unbent line, so the dashes can shift slightly where two tiles meet.
 
 ## Coast distance past the tile's margin
 
@@ -56,10 +85,17 @@ Checked at level 14 over an archipelago coast, on the globe and the map:
 - Speed: a level-14 tile takes about 0.4–0.6 s in a worker, with the ladder about 150–190 ms of it. A view of 110
   tiles fills in under 9 s.
 
+Rivers, checked in Node on a synthetic river (2026-11-18):
+
+- Bent line: no gap at any joint. It swings at most about 4 km at every level from 8 to 14. Its steps are 2–3 px with
+  corners of at most 20°, apart from one step of 8 px at level 14.
+- Valley: at levels 10 to 14 the drawn line lies at 97–100% of the floor's depth. The steepest side is 0.024–0.057,
+  against about 0.3 before. A 320 × 320 window carves in at most 90 ms.
+
 ## Limits
 
-- No erosion on world tiles: each 256-pixel tile would erode on its own and show at the seams. Valleys are the
-  waves' only.
+- No erosion on world tiles: each 256-pixel tile would erode on its own and show at the seams. The only valleys are
+  the rivers' own, cut along their lines.
 - When the camera is below the cloud shells (1.0015 and 1.004 radii) and the air (1.03), they are culled.
 - The globe is a 128 × 64 sphere: its facets sag up to about 1.9 km below the true surface. The lowest camera height
   (6.4 km) is measured from the true surface, so over a facet's middle the camera is that much higher.
