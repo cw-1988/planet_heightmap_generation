@@ -1,7 +1,8 @@
 // The valleys' map (fork addition, for the region pick): which valley each pixel of a 2048 × 1024 grid is in. It is
 // the one picture of the valleys: the overlay draws it (region-overlay.js), the pointer picks from it and the region's
 // mask is cut from it (region-pick.js), so what is shown is what is chosen. Its pixels are filled over the planet's
-// heights from the valleys' cells, the edge rivers walls (region-flood.js); along an edge river its drawn line decides
+// heights from the valleys' cells, the edge rivers walls (region-flood.js), the fingers on its edges tidied
+// (region-tidy.js); along an edge river its drawn line decides
 // (region-lines.js), on the pixels and, finer, wherever a point is read (gridAt, the shader). A valley is one piece on it by
 // construction: a cell's or a river half's pixels can fall apart on the grid (a Voronoi corner thinner than a pixel,
 // a half pinched at a bend), so each valley keeps its largest patch and every other patch goes to the valley round
@@ -10,6 +11,7 @@
 import { floodGrid } from './region-flood.js';
 import { wallMask } from './region-walls.js';
 import { cutAlong, packLines, readAt } from './region-lines.js';
+import { tidyEdges } from './region-tidy.js';
 
 export const W = 2048, H = 1024;
 const SLICE_MS = 8;
@@ -40,8 +42,9 @@ function pixelCells(w) {
  */
 export function valleyGrid(w, V) {
     return (V._grid ??= pixelCells(w).then((pc) => {
-        const G = floodGrid(w, V, pc, W, H);
-        cutAlong(w, V, G, wallMask(w, V, W, H), W, H);
+        const G = floodGrid(w, V, pc, W, H), M = wallMask(w, V, W, H);
+        tidyEdges(G, M, W, H);
+        cutAlong(w, V, G, M, W, H);
         onePiece(G, V, pc);
         packLines(V, G, W, H);
         return (V.grid = G);
@@ -50,14 +53,16 @@ export function valleyGrid(w, V) {
 
 /**
  * The valley at a point on the sphere off the grid, read as the globe's shader reads it (region-lines.js readAt: the
- * valley with the most weight of the four pixels round the point, only those on its side of an edge river): what is
- * picked is what is drawn. Undefined while the grid is not built.
+ * valley with the most B-spline weight of the 4 × 4 pixels round the point; near an edge river, of the four, only those
+ * on its side of it): what is
+ * picked is what is drawn. `sea`: the sea's share where the zoomed tiles draw the place (null: not drawn by them). Undefined while
+ * the grid is not built.
  */
-export function gridAt(V, x, y, z) {
+export function gridAt(V, x, y, z, sea = null) {
     const G = V.grid;
     if (!G) return undefined;
     const px = (Math.atan2(y, x) + Math.PI) / (2 * Math.PI) * W - 0.5, py = (Math.asin(Math.max(-1, Math.min(1, z))) + Math.PI / 2) / Math.PI * H - 0.5;
-    return readAt(G, V.lines, W, H, px, py);
+    return readAt(G, V.lines, W, H, px, py, sea);
 }
 
 /** Each pixel's 4 neighbours (east–west round the planet). */

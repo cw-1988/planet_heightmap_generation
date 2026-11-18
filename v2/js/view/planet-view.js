@@ -475,7 +475,7 @@ export class PlanetView {
         if (extra === null) { t.extra = null; return t.base; }
         if (!t.canvas) { t.canvas = document.createElement('canvas'); t.canvas.width = t.canvas.height = SLOT; }
         const ctx = t.canvas.getContext('2d'), W = t.win.W, k = W / this.MAP_WIDTH;
-        ctx.clearRect(0, 0, SLOT, SLOT); ctx.drawImage(t.base, 0, 0);
+        ctx.globalCompositeOperation = 'copy'; ctx.drawImage(t.base, 0, 0); ctx.globalCompositeOperation = 'source-atop';
         ctx.save(); ctx.translate(-(t.win.x0 + 1), -(t.win.y0 + 1)); ctx.scale(k, k);
         this.extraLines(ctx, this.MAP_WIDTH, this.view);
         ctx.restore();
@@ -492,9 +492,14 @@ export class PlanetView {
         if (this.tileImage?.width !== t.win.w || this.tileImage.height !== t.win.h) this.tileImage = new ImageData(t.win.w, t.win.h);
         paintWindow(t.data, t.win, this.tileImage.data, lut, { exaggeration: this.SHADING.exaggeration * (view.layer === 'satellite' ? 1.25 : 1), lakes: water || view.layer === 'satellite' || geo || farm, shaded: view.shaded,
             colorAt: C || geo || farm ? tc.byWidth.get(W) : null });
+        // (its sea in the alpha, ½ there, 1 on land: the region pick's coast is the tile's own — region-glsl.js; every line
+        // after drawn 'source-atop', so it keeps it)
+        const px = this.tileImage.data, sea = t.data.sea;
+        for (let i = 0, n = px.length >> 2; i < n; i++) px[4 * i + 3] = sea[i] ? 128 : 255;
         if (!t.base) { t.base = document.createElement('canvas'); t.base.width = t.base.height = SLOT; }
         const ctx = t.base.getContext('2d'), x0 = t.win.x0 + 1, y0 = t.win.y0 + 1;     // (the canvas's pixel 0, 0 on the planet W px wide)
         ctx.putImageData(this.tileImage, -1, -1);                               // (the window's outer pixel the hillshade's neighbours only)
+        ctx.globalCompositeOperation = 'source-atop';
         // (the planet's rivers, crisp: a little thicker the closer the view, not as thick as the picture's enlarged)
         // (and on Farmland, as the picture has them: the water canals and floods come from)
         if (view.water && (view.layer === 'terrain' || view.layer === 'farmLand') && fin.rivers) drawRiversWindow(ctx, fin, view.riverQ, view.byRegime && view.layer === 'terrain', W, x0, y0, SLOT, SLOT, 2 * (W / 4096) ** 0.3 / (W / 2048));
@@ -518,7 +523,7 @@ export class PlanetView {
         const hit = this.tiles.at(u, v);
         if (!hit) return null;
         const { t: { data }, i } = hit;
-        return { heightM: Math.round(1000 * data.h[i]), ocean: data.sea[i], water: data.wat[i] };
+        return { heightM: Math.round(1000 * data.h[i]), ocean: data.sea[i], water: data.wat[i], seaShare: this.tiles.seaAt(u, v) };
     }
 
     /** The globe drawn: turning if asked, sized to its canvas, only when something changed. */

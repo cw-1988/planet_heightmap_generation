@@ -75,8 +75,8 @@ The river edges no longer approximate the line; they use it (`js/region-lines.js
 - **Drawn and picked alike:** the shader (`v2/js/app/region-glsl.js` `regionAt`) and the pick (`region-grid.js`
   `gridAt` → `readAt`) take, of the four texels round a point, the valley with the most weight, counting only the
   texels the point reaches without crossing one of the chords the 3 × 3 texels round it keep (none of the four: the
-  nearest such of the 3 × 3). So the edge is the river's line at any zoom and a place takes a valley its own side
-  holds. The coast stays the grid's.
+  nearest such of the 7 × 7). So the edge is the river's line at any zoom and a place takes a valley its own side
+  holds. The coast is the drawn one: [region-coast.md](region-coast.md).
 
 **What went wrong before** (all measured as stray specks of a valley, cut off from it on the map as drawn):
 

@@ -76,8 +76,8 @@ sea or a lake. T is the valley size (never under a dozen cells), S a fifth of it
   reads a point's valley off them.
 - **The valleys' map** (`js/region-grid.js`): which valley each pixel of a 2048 × 1024 grid is in (~20 km a pixel). It
   is the one picture of the valleys: the overlay draws it, the pointer picks from it, the region's mask is cut from it,
-  so what is shown is what is chosen; a point reads the four pixels round it as the globe's shader does (the valley
-  with the most weight), so edges are smooth lines, not the pixels' steps. **The pixels follow the terrain, not the
+  so what is shown is what is chosen. A point reads the pixels round it as the globe's shader does, so edges are
+  smooth curves, not the pixels' steps; edges are tidied of fingers ([region-edges.md](region-edges.md)). **The pixels follow the terrain, not the
   cells** (`js/region-flood.js`): a pixel given its nearest cell's valley put every edge on a ~50 km cell's straight
   sides (across slopes and plains, through summits, a river's bank 20 km off its line). So each valley grows from its
   land cells' centres (a river cell's only for a valley with no land cell: its pixels' bank is read off the cell's
@@ -89,7 +89,8 @@ sea or a lake. T is the valley size (never under a dozen cells), S a fifth of it
   floods never cross (`js/region-walls.js`). **Along an edge river the edge is the drawn line itself**
   (`js/region-lines.js`): the map's own reaches, smoothed as the map smooths them; near one a point counts only the
   texels it reaches without crossing the line, in the globe's shader (`v2/js/app/region-glsl.js`) and in the pick
-  (`gridAt`) alike, at any zoom. The coast is the picture's. About 1.2 s a
+  (`gridAt`) alike, at any zoom. The coast is the one the map draws, the zoomed tiles' included:
+  [region-coast.md](region-coast.md). About 1.2 s a
   size. **Every valley is
   one piece on it, by construction**: each valley keeps its largest patch and every other patch goes to the valley it
   shares the longest border with, until none is left; a patch with no land round it becomes a valley of its own.

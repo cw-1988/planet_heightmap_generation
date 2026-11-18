@@ -11,9 +11,9 @@ import { unitAt } from './region-bank.js';
 import { valleyGrid, gridAt } from './region-grid.js';
 
 /** The valley at a point as the map shows it (region-grid.js); before the map is built, off the cells. */
-function valleyAt(V, w, x, y, z) {
+function valleyAt(V, w, x, y, z, sea = null) {
     valleyGrid(w, V);
-    return gridAt(V, x, y, z) ?? unitAt(V, w.tMesh, w.tMesh.index.nearest(x, y, z), x, y, z);
+    return gridAt(V, x, y, z, sea) ?? unitAt(V, w.tMesh, w.tMesh.index.nearest(x, y, z), x, y, z);
 }
 
 /** The valleys chosen, for the planet's tint (region-overlay.js, drawn by the globe's shader): ids, the partition (unit
@@ -81,7 +81,8 @@ export function mountRegionPick(pv, hooks) {
         const p = pv.placeUnder(e);
         if (!p) return -2;
         const lon = p[0] * 2 * Math.PI - Math.PI, lat = Math.PI / 2 - p[1] * Math.PI, x = Math.cos(lat) * Math.cos(lon), y = Math.cos(lat) * Math.sin(lon), z = Math.sin(lat);
-        return valleyAt(C.V, w, x, y, z);
+        const fine = pv.patchAt?.(w.fin, p[0], p[1]);                     // (the coast as the zoomed tiles draw it, where they are:
+        return valleyAt(C.V, w, x, y, z, fine ? fine.seaShare ?? +!!fine.ocean : null);   // the sea's share filtered as the shader reads it)
     };
     let down = null;
     addEventListener('pointermove', (e) => {

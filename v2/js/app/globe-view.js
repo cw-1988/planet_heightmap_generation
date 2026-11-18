@@ -17,6 +17,7 @@ import { P as PROJ } from '../view/projections.js';
 import { PROJECTION_GLSL, projectionUniforms } from '../view/projection-glsl.js';
 import { CLOUDS, CLOUD_GLSL, MAX_STORMS, scaleOf, driftRadPerS, cloudNoiseTexture, cloudEdges, cloudQuantileList, cloudStormsAt } from '../view/clouds.js';
 import { REGION_GLSL, regionUniforms, regionTexture } from './region-glsl.js';
+import { drawnPointAt } from './globe-hit.js';
 
 const GLINT = new THREE.Color(0x4488bb).multiplyScalar(0.5 * 0.55);    // (the sea's specular: V1's water sphere's)
 
@@ -35,18 +36,31 @@ const CLOUD_STEP_MS = 80;                                        // (the clouds'
 // the tile there, faded in over the range's outer 4 % so the range's edge does not show
 const PATCH_GLSL = `uniform sampler2D uPatchAtl0, uPatchTab0, uPatchAtl1, uPatchTab1;
 uniform vec4 uPatchRange0, uPatchGrid0, uPatchRange1, uPatchGrid1; uniform float uPatchSlot;
-vec4 patchLayer(sampler2D atl, sampler2D tab, vec4 R, vec4 G, vec2 tc) {
-    if (G.w < 0.5) return vec4(0.0);
+vec3 patchPx(sampler2D tab, vec4 R, vec4 G, vec2 tc) {                // (the place's pixel in the layer's slots, and its fade; z 0: none)
+    if (G.w < 0.5) return vec3(0.0);
     float X = fract(tc.x) * G.x, Y = (1.0 - tc.y) * G.x * 0.5;            // (the place in tiles: west → east, north → south)
     float dx = mod(X - R.x, G.x), dy = Y - R.y;
-    if (dx >= R.z || dy < 0.0 || dy >= R.w) return vec4(0.0);
+    if (dx >= R.z || dy < 0.0 || dy >= R.w) return vec3(0.0);
     float tx = R.x + floor(dx), ty = floor(Y);
     vec2 slot = vec2(mod(tx, G.y), mod(ty, G.z));
     vec4 k = floor(texture2D(tab, (slot + 0.5) / G.yz) * 255.0 + 0.5);    // (the tile the slot holds: its column modulo 65536, its row; a ≥ 128: one)
-    if (k.a < 128.0 || k.r + 256.0 * k.g != mod(tx, 65536.0) || k.b + 256.0 * (k.a - 128.0) != ty) return vec4(0.0);
+    if (k.a < 128.0 || k.r + 256.0 * k.g != mod(tx, 65536.0) || k.b + 256.0 * (k.a - 128.0) != ty) return vec3(0.0);
     vec2 px = (slot * uPatchSlot + 1.0 + vec2(fract(dx), fract(Y)) * (uPatchSlot - 2.0)) / (G.yz * uPatchSlot);
     float e = min(min(dx, R.z - dx) / R.z, min(dy, R.w - dy) / R.w);
-    return vec4(texture2D(atl, px).rgb, smoothstep(0.0, 0.04, e));
+    return vec3(px, smoothstep(0.0, 0.04, e));
+}
+vec4 patchLayer(sampler2D atl, sampler2D tab, vec4 R, vec4 G, vec2 tc) {
+    vec3 q = patchPx(tab, R, G, tc);
+    return q.z > 0.0 ? vec4(texture2D(atl, q.xy).rgb, q.z) : vec4(0.0);
+}
+// (the sea's share at a place as the tiles draw it — a tile's alpha: 1 its land, ½ its sea, planet-view.js paintTileBase —
+// and how much of the place the tiles cover; the region pick's coast where they are)
+vec2 patchSea(vec2 tc) {
+    vec3 a = patchPx(uPatchTab0, uPatchRange0, uPatchGrid0, tc), b = patchPx(uPatchTab1, uPatchRange1, uPatchGrid1, tc);
+    float sa = a.z > 0.0 ? clamp((1.0 - textureLod(uPatchAtl0, a.xy, 0.0).a) * 255.0 / 127.0, 0.0, 1.0) : 0.0;   // (level 0: no mips;
+    float sb = b.z > 0.0 ? clamp((1.0 - textureLod(uPatchAtl1, b.xy, 0.0).a) * 255.0 / 127.0, 0.0, 1.0) : 0.0;   // 128 of 255 the sea: share 1)
+    float cover = a.z + (1.0 - a.z) * b.z;
+    return cover > 0.0 ? vec2((a.z * sa + (1.0 - a.z) * b.z * sb) / cover, cover) : vec2(0.0);
 }
 vec4 withPatch(vec4 base, vec2 tc) {
     vec4 a = patchLayer(uPatchAtl0, uPatchTab0, uPatchRange0, uPatchGrid0, tc);
@@ -99,16 +113,20 @@ export class GlobeView {
         // the triangles round a pole — and at the level the place's own size calls for: toward a pole a texel of the
         // equirectangular texture is narrower than it is tall, so the hardware, going by its stretched width, chose ever
         // coarser levels — a radial smear and blocks; the gradients across the date line taken the short way round, so no
-        // seam. Owner, 2026-11-05: "almost everything at the poles are getting distorted")
+        // seam. Owner, 2026-11-05: "almost everything at the poles are getting distorted"). The angles by a Newton step
+        // past the GPU's atan, and the latitude by atan, not acos: the GPU's acos was off by up to 0.35 texel of the
+        // zoomed tiles (mean 0.14), its atan by 0.06, so the coast and the region drawn sat a fraction of a texel from
+        // the place the pointer picks (uvAt, exact in JS); refined, 0.0025 at most (docs/region-coast.md)
+        const ANGLE_GLSL = `float angleAt(float y, float x) { float a = atan(y, x), c = cos(a), s = sin(a), r = x * c + y * s; return r > 1e-12 ? a + (y * c - x * s) / r : a; }`;   // (r: the length; 0 at a pole)
         this.globe.material.onBeforeCompile = shader => {
             Object.assign(shader.uniforms, this.patch);
             shader.vertexShader = shader.vertexShader
                 .replace('#include <common>', '#include <common>\nvarying vec3 vSphere;')
                 .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSphere = position;');
             shader.fragmentShader = shader.fragmentShader
-                .replace('#include <common>', `#include <common>\nvarying vec3 vSphere;\n${PATCH_GLSL}\n${REGION_GLSL}`)
+                .replace('#include <common>', `#include <common>\nvarying vec3 vSphere;\n${ANGLE_GLSL}\n${PATCH_GLSL}\n${REGION_GLSL}`)
                 .replace('#include <map_fragment>', `vec3 sd = normalize(vSphere);
-    vec2 tcS = vec2(fract(atan(sd.z, -sd.x) / 6.283185307179586), 1.0 - acos(clamp(sd.y, -1.0, 1.0)) / 3.141592653589793);
+    vec2 tcS = vec2(fract(angleAt(sd.z, -sd.x) / 6.283185307179586), 1.0 - angleAt(length(sd.xz), sd.y) / 3.141592653589793);
     vec2 gxS = dFdx(tcS), gyS = dFdy(tcS);
     gxS.x -= floor(gxS.x + 0.5); gyS.x -= floor(gyS.x + 0.5);
     float clS = max(sqrt(max(0.0, 1.0 - sd.y * sd.y)), 0.02);
@@ -792,13 +810,14 @@ void main() {
     }
 
     /** Texture UV under a client-space point, or null if the pointer is off the globe. `r`: the canvas's client rect, if
-     *  the caller has it (asking for many points). The ray meets the unit sphere itself — not its triangles: a few
-     *  microseconds, not half a millisecond — and the UV is SphereGeometry's at that point. */
+     *  the caller has it (asking for many points). The ray meets the unit sphere, then (fork) the drawn triangles round
+     *  that hit (globe-hit.js), and the UV is the shader's at the triangle's point: what is drawn under the pointer. */
     uvAt(clientX, clientY, r = this.canvas.getBoundingClientRect()) {
         this._ndc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
         this._raycaster.setFromCamera(this._ndc, this.camera);
-        const p = this._raycaster.ray.intersectSphere(this._sphere, this._hit);
+        let p = this._raycaster.ray.intersectSphere(this._sphere, this._hit);
         if (!p) return null;
+        p = drawnPointAt(this.globe, this._raycaster.ray, p) ?? p;
         // (SphereGeometry: x = −cos φ sin θ, y = cos θ, z = sin φ sin θ; u = φ / 2π, v = 1 − θ / π)
         const phi = Math.atan2(p.z, -p.x);
         return new THREE.Vector2((phi < 0 ? phi + 2 * Math.PI : phi) / (2 * Math.PI), 1 - Math.acos(Math.max(-1, Math.min(1, p.y))) / Math.PI);

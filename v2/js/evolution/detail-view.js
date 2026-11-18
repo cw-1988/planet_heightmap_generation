@@ -161,6 +161,18 @@ export class DetailTiles {
         return { t, i: (Y - t.win.y0) * t.win.w + (X - t.win.x0) };
     }
 
+    /** (fork addition) The sea's share at a place as the globe draws the tile there: its sea bits read bilinearly, as the
+     *  shader filters the tile's alpha (globe-view.js patchSea), not the one pixel under it; null where no tile is drawn. */
+    seaAt(u, v) {
+        const g = this.range;
+        if (!g) return null;
+        const W = TILE << g.L, x = (((u % 1) + 1) % 1) * W, y = v * (W >> 1), t = this.tile(g.L, Math.floor(x / TILE), Math.floor(y / TILE));
+        if (!t?.data) return null;
+        const px = x - 0.5 - t.win.x0, py = y - 0.5 - t.win.y0, i = Math.floor(px), j = Math.floor(py), fx = px - i, fy = py - j;
+        const s = (a, b) => (t.data.sea[(j + b) * t.win.w + i + a] ? 1 : 0);   // (the tile's 2-px margin holds the neighbours)
+        return (s(0, 0) * (1 - fx) + s(1, 0) * fx) * (1 - fy) + (s(0, 1) * (1 - fx) + s(1, 1) * fx) * fy;
+    }
+
     trim() {
         if (this.tiles.size <= this.keep) return;
         const drawn = [...this.tiles.values()].filter(t => t.data).sort((a, b) => a.used - b.used);
