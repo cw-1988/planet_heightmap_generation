@@ -1,14 +1,17 @@
 // A region's zoom tile (fork addition): zoomed in past a few screen pixels a cell, the piece of the region on screen is
-// built again at a finer cell (2 … 16 to a region cell, about one and a half screen pixels a cell, at most TILE_MAX²
-// cells) off the page (region-tile-worker.js) and drawn over the region. A tile is a smaller box in the region's own
-// projection with a margin round it (PAD region cells, built and cut off when drawn, so its edges' erosion doesn't
-// show). A new one is asked for once the view has rested (WAIT_MS) and the tile shown no longer covers it at the
-// detail wanted; the one being built is dropped for it.
+// built again at a finer cell (2 … F_MAX to a region cell, about one and a half screen pixels a cell, at most
+// TILE_MAX² cells) off the page (region-tile-worker.js) and drawn over the region. A tile is a smaller box in the
+// region's own projection with a margin round it (padOf(f) region cells, PAD_CELLS tile cells or more, built and cut off
+// when drawn, so its edges' erosion doesn't show; counted in region cells it would eat a fine tile whole). A new one is
+// asked for once the view has rested (WAIT_MS) and the tile shown no longer covers it at the detail wanted; the one
+// being built is dropped for it.
 
 import { regionFrame } from './region-frame.js';
 import { paintGround, shadeExag } from './region-paint.js';
 
-const PAD = 4, FADE = 2, TILE_MAX = 1024, FROM_S = 2.5, WAIT_MS = 250;
+const PAD_CELLS = 64, FADE = 2, TILE_MAX = 1024, F_MAX = 64, FROM_S = 2.5, WAIT_MS = 250;
+/** The margin in region cells at `f` tile cells a region cell: 4 at ×16 and coarser, 1 at ×64. */
+const padOf = (f) => Math.max(1, Math.min(4, Math.ceil(PAD_CELLS / f)));
 
 /** The keeper of region `R`'s tile, its rivers' lines `lines` (region-rivers.js) cut in; ready() when one is shown. */
 export function tileKeeper(R, lines, ready) {
@@ -23,12 +26,12 @@ export function tileKeeper(R, lines, ready) {
         if (!shown) { clearTimeout(timer); return; }
         if (x1 <= x0 || y1 <= y0) return;
         const span = Math.max(x1 - x0, y1 - y0) + 2;
-        let f = Math.min(16, Math.max(2, 2 ** Math.ceil(Math.log2(s / 1.5))));
-        while (f >= 2 && span > Math.floor(TILE_MAX / f) - 2 * PAD) f /= 2;
+        let f = Math.min(F_MAX, Math.max(2, 2 ** Math.ceil(Math.log2(s / 1.5))));
+        while (f >= 2 && span > Math.floor(TILE_MAX / f) - 2 * padOf(f)) f /= 2;
         if (f < 2) return;
         const covers = (t) => t && t.f === f && t.box.a <= x0 && t.box.b <= y0 && t.box.a + t.box.wc >= x1 && t.box.b + t.box.wc >= y1;
         if (covers(tile) || covers(job)) { clearTimeout(timer); return; }
-        const wc = Math.min(N, Math.floor(TILE_MAX / f) - 2 * PAD), cl = (v) => Math.max(0, Math.min(N - wc, Math.round(v - wc / 2)));
+        const wc = Math.min(N, Math.floor(TILE_MAX / f) - 2 * padOf(f)), cl = (v) => Math.max(0, Math.min(N - wc, Math.round(v - wc / 2)));
         const box = { a: cl((x0 + x1) / 2), b: cl((y0 + y1) / 2), wc };
         clearTimeout(timer);
         timer = setTimeout(() => request(box, f), WAIT_MS);
@@ -36,7 +39,7 @@ export function tileKeeper(R, lines, ready) {
 
     function request(box, f) {
         job?.worker.terminate();
-        const { a, b, wc } = box, K = wc + 2 * PAD, ox = (Fp.ox ?? 0) - Fp.km / 2 + (a + wc / 2) * Fp.cellKm, oy = (Fp.oy ?? 0) + Fp.km / 2 - (b + wc / 2) * Fp.cellKm;
+        const { a, b, wc } = box, PAD = padOf(f), K = wc + 2 * PAD, ox = (Fp.ox ?? 0) - Fp.km / 2 + (a + wc / 2) * Fp.cellKm, oy = (Fp.oy ?? 0) + Fp.km / 2 - (b + wc / 2) * Fp.cellKm;
         const F = regionFrame(Fp.lat, Fp.lon, K * Fp.cellKm, K * f, ox, oy), cut = cutOf(a - PAD - 2, b - PAD - 2, K + 4);
         const worker = new Worker(new URL('./region-tile-worker.js', import.meta.url), { type: 'module' });
         job = { worker, box, f };
@@ -79,7 +82,7 @@ export function tileKeeper(R, lines, ready) {
     // built, the finer detail eases into the region's rather than stopping at a line)
     function paint() {
         if (!tile) return;
-        const n = tile.frame.n, f = tile.f, lo = PAD * f, hi = (PAD + tile.box.wc) * f, band = FADE * f, im = paintGround(tile, look, mask), px = im.data;
+        const n = tile.frame.n, f = tile.f, PAD = padOf(f), lo = PAD * f, hi = (PAD + tile.box.wc) * f, band = FADE * f, im = paintGround(tile, look, mask), px = im.data;
         for (let j = lo; j < hi; j++) for (let i = lo; i < hi; i++) {
             const d = Math.min(i - lo, hi - 1 - i, j - lo, hi - 1 - j) + 0.5;
             if (d < band) { const t = d / band; px[4 * (j * n + i) + 3] = 255 * t * t * (3 - 2 * t); }
@@ -93,7 +96,7 @@ export function tileKeeper(R, lines, ready) {
         /** Draws the tile (its margin cut off) over the region drawn at (ox, oy), `s` px a region cell. */
         draw(g, ox, oy, s) {
             if (!image || s < FROM_S) return;
-            const { a, b, wc } = tile.box, f = tile.f;
+            const { a, b, wc } = tile.box, f = tile.f, PAD = padOf(f);
             g.drawImage(image, PAD * f, PAD * f, wc * f, wc * f, ox + a * s, oy + b * s, wc * s, wc * s);
         },
         /** The tile and its cell under (x, y) region cells, or null off it. */
@@ -101,6 +104,7 @@ export function tileKeeper(R, lines, ready) {
             if (!tile || !shown) return null;
             const { a, b, wc } = tile.box;
             if (x < a || y < b || x >= a + wc || y >= b + wc) return null;
+            const PAD = padOf(tile.f);
             return { tile, i: Math.floor((x - a + PAD) * tile.f), j: Math.floor((y - b + PAD) * tile.f) };
         },
         restyle(l, m) { look = l; mask = m; paint(); },

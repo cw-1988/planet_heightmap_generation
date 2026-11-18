@@ -84,7 +84,7 @@ export function regionWindow(title, onClose) {
         e.preventDefault();
         if (!R) return;
         const k = Math.exp(-e.deltaY * 0.0015), r = canvas.getBoundingClientRect(), mx = e.clientX - r.left, my = e.clientY - r.top;
-        const ns = Math.min(64, Math.max(Math.min(canvas.clientWidth, canvas.clientHeight) / R.frame.n * 0.5, s * k));
+        const ns = Math.min(160, Math.max(Math.min(canvas.clientWidth, canvas.clientHeight) / R.frame.n * 0.5, s * k));
         ox = mx - (mx - ox) * ns / s; oy = my - (my - oy) * ns / s; s = ns;
         later();
     }, { passive: false });
