@@ -122,6 +122,8 @@ export function riverLines(R, q0, r) {
 
 /** How the ground is levelled to the line's height, in valley reaches: a bell LEVEL.bell wide, ending at LEVEL.out. */
 const LEVEL = { bell: 1.2, out: 2.5 }, LEVEL_OUT = LEVEL.out;
+/** The lowest a carved floor goes (km above the sea), and the share of the line's height above it a valley may cut. */
+const SEA_FLOOR = 0.003, DEPTH_ROOM = 0.7;
 /** The most a valley reaches from its line (km). */
 const reachOf = q => { const f = channelKm(q) / 2, d = Math.min(VALLEY.depthMax, VALLEY.depthK * q ** 0.4); return { f, d, out: f + d / VALLEY.side }; };
 
@@ -193,7 +195,10 @@ export function carveValleys(D, lines, { hb, gE, gN, seaB, W, X0, Y0, ew, eh, px
             // floor's wander to either side flipped at each segment's end — removed 2026-11-18)
             const dist = Math.hypot(over, Math.abs(side - mo[0]) / Math.hypot(1, mo[1]));
             if (!(dist < wide)) continue;
-            const deep = v.d * (0.4 + 0.6 * smooth(0.005, 0.08, Math.hypot(gE[p], gN[p])));
+            // (no deeper than the line's ground stands above the sea, softly: cut deeper, low land hit the floor held 3 m up
+            // below — a strip flat to the metre, with no grain and a hard edge, wider than the river, along every lowland river)
+            const dv = v.d * (0.4 + 0.6 * smooth(0.005, 0.08, Math.hypot(gE[p], gN[p]))), room = DEPTH_ROOM * Math.max(0, ha + t * (hb1 - ha) - SEA_FLOOR);
+            const deep = room > 0 ? dv * room / Math.hypot(dv, room) : 0;
             // (the wall rising from the bank at once, easing into the land at its rim, no hard edge: a smoothstep rose flat
             // from the bank, the floor within 1 m of its lowest ~800 m wide for a 190 m channel. The finer detail eased flat
             // across the bed alone (bedKm, which the river's colour fills), back to half at its edge: smoothed across the wall
@@ -219,7 +224,7 @@ export function carveValleys(D, lines, { hb, gE, gN, seaB, W, X0, Y0, ew, eh, px
         const before = D[p];
         let v = before * (1 - flat[p]) - cut[p] + (levN[p] > 0 ? levW[p] * levS[p] / levN[p] : 0);
         // (no new sea inland and no channel of sea up the river: the floor stays a few metres up)
-        if (hb[p] + v < 0.003) v = Math.min(before, Math.max(v, 0.003 - hb[p]));
+        if (hb[p] + v < SEA_FLOOR) v = Math.min(before, Math.max(v, SEA_FLOOR - hb[p]));
         D[p] = v;
     }
 }

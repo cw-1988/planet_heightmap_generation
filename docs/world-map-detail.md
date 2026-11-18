@@ -79,6 +79,10 @@ showed out at sea as a 2.8 m step along a straight line. This change also applie
   channel alone, a bare band still showed either side of the line.
 - At a bend: the height the ground is raised to is blended over all the segments by their weights. Taken from the
   heaviest segment alone, it stepped a few metres where two tied, which drew a fan of dark streaks inside every bend.
+- Low ground: a valley cuts no deeper than 0.7 × the line's height above the sea, eased softly (depth · room /
+  √(depth² + room²)). Before, a full-depth cut on land a few tens of metres up hit the floor held 3 m above the sea: a
+  strip flat to the metre, grain-free and hard-edged, 1.3–4.2 km wide along lowland rivers. I had blamed the grain
+  easing and the line's width for that band; it was this hold.
 - Head and tail: where a drawn line truly begins (a source, or where the flow rises past `riverQ`, not a confluence a
   drawn river ends at, nor the map's edge) or ends undrawn, the valley tapers in over one reach. Before, it ran on past
   the line's start as a rounded cap.
@@ -128,6 +132,9 @@ Rivers, checked in Node on a synthetic river (2026-11-18):
     170 m drawn bed, and 534 m for a 537 m one. At level 10, which is 153 m a pixel, it is a pixel or so narrower. At a bend (a river swinging ±3 km, level 14), pixels
     whose slope kinks by over 0.5 m in one 9.5 m pixel went from 6,633 to 0 on the 1.5% slope. On the 5% slope they
     went from 8,736 to 343, and the worst kink from 27 m to 0.6 m.
+  - Fifth round, low ground at level 14 (line at 10, 30 and 80 m, slopes 0.1–0.5% along it, 100 and 1,000 m³/s): ground
+    carved down to the 3 m hold went from 1,308 / 4,247 m, 0 / 1,871 m and 0 / 0 m wide to 0 m in every case. The line
+    now sits at 7.4 / 5.8 m, 22.4 / 14.6 m and 69.6 / 47.9 m; on 300 m ground the floor moved by 0.3–5 m.
   - A 1,400² window at level 14 carves in 5.5 s (3.8 s before: the levelling reaches 2.5 valley reaches, not 1.6); no
     non-finite values.
 
