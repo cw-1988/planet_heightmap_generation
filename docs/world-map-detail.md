@@ -17,6 +17,15 @@ valleys of their own.
 - `v2/js/app/globe-view.js`: `MAP_ZOOM_MAX` and `MIN_ALT`.
 - The globe's zoom eases on the camera's height above the ground, not its distance from the centre. Near the ground,
   the near plane follows the height (`fitNear`), and the drag slows to match.
+- When the tiles take over (`tileRange` in `v2/js/evolution/detail-view.js`): as soon as the screen's middle shows
+  the running picture (2,048 px) at or past its own pixels. The scale is read between the samples just above and
+  below the middle, so the planet's edge, a pole or a wide view no longer keeps the tiles off. A view's tiles first
+  drop their prefetch margin before falling a level coarser; desktop holds 260 a view (`most`).
+- Before (2026-11-18): tiles waited for 1.6× the paused picture's 4,096 px, a view free of the planet's edge, the
+  poles and 120° of longitude. Until then the 2,048 picture stood in, stretched up to 3.2–5× with no grain: one
+  blurred zoom level. Measured on 9 × 9 samples like the page's: the desktop map now stretches at most 1.18× (the level
+  choice's slack). The desktop globe stretches at most 1.18–1.52× up to 40° latitude, where it was over 3×. The picture
+  alone stretches at most 1.05× anywhere.
 - The tile shader's precision holds at level 14: about a quarter pixel. The slot table holds columns mod 65536 and rows
   up to 32767.
 
@@ -142,6 +151,9 @@ Rivers, checked in Node on a synthetic river (2026-11-18):
 
 - No erosion on world tiles: each 256-pixel tile would erode on its own and show at the seams. The only valleys are
   the rivers' own, cut along their lines.
+- Tiles are cut in longitude and latitude, so near the poles they are too fine east–west (3.9× at 75°). A globe view
+  above about 60° needs 60–78 columns, more than a GPU layer holds (31), and falls 1–2 levels coarser: 1.65–3.2×
+  its pixels, grain kept. Phones (48 tiles a view) still show the picture at up to 2.3× on the globe.
 - When the camera is below the cloud shells (1.0015 and 1.004 radii) and the air (1.03), they are culled.
 - The globe is a 128 × 64 sphere: its facets sag up to about 1.9 km below the true surface. The lowest camera height
   (6.4 km) is measured from the true surface, so over a facet's middle the camera is that much higher.

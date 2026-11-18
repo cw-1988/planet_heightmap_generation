@@ -295,29 +295,42 @@ export class TileLayers {
 /**
  * The tiles a view wants: the level whose pixels are about the screen's (a little finer), its tiles over the view and a
  * margin — at a coarser level if that would be more than `most`, or more than `maxSpan` across or down — or null where the
- * view is not zoomed in past the picture's own pixels (or the planet's edge, or a pole, is in view).
+ * view is not zoomed in past the picture's own pixels at its middle. `places` is a square grid over the screen, row by row.
  */
 export function tileRange(places, screenPx, textureW, most, maxLevel, maxSpan = Infinity) {
-    const pts = places.filter(Boolean);
-    if (pts.length < places.length * 0.9) return null;               // (the planet's edge in view: zoomed out)
-    const c = pts[Math.floor(pts.length / 2)][0];
+    // (the scale at the screen's middle: the angle between the samples a step above and below it. Read from the view's
+    // span of latitude, with no tiles while the planet's edge, a pole or 120° of longitude was in view, and only past 1.6×
+    // the picture's pixels — told the paused picture's 4,096 — the picture stood in stretched up to 3–5×, with no grain:
+    // a blurred zoom level before the tiles)
+    // (one step, where the middle lies at the map's edge)
+    const g = Math.round(Math.sqrt(places.length)), m = (g - 1) >> 1, c = places[m * g + m], a = places[(m - 1) * g + m] ?? c, b = places[(m + 1) * g + m] ?? c;
+    if (!c || a === b) return null;
+    const steps = (a === c || b === c ? 1 : 2), need = 360 * (steps * screenPx / (g - 1)) / arcDeg(a, b), minL = Math.round(Math.log2(textureW / TILE)) + 1;
+    if (!(need >= textureW)) return null;
     let lo0 = Infinity, lo1 = -Infinity, la0 = Infinity, la1 = -Infinity;
-    for (const [lon, lat] of pts) {
-        const l = lon - Math.round((lon - c) / 360) * 360;
-        lo0 = Math.min(lo0, l); lo1 = Math.max(lo1, l); la0 = Math.min(la0, lat); la1 = Math.max(la1, lat);
+    for (const p of places) {
+        if (!p) continue;
+        const l = p[0] - Math.round((p[0] - c[0]) / 360) * 360;
+        lo0 = Math.min(lo0, l); lo1 = Math.max(lo1, l); la0 = Math.min(la0, p[1]); la1 = Math.max(la1, p[1]);
     }
-    const latSpan = la1 - la0, lonSpan = lo1 - lo0;
-    if (!(latSpan > 0) || lonSpan > 120 || la1 > 85 || la0 < -85) return null;
-    const need = 360 * screenPx / latSpan, minL = Math.round(Math.log2(textureW / TILE)) + 1;     // (the planet's width the screen shows)
-    if (need < 1.6 * textureW) return null;
-    const mLat = 0.12 * latSpan, mLon = 0.12 * lonSpan;
-    for (let L = Math.max(minL, Math.min(maxLevel, Math.ceil(Math.log2(need / TILE) - 0.25))); L >= minL; L--) {
-        const n = 1 << L, rows = n >> 1;
-        const tx0 = Math.floor((lo0 - mLon + 180) / 360 * n), tx1 = Math.floor((lo1 + mLon + 180) / 360 * n);
+    // (every longitude where a pole is in view, out to it; else a margin — the more where the planet's edge is in view,
+    // whose foreshortened rim lies past the last sample on it — narrowed before the level is made coarser: a globe's view
+    // at 40° with its margin took 300+ tiles at its level, and fell a level, 1.7–2.3× its pixels)
+    const all = lo1 - lo0 > 300, edge = places.some(p => !p);
+    if (all) { if (la1 > -la0) la1 = 90; else la0 = -90; }
+    for (let L = Math.max(minL, Math.min(maxLevel, Math.ceil(Math.log2(need / TILE) - 0.25))); L >= minL; L--) for (const rim of edge ? [0.25, 0.04] : [0.12, 0.02]) {
+        const n = 1 << L, rows = n >> 1, mLat = rim * (la1 - la0), mLon = all ? 0 : rim * (lo1 - lo0);
+        let tx0 = Math.floor((lo0 - mLon + 180) / 360 * n), tx1 = Math.floor((lo1 + mLon + 180) / 360 * n);
+        if (all || tx1 - tx0 >= n) { tx0 = Math.floor((c[0] + 180) / 360 * n) - (n >> 1); tx1 = tx0 + n - 1; }
         const ty0 = Math.max(0, Math.floor((90 - la1 - mLat) / 180 * rows)), ty1 = Math.min(rows - 1, Math.floor((90 - la0 + mLat) / 180 * rows));
         const count = (tx1 - tx0 + 1) * (ty1 - ty0 + 1);
-        if (count <= most && tx1 - tx0 < maxSpan && ty1 - ty0 < maxSpan) return { L, tx0, tx1, ty0, ty1, cx: ((lo0 + lo1) / 2 + 180) / 360 * n, cy: (90 - (la0 + la1) / 2) / 180 * rows };
-        if (L === minL) return null;
+        if (count <= most && tx1 - tx0 < maxSpan && ty1 - ty0 < maxSpan) return { L, tx0, tx1, ty0, ty1, cx: (c[0] + 180) / 360 * n, cy: (90 - c[1]) / 180 * rows };
     }
     return null;
+}
+
+/** The angle (degrees) between two places [lon, lat] (degrees) on the sphere. */
+function arcDeg([lo1, la1], [lo2, la2]) {
+    const r = Math.PI / 180, s = Math.sin((la2 - la1) * r / 2) ** 2 + Math.cos(la1 * r) * Math.cos(la2 * r) * Math.sin((lo2 - lo1) * r / 2) ** 2;
+    return 2 * Math.asin(Math.min(1, Math.sqrt(s))) / r;
 }
