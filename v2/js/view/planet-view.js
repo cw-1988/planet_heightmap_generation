@@ -101,7 +101,7 @@ export class PlanetView {
         // (a layer of tiles on the GPU at most this many across or down: its texture within the GPU's largest, and 8192 px)
         this.PATCH_SPAN = Math.floor(Math.min(8192, this.globe.renderer.capabilities.maxTextureSize) / SLOT);
         this.PATCH_BUDGET_MS = isTouch ? 4 : 6;         // (a frame paints and lays tiles for about this long: the rest come in the frames after)
-        this.tiles = new DetailTiles(this.detail, { ...(isTouch ? { keep: 64, most: 48, maxLevel: 8 } : { keep: 200, most: 150, maxLevel: 9 }), maxSpan: this.PATCH_SPAN });   // (~0.9 MB a tile)
+        this.tiles = new DetailTiles(this.detail, { ...(isTouch ? { keep: 64, most: 48, maxLevel: 12 } : { keep: 200, most: 150, maxLevel: 14 }), maxSpan: this.PATCH_SPAN });   // (~0.9 MB a tile; fork: level 14 is 9.5 m a pixel, docs/world-map-detail.md)
         this.layers = new TileLayers(this.globe, this.PATCH_SPAN);
         this.patchLook = 0; this.patchLookKey = ''; this.patchClimate = null; this.viewSig = ''; this.wantedAt = 0;
         this.tileImage = null; this.tileColors = { look: -1, byWidth: new Map() };

@@ -16,6 +16,8 @@
 import { DRIVER_FIELDS } from './finish-drivers.js';
 import { GEOLOGY } from '../geology/geology-config.js';
 import { rockHard, wetSolution } from '../geology/lithology.js';
+import { chamfer, coastReach } from './coast-distance.js';
+import { fineLadder } from './fine-ladder.js';
 
 const R = 6371, D2R = Math.PI / 180, TAU = 2 * Math.PI;
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -338,7 +340,8 @@ export function fineWindow(src, { W, x0, y0, w, h }, signal = null) {
             for (let i = 0; i < ew; i++) { const p = j * ew + i; oe[p] = (f[j * ew + Math.min(ew - 1, i + 1)] - f[j * ew + Math.max(0, i - 1)]) * kx; on[p] = (f[up + i] - f[dn + i]) * ky; }
         }
     }
-    const coastKm = chamfer(seaB, ew, eh, pxKm, cosLa);
+    const coastKm = chamfer(seaB, ew, eh, pxKm, cosLa), reach = 3 * FINE.coastWiggleKm;
+    coastReach(coastKm, { r, W, X0, Y0, ew, eh, pxKm, M, reach });
     const D = new Float32Array(N), seed = src.seed | 0, fade = lam => smooth(FINE.minPx, 2 * FINE.minPx, lam / pxKm);
     if (signal?.aborted) return null;
 
@@ -509,7 +512,6 @@ export function fineWindow(src, { W, x0, y0, w, h }, signal = null) {
     // ── the coast's headlands and coves: the coastline wandering by up to coastWiggleKm (more on rocky coasts, less on
     // active ones) — and by the rock: hard rock out as headlands, soft back into bays (its hardness read from the land
     // beside the coast, fading to none out at sea) ──
-    const reach = 3 * FINE.coastWiggleKm;
     for (let j = 0; j < eh; j++) for (let i = 0; i < ew; i++) {
         const p = j * ew + i, dist = coastKm[p];
         if (Math.abs(dist) >= reach) continue;
@@ -523,6 +525,9 @@ export function fineWindow(src, { W, x0, y0, w, h }, signal = null) {
     }
 
     lap('coasts');
+    // ── (fork) an opened region's rolling and ridged detail, octave by octave as the pixels hold it (fine-ladder.js) ──
+    fineLadder(D, { hb, seaB, coastKm, cosLa, sinLa, cosLo, sinLo, ew, eh, picKm: TAU * R / RW, seed, fade, reach });
+    lap('ladder');
     // ── the heights; the sea where they are below it at or near the picture's sea (no new inland seas: land stays land) ──
     const hf = new Float32Array(N), sea = new Uint8Array(N);
     for (let p = 0; p < N; p++) {
@@ -544,37 +549,6 @@ function bs(p0, p1, p2, p3, t) {
 function cr(p0, p1, p2, p3, t) {
     const t2 = t * t, t3 = t2 * t;
     return 0.5 * ((-t3 + 2 * t2 - t) * p0 + (3 * t3 - 5 * t2 + 2) * p1 + (-3 * t3 + 4 * t2 + t) * p2 + (t3 - t2) * p3);
-}
-
-/** The distance (km) from each pixel to the nearest pixel of the other kind (sea ↔ land): + on land, − at sea — a chamfer
- *  distance, each row's east–west step its own (the pixels narrow toward the poles). */
-function chamfer(sea, w, h, pxKm, cosLa) {
-    const N = w * h, d = new Float32Array(N).fill(1e9);
-    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
-        const p = j * w + i, s = sea[p];
-        if ((i > 0 && sea[p - 1] !== s) || (i < w - 1 && sea[p + 1] !== s) || (j > 0 && sea[p - w] !== s) || (j < h - 1 && sea[p + w] !== s)) d[p] = 0.5 * pxKm;
-    }
-    const pass = (j0, j1, dj, i0, i1, di) => {
-        for (let j = j0; j !== j1; j += dj) {
-            const ax = pxKm * Math.max(0.05, cosLa[j]), ay = pxKm, ad = Math.hypot(ax, ay), jj = j - dj;
-            for (let i = i0; i !== i1; i += di) {
-                const p = j * w + i, ii = i - di;
-                let v = d[p];
-                if (ii >= 0 && ii < w && d[j * w + ii] + ax < v) v = d[j * w + ii] + ax;
-                if (jj >= 0 && jj < h) {
-                    if (d[jj * w + i] + ay < v) v = d[jj * w + i] + ay;
-                    if (ii >= 0 && ii < w && d[jj * w + ii] + ad < v) v = d[jj * w + ii] + ad;
-                    const ib = i + di;
-                    if (ib >= 0 && ib < w && d[jj * w + ib] + ad < v) v = d[jj * w + ib] + ad;
-                }
-                d[p] = v;
-            }
-        }
-    };
-    pass(0, h, 1, 0, w, 1);
-    pass(h - 1, -1, -1, w - 1, -1, -1);
-    for (let p = 0; p < N; p++) if (sea[p]) d[p] = -d[p];
-    return d;
 }
 
 export { DRIVER_FIELDS };

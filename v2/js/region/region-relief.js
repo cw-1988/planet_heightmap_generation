@@ -18,13 +18,14 @@ const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a
  * The detail by the ground's height `b` (m) and its roughness `k` (0.3 … 1.6, a slow noise: some plains flat, some
  * hilly): `slope` the typical slope each wave of it has (tan: ~2° on plains, ~6° in hill country, 20°+ in the
  * mountains), so the short waves show as hills; `relief` the most any one wave may rise (m), so the long waves don't
- * lift the plains. A little on the sea floor.
+ * lift the plains. A little on the sea floor, eased into the land's over the first 60 m (a step there was a step in
+ * the ground, seen wherever the detail moved the coast off the line where `b` is 0).
  */
 export function detailOf(b, k, out) {
     if (b <= 0) { out.slope = 0.01; out.relief = 15; return out; }
-    const deg = (2 + 4 * smooth(100, 900, b) + 16 * smooth(900, 2600, b)) * k;
-    out.slope = Math.tan(Math.min(35, deg) * D);
-    out.relief = (30 + 0.3 * b + 0.3 * Math.max(0, b - 1000)) * k;
+    const deg = (2 + 4 * smooth(100, 900, b) + 16 * smooth(900, 2600, b)) * k, t = smooth(0, 60, b);
+    out.slope = 0.01 + t * (Math.tan(Math.min(35, deg) * D) - 0.01);
+    out.relief = 15 + t * ((30 + 0.3 * b + 0.3 * Math.max(0, b - 1000)) * k - 15);
     return out;
 }
 const NO_T = -32768;
@@ -33,11 +34,12 @@ const NO_T = -32768;
  * The detail's waves (seeded): fn(px, py, pz, b, L, o0, o1, out) at a point on the sphere (km) over ground `b` m high,
  * octaves o0 … o1 of the ladder L ({ top: the longest wave, km; s1: the roughness noise's frequency }), each wave
  * halving: out.d the height they add (m), out.A their summed height. A zoom tile (region-refine.js) goes on down the
- * same ladder from where its region stopped, so its detail is the region's own, only finer.
+ * same ladder from where its region stopped, so its detail is the region's own, only finer. `wts` (optional): each
+ * octave's weight by its index (the world map's tiles fade each in by their pixel, fine-ladder.js).
  */
 export function detailWaves(seed) {
     const noise = new FastNoise(seed), warp = new FastNoise(seed + 7), rough = new FastNoise(seed + 29), det = { slope: 0, relief: 0 };
-    return (px, py, pz, b, L, o0, o1, out) => {
+    return (px, py, pz, b, L, o0, o1, out, wts = null) => {
         const top = L.top, s0 = 1 / top, s1 = L.s1;
         // (warped by a third of the widest wave; each wave as tall as its length times the slope wanted, a quarter for a
         // wave's mean slope, a little less as they add; none taller than the relief)
@@ -46,7 +48,7 @@ export function detailWaves(seed) {
         const k = 0.3 + 1.3 * smooth(-0.5, 0.5, rough.noise3D(px * s1 / 6, py * s1 / 6, pz * s1 / 6)), dt = detailOf(b, k, det), m = smooth(500, 2200, b);
         let d = 0, A = 0, f = s0 * 2 ** o0, lam = top * 1000 / 2 ** o0;
         for (let o = o0; o < o1; o++, f *= 2, lam /= 2) {
-            const v = noise.noise3D(wx * f, wy * f, wz * f), r = 1 - Math.abs(v), a = Math.min(dt.relief, dt.slope * lam / 5);
+            const v = noise.noise3D(wx * f, wy * f, wz * f), r = 1 - Math.abs(v), a = Math.min(dt.relief, dt.slope * lam / 5) * (wts ? wts[o] : 1);
             d += a * ((1 - m) * v + m * 1.6 * (r * r - 0.45)); A += a;
         }
         out.d = d; out.A = A;

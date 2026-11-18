@@ -123,6 +123,11 @@ Strokes and splits live with the page, not in the planet code: a new world clear
 
 Choose pieces and open them as a flat regional map with its own erosion and rivers: [region.md](region.md).
 
+### World map detail (fork addition)
+
+The globe and the map zoom down to 9.5 m a pixel, with a region's rolling and ridged ground and fractal coasts:
+[world-map-detail.md](world-map-detail.md).
+
 ## Mobile Support
 
 Generate is fully usable on phones and tablets:

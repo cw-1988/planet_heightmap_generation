@@ -24,7 +24,9 @@ const GLINT = new THREE.Color(0x4488bb).multiplyScalar(0.5 * 0.55);    // (the s
 // a wheel's notch (100 px): 14 % nearer or farther — OrbitControls' own was 5 % and felt slow (developer, 2026-10-18:
 // "zooming in is also very slow"); V1's is 8 %. The camera covers this share of the way left each 60th of a second.
 const ZOOM_PER_PX = 0.0015, ZOOM_EASE = 0.15;
-const MAP_ZOOM_MIN = 0.5, MAP_ZOOM_MAX = 20;                      // (the map's zoom: 1, the whole map; out to half that, in to 20, as Generate's)
+// (fork: the map's zoom: 1, the whole map; out to half that, in to 4096 — about 5 m a screen pixel, past the finest tiles'
+// 9.5 m (planet-view.js); the globe's camera down to MIN_ALT above the ground (6.4 km), zoomed by its height above it)
+const MAP_ZOOM_MIN = 0.5, MAP_ZOOM_MAX = 4096, MIN_ALT = 0.001;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const CLOUD_STEP_MS = 80;                                        // (the clouds' drift: a redraw about 12 times a second while they show)
 // the patch over the texture (putPatchTile, showPatchLayer): two layers of tiles of a sharper picture — layer 0 over
@@ -151,7 +153,7 @@ export class GlobeView {
         this.controls.enablePan = false;
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.08;
-        this.controls.minDistance = 1.4;
+        this.controls.minDistance = 1 + MIN_ALT;
         this.controls.maxDistance = 8;
         this.controls.rotateSpeed = 0.6;
         this.controls.enableZoom = false;                  // (V1's zoom instead, below)
@@ -241,20 +243,31 @@ export class GlobeView {
     /** A canvas texture's canvas was painted again (a GPU-painted texture needs no upload: only drawing again). */
     textureChanged() { if (this.ownTexture) this.texture.needsUpdate = true; this._dirty = true; }
 
-    /** Nearer (k < 1) or farther (k > 1): where the camera eases to. */
+    /** Nearer (k < 1) or farther (k > 1): where the camera eases to — (fork) its height above the ground times k, so a
+     *  notch goes as far in at 10 km up as at 10,000 (by the distance from the centre it all but stopped near the ground). */
     zoomBy(k) {
-        this.zoomTo = Math.max(this.controls.minDistance, Math.min(this.controls.maxDistance, this.zoomTo * k));
+        const c = this.controls;
+        this.zoomTo = 1 + Math.max(c.minDistance - 1, Math.min(c.maxDistance - 1, (this.zoomTo - 1) * k));
         this._dirty = true;
     }
 
-    /** The camera a step nearer the distance aimed at; whether it moved. */
+    /** The camera a step nearer the distance aimed at, eased in its height's log; whether it moved. The near plane follows
+     *  the height (a fixed 0.1 cut the ground off below 640 km). */
     easeZoom() {
         const now = performance.now(), dt = this._zoomAt ? Math.min(0.1, (now - this._zoomAt) / 1000) : 1 / 60;
         this._zoomAt = now;
-        const d = this.camera.position.length();
-        if (Math.abs(this.zoomTo - d) < 1e-4) return false;
-        this.camera.position.setLength(d + (this.zoomTo - d) * (1 - Math.pow(1 - ZOOM_EASE, dt * 60)));
+        const d = this.camera.position.length(), a = Math.log(Math.max(1e-6, d - 1)), b = Math.log(this.zoomTo - 1);
+        this.fitNear(d);
+        if (Math.abs(b - a) < 1e-3) return false;
+        this.camera.position.setLength(1 + Math.exp(a + (b - a) * (1 - Math.pow(1 - ZOOM_EASE, dt * 60))));
+        this.fitNear(this.camera.position.length());
         return true;
+    }
+
+    /** The near plane at a third of the camera's height above the ground (at most 0.1, as before). */
+    fitNear(d) {
+        const n = Math.min(0.1, Math.max(1e-6, (d - 1) / 3));
+        if (Math.abs(n - this.camera.near) > 0.05 * n) { this.camera.near = n; this.camera.updateProjectionMatrix(); }
     }
 
     /**
@@ -801,7 +814,7 @@ void main() {
         const zoomed = this.easeZoom();
         // (fork: the turn slows as the camera nears the ground, so a drag moves the ground about as far as the pointer;
         // a fixed speed spun the globe past the place when zoomed in)
-        this.controls.rotateSpeed = 0.6 * Math.max(0.05, (this.camera.position.length() - 1) / (this._baseDist - 1));
+        this.controls.rotateSpeed = 0.6 * Math.max(1e-4, (this.camera.position.length() - 1) / (this._baseDist - 1));
         const moved = this.controls.update();
         if (!zoomed && !moved && !this._dirty) return false;
         this.renderer.render(this.scene, this.camera);
