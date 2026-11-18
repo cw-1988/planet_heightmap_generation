@@ -1,13 +1,16 @@
 // A region's ground before erosion (fork addition): the planet's heights read smoothly (bicubic) at each cell, with the
 // detail the planet is too coarse to hold — noise from about the planet's own pixel down to two cells, warped, rolling
 // on the plains and ridged in the mountains, each wave as steep as the land's kind (detailOf), so hills show at any
-// cell size. The noise is read on the sphere, so two regions
+// cell size. With the planet's generator drawn again at the region's detail (region-synth.js) that detail is the
+// generator's own (its spurs and ridges, where the planet put its mountains), and the noise draws only the waves finer
+// than the generator's grid. The noise is read on the sphere, so two regions
 // that overlap agree. The planet's rivers are cut in as shallow, wandering valleys, and where one enters the box from
 // outside its water is handed in as an inflow. Each cell also takes the planet's climate (the year's temperature, set
 // down the lapse rate for the detail, and rain) and its colour from space.
 
 import { placeAt, pixelOf, bicubic, bilinearIf, R } from './region-frame.js';
 import { FastNoise } from '../core/fast-noise.js';
+import { gridAt } from './region-synth.js';
 
 const D = Math.PI / 180;
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -30,14 +33,18 @@ const NO_T = -32768;
  * The ground of frame F from the planet's crop: { h (m), amp (the detail's height, m), ocean (the planet's sea there,
  * 0…1 × 255), lakeP (a planet lake), T (°C), P (mm a year), rgb (3 a cell) }. progress(f) now and then.
  */
-export function relief(F, crop, seed, progress) {
+export function relief(F, crop, seed, progress, gen = null) {
     const N = F.n, n = N * N, Hc = crop.height, C = crop.climate;
     const h = new Float32Array(n), amp = new Float32Array(n), ocean = new Uint8Array(n), lakeP = new Uint8Array(n);
     const T = new Float32Array(n), P = new Float32Array(n), rgb = new Uint8Array(3 * n);
     const noise = new FastNoise(seed), warp = new FastNoise(seed + 7), rough = new FastNoise(seed + 29), det = { slope: 0, relief: 0 };
-    const pxKm = 2 * Math.PI * R / Hc.W, top = 2.5 * pxKm, s0 = 1 / top;
+    // (with the generator's detail (region-synth.js) the noise draws only the waves finer than its grid holds)
+    const pxKm = 2 * Math.PI * R / Hc.W, s1 = 1 / (2.5 * pxKm), top = gen ? Math.min(2.5 * pxKm, 3 * gen.cellKm) : 2.5 * pxKm, s0 = 1 / top;
     const oct = Math.max(1, Math.min(11, Math.ceil(Math.log2(top / (2 * F.cellKm)))));
     const ll = [0, 0], q = [0, 0], qc = [0, 0], all = () => true, okT = C ? (k) => C.tAnnual[k] !== NO_T : all;
+    const gk = gen ? gen.m / N : 0;
+    // (the colours from space are black on the planet's sea: a cell its land reaches past takes the nearest land's)
+    const bare = new Uint8Array(n), okSat = C?.sat ? (k) => C.sat[3 * k] + C.sat[3 * k + 1] + C.sat[3 * k + 2] > 12 : all;
     let lastT = 15, lastP = 500;
     for (let j = 0; j < N; j++) {
         for (let i = 0; i < N; i++) {
@@ -54,25 +61,43 @@ export function relief(F, crop, seed, progress) {
             const wz = pz + 0.35 * top * warp.noise3D(pz * s0 - 17.3, px * s0, py * s0);
             // (each wave as tall as its length times the slope wanted, a quarter for a wave's mean slope, a little less as
             // they add; none taller than the relief)
-            const k = 0.3 + 1.3 * smooth(-0.5, 0.5, rough.noise3D(px * s0 / 6, py * s0 / 6, pz * s0 / 6)), dt = detailOf(b, k, det), m = smooth(500, 2200, b);
+            const k = 0.3 + 1.3 * smooth(-0.5, 0.5, rough.noise3D(px * s1 / 6, py * s1 / 6, pz * s1 / 6)), dt = detailOf(b, k, det), m = smooth(500, 2200, b);
             let d = 0, A = 0, f = s0, lam = top * 1000;
             for (let o = 0; o < oct; o++, f *= 2, lam /= 2) {
                 const v = noise.noise3D(wx * f, wy * f, wz * f), r = 1 - Math.abs(v), a = Math.min(dt.relief, dt.slope * lam / 5);
                 d += a * ((1 - m) * v + m * 1.6 * (r * r - 0.45)); A += a;
             }
-            h[c] = b + d; amp[c] = A;
+            const gd = gen ? gridAt(gen.d, gen.m, (i + 0.5) * gk, (j + 0.5) * gk) : 0;
+            h[c] = b + d + gd; amp[c] = A + Math.abs(gd); d += gd;
             // the climate: the planet's, the detail's height set down the lapse rate
             if (C) {
                 pixelOf(C, ll[0], ll[1], qc);
                 const t = bilinearIf(C.tAnnual, C.w, C.h, qc[0], qc[1], okT), p = bilinearIf(C.pAnnual, C.w, C.h, qc[0], qc[1], okT);
                 if (t === t) lastT = t / 100; if (p === p) lastP = p;
-                if (C.sat) for (let k = 0; k < 3; k++) rgb[3 * c + k] = bilinearIf(C.sat, C.w, C.h, qc[0], qc[1], all, 3, k);
+                if (C.sat) for (let k = 0; k < 3; k++) { const v = bilinearIf(C.sat, C.w, C.h, qc[0], qc[1], okSat, 3, k); if (v === v) rgb[3 * c + k] = v; else bare[c] = 1; }
             }
             T[c] = lastT - 0.0065 * d; P[c] = lastP;
         }
         if ((j & 63) === 63) progress?.(j / N);
     }
+    if (C?.sat) nearestFill(rgb, bare, N);
     return { h, amp, ocean, lakeP, T, P, rgb };
+}
+
+/** Each `bare` cell takes the colour of the nearest cell that has one (a breadth-first spread). */
+function nearestFill(rgb, bare, N) {
+    const n = N * N, q = new Int32Array(n);
+    let a = 0, b = 0;
+    for (let c = 0; c < n; c++) if (!bare[c]) q[b++] = c;
+    if (!b) return;
+    while (a < b) {
+        const c = q[a++], i = c % N;
+        for (const d of [i > 0 ? -1 : 0, i < N - 1 ? 1 : 0, c >= N ? -N : 0, c < n - N ? N : 0]) {
+            const e = c + d;
+            if (!d || !bare[e]) continue;
+            bare[e] = 0; rgb[3 * e] = rgb[3 * c]; rgb[3 * e + 1] = rgb[3 * c + 1]; rgb[3 * e + 2] = rgb[3 * c + 2]; q[b++] = e;
+        }
+    }
 }
 
 /**

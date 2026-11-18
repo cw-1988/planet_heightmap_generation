@@ -1,42 +1,59 @@
-// Region pick (fork addition): choose pieces on the planet and open them as a region. Region on: a click on the planet
-// (not a drag) takes a piece in or out; the chosen ones are tinted. The region's box is the pieces' extent with the
-// Border round it (the land around them, simulated too, for what lies at their edges: passes, rivers coming in, the
-// neighbours); what lies in the box beyond the border shows greyed. Open builds it in a worker
+// Region pick (fork addition): choose valleys on the planet and open them as a region. The land is cut along its natural
+// borders, divides, rivers and coasts (region-basin.js), at a chosen valley size. Region on: the valley under the
+// pointer is lightened, and a click (not a drag) takes it in or out; the chosen ones are tinted. The region's box is
+// their extent with the Border round it (the land around them, simulated too, for what lies at their edges: passes,
+// rivers coming in, the neighbours); what lies in the box beyond the border shows greyed. Open builds it in a worker
 // (v2/js/region/region-worker.js) and shows it flat (region-view.js).
 import { regionFrame, placeAt, xyOf, cropPlanet, cropBuffers } from '../v2/js/region/region-frame.js';
 import { regionWindow } from '../v2/js/region/region-view.js';
+import { valleysOf } from './region-basin.js';
 
-/** The pieces chosen (ids), for the planet's tint (generate-plates.js drawPlateLines). */
-export const chosenPieces = new Set();
+/** The valleys chosen, for the planet's tint (generate-plates.js drawPlateLines): ids, the partition (unit per cell,
+ *  cells per unit), the tint's masks, the valley under the pointer (hover). */
+export const regionChosen = { ids: new Set(), unit: null, cells: null, masks: new Map(), hover: -1, world: null, size: 0 };
 const D = Math.PI / 180, KM_MIN = 200, KM_MAX = 6000;
+// (km²; region-basin.js keeps a valley at least a dozen of the planet's cells, so its shape follows the land at any detail)
+const SIZES = [['small', 30000], ['medium', 150000], ['large', 600000]];
 
 /** The bar and its clicks. Hooks: world() the world shown, changed() the planet drawn again. */
 export function mountRegionPick(pv, hooks) {
     const bar = document.createElement('div');
     bar.className = 'terrain-tools region-pick';
-    bar.innerHTML = '<button data-on aria-pressed="false" title="Choose pieces on the planet and open them as a region">Region</button>'
+    bar.innerHTML = '<button data-on aria-pressed="false" title="Choose valleys on the planet and open them as a region">Region</button>'
         + '<span class="region-more" hidden><span data-n></span>'
+        + `<label>Valleys <select data-k="size">${SIZES.map(([k, v], i) => `<option value="${v}"${i === 1 ? ' selected' : ''}>${k}</option>`).join('')}</select></label>`
         + '<label>Border <input type="range" data-k="border" min="50" max="400" step="10" value="150"><output>150 km</output></label>'
         + '<label>Detail <select data-k="n"><option value="1024" selected>1024</option><option value="2048">2048</option></select></label>'
         + '<button data-open disabled>Open</button><button data-clear disabled>Clear</button></span>';
     document.body.append(bar);
-    const $ = (s) => bar.querySelector(s), onBtn = $('[data-on]'), more = $('.region-more'), border = $('[data-k="border"]'), detail = $('[data-k="n"]');
-    const openBtn = $('[data-open]'), clearBtn = $('[data-clear]');
-    let on = false, open = null;
+    const $ = (s) => bar.querySelector(s), onBtn = $('[data-on]'), more = $('.region-more'), border = $('[data-k="border"]'), detail = $('[data-k="n"]'), size = $('[data-k="size"]');
+    const openBtn = $('[data-open]'), clearBtn = $('[data-clear]'), C = regionChosen;
+    let on = false, open = null, note = '';
 
+    /** The partition for this world and size (a new planet or size: the choice starts again). */
+    function valleys(w) {
+        if (!w?.fin?.drain) return null;
+        if (C.world !== w || C.size !== +size.value) {
+            const V = valleysOf(w, +size.value);
+            Object.assign(C, { unit: V.unit, cells: V.cells, masks: new Map(), hover: -1, world: w, size: +size.value });
+            C.ids.clear();
+        }
+        return C;
+    }
     function refresh() {
-        const w = hooks.world(), n = chosenPieces.size;
-        $('[data-n]').textContent = n ? `${n} piece${n > 1 ? 's' : ''}` : 'Click pieces on the planet';
+        const w = hooks.world(), V = valleys(w), n = C.ids.size;
+        $('[data-n]').textContent = note || (!w?.fin ? 'Wait for the planet to finish' : n ? `${n} valle${n > 1 ? 'ys' : 'y'}` : 'Click valleys on the planet');
+        note = '';
         border.nextElementSibling.textContent = `${border.value} km`;
-        const F = n && w ? frameOf(w) : null;
-        openBtn.disabled = !F || !w.fin || !!open;
+        const F = n && V ? frameOf(w) : null;
+        openBtn.disabled = !F || !!open;
         openBtn.textContent = F ? `Open ${Math.round(F.km)} km · ${Math.round(F.cellKm * 1000)} m` : 'Open';
-        openBtn.title = w && !w.fin ? 'Wait for the planet to finish' : '';
         clearBtn.disabled = !n;
         hooks.changed();
     }
     function setOn(v) {
         on = v; onBtn.setAttribute('aria-pressed', String(on)); more.hidden = !on;
+        if (!on && C.hover >= 0) C.hover = -1;
         // (the terrain brushes would take the click: back to Look)
         if (on) document.querySelector('.terrain-tools:not(.region-pick) [data-tool="look"]')?.click();
         refresh();
@@ -45,33 +62,40 @@ export function mountRegionPick(pv, hooks) {
     document.addEventListener('click', (e) => { if (on && e.target.closest('.terrain-tools:not(.region-pick) [data-tool]:not([data-tool="look"])')) setOn(false); });
     border.addEventListener('input', refresh);
     detail.addEventListener('change', refresh);
-    clearBtn.addEventListener('click', () => { chosenPieces.clear(); refresh(); });
+    size.addEventListener('change', refresh);
+    clearBtn.addEventListener('click', () => { C.ids.clear(); refresh(); });
     openBtn.addEventListener('click', () => build(hooks.world()));
     bar.addEventListener('pointerenter', () => { if (on) refresh(); });       // (the planet may have finished since)
 
-    // a click on the planet (a drag still turns it): the piece under it in or out
+    // the valley under the pointer; a click on the planet (a drag still turns it) takes it in or out
     const onPlanet = (t) => pv.ui.canvas.contains(t) || pv.ui.map.contains(t) || t === pv.globe?.controls?.domElement;
+    const unitUnder = (e, w) => { const p = pv.placeUnder(e); return p ? C.unit[pv.cellUnder(w.tMesh, p)] : -2; };
     let down = null;
+    addEventListener('pointermove', (e) => {
+        const w = hooks.world();
+        if (!on || down || !valleys(w)) return;
+        const u = onPlanet(e.target) ? unitUnder(e, w) : -1;
+        if (u !== C.hover) { C.hover = Math.max(-1, u); hooks.changed(); }
+    }, true);
     addEventListener('pointerdown', (e) => { down = on && e.button === 0 && !e.ctrlKey && !e.metaKey && onPlanet(e.target) ? { x: e.clientX, y: e.clientY } : null; }, true);
     addEventListener('pointerup', (e) => {
         if (!down) return;
         const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y) >= 6, w = hooks.world();
         down = null;
-        const p = !moved && w ? pv.placeUnder(e) : null;
-        if (!p) return;
-        const id = w.r_plate[pv.cellUnder(w.tMesh, p)];
-        // (a region is land: a sea piece is raised first — Ctrl-click and Rebuild — then chosen)
-        if (w.plateIsOcean.has(id) && !chosenPieces.has(id)) { $('[data-n]').textContent = 'That piece is sea: choose land'; return; }
-        if (chosenPieces.has(id)) chosenPieces.delete(id); else chosenPieces.add(id);
+        if (moved) return;
+        if (!valleys(w)) { refresh(); return; }
+        const u = unitUnder(e, w);
+        if (u === -2) return;
+        if (u === -1) note = 'That is sea: choose land';
+        else if (C.ids.has(u)) C.ids.delete(u); else C.ids.add(u);
         refresh();
     }, true);
 
-    /** The box: centred on the chosen pieces, as wide as they reach from there plus the border each side. */
+    /** The box: centred on the chosen valleys, as wide as they reach from there plus the border each side. */
     function frameOf(w) {
-        for (const id of chosenPieces) if (w.plateIsOcean.has(id)) chosenPieces.delete(id);     // (sunk since it was chosen)
-        const { xyz } = w.tMesh, rp = w.r_plate, cells = [];
+        const { xyz } = w.tMesh, cells = [];
         let sx = 0, sy = 0, sz = 0;
-        for (let r = 0; r < rp.length; r++) if (chosenPieces.has(rp[r])) { cells.push(r); sx += xyz[3 * r]; sy += xyz[3 * r + 1]; sz += xyz[3 * r + 2]; }
+        for (const id of C.ids) for (const r of C.cells.get(id) ?? []) { cells.push(r); sx += xyz[3 * r]; sy += xyz[3 * r + 1]; sz += xyz[3 * r + 2]; }
         const len = Math.hypot(sx, sy, sz);
         if (!cells.length || len < 1e-9) return null;
         const F0 = regionFrame(Math.asin(sz / len) / D, Math.atan2(sy, sx) / D, 1, 1), q = [0, 0];
@@ -86,7 +110,7 @@ export function mountRegionPick(pv, hooks) {
     }
 
     function build(w) {
-        const F = w?.fin && frameOf(w);
+        const F = w?.fin && valleys(w) && frameOf(w);
         if (!F || open) return;
         const mask = maskOf(w, F, +border.value), crop = cropPlanet(w.fin, F);
         const seed = [...String(w.seed)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7) ^ 0x52e6;
@@ -95,26 +119,28 @@ export function mountRegionPick(pv, hooks) {
         open = win; refresh();
         win.stage('Cutting the region from the planet');
         worker.onmessage = ({ data }) => {
-            if (data.done) { worker.terminate(); console.info(`[region] built ${F.n}² in ${data.done.ms} ms`); win.show(data.done, mask); }
+            if (data.done) { worker.terminate(); console.info(`[region] built ${F.n}² in ${data.done.ms} ms (the planet drawn again: ${data.done.msGen} ms)`); win.show(data.done, mask); }
             else win.stage(data.stage, data.f);
         };
         worker.onerror = (e) => { win.stage(`The region failed: ${e.message}`); console.error(e); };
-        worker.postMessage({ frame: F, crop, seed }, cropBuffers(crop));
+        // (the planet's generator, drawn again at the region's detail: region-synth.js)
+        const J = w.finishJob, synth = J?.frame ? { job: { frame: J.frame, simMesh: J.simMesh, seed: J.seed, terrain: J.terrain, relief: J.relief, frontKm: J.frontKm }, planetEdgeKm: w.tMesh.edgeKm } : null;
+        worker.postMessage({ frame: F, crop, seed, synth }, cropBuffers(crop));
     }
     refresh();
 }
 
 /**
- * Which part of the box each place is in, on a grid a quarter of the region's: 2 in a chosen piece, 1 within the border
- * of one, 0 beyond. { m, on, at(i, j) } with (i, j) the region's cells.
+ * Which part of the box each place is in, on a grid a quarter of the region's: 2 in a chosen valley, 1 within the
+ * border of one, 0 beyond. { m, on, at(i, j), beyond(i, j) } with (i, j) the region's cells.
  */
 function maskOf(w, F, borderKm) {
     const m = F.n >> 2, on = new Uint8Array(m * m), dist = new Float32Array(m * m), ll = [0, 0], { index } = w.tMesh, cell = F.km / m;
+    const { unit, ids } = regionChosen;
     for (let j = 0; j < m; j++) for (let i = 0; i < m; i++) {
         placeAt(F, (i + 0.5) * cell - F.km / 2, F.km / 2 - (j + 0.5) * cell, ll);
         const la = ll[0] * D, lo = ll[1] * D, cl = Math.cos(la);
-        const inside = chosenPieces.has(w.r_plate[index.nearest(cl * Math.cos(lo), cl * Math.sin(lo), Math.sin(la))]);
-        dist[j * m + i] = inside ? 0 : Infinity;
+        dist[j * m + i] = ids.has(unit[index.nearest(cl * Math.cos(lo), cl * Math.sin(lo), Math.sin(la))]) ? 0 : Infinity;
     }
     // (the distance to the nearest chosen place: a chamfer pass down and one back up, in cells)
     const S = Math.SQRT2;

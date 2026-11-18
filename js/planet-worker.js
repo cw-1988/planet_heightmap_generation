@@ -18,7 +18,7 @@ import { buildPresentPlates, classifyBoundaries, arrowAnchors, cellLandNow, moti
 import { presentLayout } from '../v2/js/present/layout.js';
 import { presentWorld, presentTerrainMesh, presentGroundOf, presentTerrainOverrides, uneditedLayout } from '../v2/js/present/world.js';
 import { storyFrame, finishFrame } from '../v2/js/present/layers.js';
-import { finishConfigOf, finishOverrides } from '../v2/js/present/knobs.js';
+import { finishConfigOf, finishOverrides, reliefShareOf } from '../v2/js/present/knobs.js';
 import { hillshade } from '../v2/js/view/terrain-shade.js';
 import { buildSimMesh } from '../v2/js/core/sim-mesh.js';
 import { plainCarveInputs } from '../v2/js/terrain/synthesize.js';
@@ -155,7 +155,9 @@ function sharedPayload(present, mesh, r_xyz, seed) {
         mesh: { numCells: tm.numCells, xyz: copy(tm.xyz), adjOffset: copy(tm.adjOffset), adjList: copy(tm.adjList) },
         heightKm: copy(w.heightKm), shade: copy(w.shade), story, regionCell: copy(present.regionCell),
         finish: { frame, simMesh: { numCells: sim.numCells, xyz: copy(sim.xyz), adjOffset: copy(sim.adjOffset), adjList: copy(sim.adjList) }, seed, surface,
-            terrain: presentTerrainOverrides({ knobs: present.knobs }), finish: finishOverrides(present.knobs ?? {}) },
+            terrain: presentTerrainOverrides({ knobs: present.knobs }), finish: finishOverrides(present.knobs ?? {}),
+            // (and for a region, drawn again finer: the fine relief's share and the fronts its ridges follow — region-synth.js)
+            relief: reliefShareOf(present.knobs ?? {}), frontKm: w.frontKm ? copy(w.frontKm) : null },
     };
     return { payload, transfer };
 }

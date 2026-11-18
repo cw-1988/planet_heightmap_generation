@@ -167,14 +167,14 @@ const MASK_W = 4096;                                  // (the masks' grid: ~10 k
 const EDIT_TINT = { raise: [70, 230, 110], sink: [30, 100, 255], hover: [255, 255, 255], region: [235, 60, 210] };
 const EDIT_ALPHA = { pending: 0.38, hover: 0.22 };
 
-/** A piece's mask: its box on the MASK_W grid (x0 may be negative, x1 past the edge: a piece across the date line) and,
+/** A piece's mask (or, with `src` { unit, cells, masks }, another partition's: region-pick.js's valleys): its box on the MASK_W grid (x0 may be negative, x1 past the edge: a piece across the date line) and,
  *  per pixel of the box, whether it is the piece's. Kept on the world. */
-function pieceMask(w, id) {
-    const masks = (w._masks ??= new Map());
+function pieceMask(w, id, src = null) {
+    const masks = src ? src.masks : (w._masks ??= new Map());
     if (masks.has(id)) return masks.get(id);
-    const regs = piecesOf(w).get(id);
+    const regs = src ? src.cells.get(id) : piecesOf(w).get(id);
     if (!regs) { masks.set(id, null); return null; }
-    const { xyz, index, numCells } = w.tMesh, H = MASK_W >> 1, rp = w.r_plate, TAU = 2 * Math.PI;
+    const { xyz, index, numCells } = w.tMesh, H = MASK_W >> 1, rp = src ? src.unit : w.r_plate, TAU = 2 * Math.PI;
     // (its longitudes, unwrapped from the widest gap between them; its latitudes; a margin of two cells round them)
     const lons = new Float64Array(regs.length);
     let lat0 = Infinity, lat1 = -Infinity;
@@ -220,8 +220,8 @@ function maskCanvas(m, rgb) {
 }
 
 /** A piece tinted on the picture (W px wide), its ground showing through. */
-function tintPiece(ctx, w, id, W, rgb, alpha) {
-    const m = pieceMask(w, id);
+function tintPiece(ctx, w, id, W, rgb, alpha, src = null) {
+    const m = pieceMask(w, id, src);
     if (!m) return;
     const c = maskCanvas(m, rgb), s = W / MASK_W, x = m.x0 * s, y = m.y0 * s, cw = m.bw * s, ch = m.bh * s;
     ctx.save(); ctx.globalAlpha = alpha; ctx.imageSmoothingEnabled = true;
@@ -246,7 +246,11 @@ export function drawPlateLines(ctx, W, view, w, { pending, hovered, chosen }) {
         }
         ctx.stroke(); ctx.restore();
     }
-    for (const id of chosen ?? []) tintPiece(ctx, w, id, W, EDIT_TINT.region, EDIT_ALPHA.pending);      // (region-pick.js)
+    // (region-pick.js: the valleys chosen, as { ids, unit, cells, masks } — a mask per valley, like a piece's)
+    if (chosen?.unit && chosen.world === w) {
+        for (const id of chosen.ids) tintPiece(ctx, w, id, W, EDIT_TINT.region, EDIT_ALPHA.pending, chosen);
+        if (chosen.hover >= 0) tintPiece(ctx, w, chosen.hover, W, EDIT_TINT.hover, EDIT_ALPHA.hover, chosen);
+    }
     for (const id of pending) tintPiece(ctx, w, id, W, w.plateIsOcean.has(id) ? EDIT_TINT.raise : EDIT_TINT.sink, EDIT_ALPHA.pending);
     if (hovered >= 0) tintPiece(ctx, w, hovered, W, EDIT_TINT.hover, EDIT_ALPHA.hover);
 }

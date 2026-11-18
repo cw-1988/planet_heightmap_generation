@@ -27,7 +27,7 @@ import { plateColors, platesLegendHTML, INSPECT, inspectColors, drawPlateLines, 
 import { state } from './state.js';
 import { mountEditTools } from './edit-tools.js';
 import { mountCityRing } from './city-ring.js';
-import { mountRegionPick, chosenPieces } from './region-pick.js';
+import { mountRegionPick, regionChosen } from './region-pick.js';
 import { store, sliderTooltip, detailWarning, redrawFoldedSliders, sidePanel, buildOverlay, tutorial } from './page-chrome.js';
 
 setDelaunator(Delaunator);
@@ -46,8 +46,8 @@ const inspectEl = $('debugLayer');
 const pv = new PlanetView({ isTouch: IS_TOUCH, gpu: new URLSearchParams(location.search).get('gpu') !== '0', paletteKey: 'orogen.generate.palette',
     band: { below: document.getElementById('info'), gap: 24 },
     onChange: viewChanged, alive: (fin) => fin === world?.fin,
-    extraLines: (ctx, W, view) => drawPlateLines(ctx, W, view, world, { pending, hovered: hoveredPiece, chosen: chosenPieces }),
-    extraLinesKey: (view) => `${world?.version ?? 0}|${view.layer === 'plates'}|${[...pending].join(',')}|${hoveredPiece}|${[...chosenPieces].join(',')}`,
+    extraLines: (ctx, W, view) => drawPlateLines(ctx, W, view, world, { pending, hovered: hoveredPiece, chosen: regionChosen }),
+    extraLinesKey: (view) => `${world?.version ?? 0}|${view.layer === 'plates'}|${[...pending].join(',')}|${hoveredPiece}|${regionChosen.size}:${[...regionChosen.ids].join(',')}:${regionChosen.hover}`,
     infoText: (mode) => (IS_TOUCH ? 'Drag to rotate · Pinch to zoom · Use edit button to reshape' : `Drag to ${mode === 'map' ? 'move the map' : 'rotate'} · Scroll to zoom · Ctrl-click (⌘-click on a Mac) to reshape continents`) });
 const view = pv.view;
 if (IS_TOUCH) $('info').textContent = 'Drag to rotate · Pinch to zoom · Use edit button to reshape';
@@ -148,7 +148,7 @@ async function finish(w) {
     try {
         const res = await finisher.finish({ ...job, mesh: w.meshArrays, cells: w.n, width: finishWidth(w.n), climateOptions: climateOptions() }, { onStage, onProgress, keep: false });
         if (world !== w) return;
-        w.fin = { cells: w.n, raster: res.raster, rivers: res.rivers, climate: res.climate, stats: res.stats };
+        w.fin = { cells: w.n, raster: res.raster, rivers: res.rivers, drain: res.drain, climate: res.climate, stats: res.stats };
         w.climateKey = `${$('sTmp').value}|${$('sPrc').value}`;
         console.info(`[generate] finished in ${((performance.now() - started) / 1000).toFixed(1)} s`, Object.fromEntries(Object.entries(res.ms).map(([k, v]) => [k, +(v / 1000).toFixed(2)])));
     } catch (err) {
