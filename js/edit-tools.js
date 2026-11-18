@@ -42,8 +42,20 @@ export function mountEditTools(pv, hooks) {
     addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.target.closest?.('input, textarea')) { e.preventDefault(); undo(); } });
 
     const onPlanet = (t) => pv.ui.canvas.contains(t) || pv.ui.map.contains(t) || t === controls?.domElement;
-    const marks = mountMarks(pv);    let drag = null;
-    addEventListener('pointerout', (e) => { if (!drag && !e.relatedTarget) marks.clear(); }, true);
+    const marks = mountMarks(pv);
+    let drag = null, lastPt = null;
+    addEventListener('pointerout', (e) => { if (!drag && !e.relatedTarget) { marks.clear(); lastPt = null; } }, true);
+    // (Ctrl+wheel over the planet: the brush's size, 15 % a notch, instead of the zoom or the browser's page zoom)
+    addEventListener('wheel', (e) => {
+        if (!(e.ctrlKey || e.metaKey) || ed.tool === 'look' || ed.tool === 'split' || !onPlanet(e.target)) return;
+        e.preventDefault(); e.stopPropagation();
+        const notch = Math.max(-3, Math.min(3, e.deltaY / (e.deltaMode ? 3 : 100)));
+        // (at least one 10 km step, so small brushes still change; a stroke under way keeps its size)
+        const was = +size.value, to = Math.round(was * Math.pow(1.15, -notch) / 10) * 10;
+        size.value = String(to !== was ? to : was + (notch < 0 ? 10 : -10));
+        size.dispatchEvent(new Event('input'));
+        if (lastPt) marks.ring(lastPt, +size.value);
+    }, { capture: true, passive: false });
     const stampAt = (pt) => {
         const s = drag.stroke, w = hooks.world();
         s.stamps.push(pt);
@@ -76,7 +88,7 @@ export function mountEditTools(pv, hooks) {
         // (the marks: the brush's ring at the pointer, the split's line while dragged)
         if (!p) { if (!drag) marks.clear(); }
         else if (ed.tool === 'split') { if (drag) marks.cut(drag.a, pointAt(p)); else marks.clear(); }
-        else marks.ring(pointAt(p), +size.value);
+        else marks.ring(lastPt = pointAt(p), +size.value);
         if (!drag) return;
         e.stopPropagation();
         if (!drag.stroke || !p) return;
