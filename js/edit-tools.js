@@ -3,9 +3,11 @@
 //   (and again after every Rebuild, Reapply or plate edit); a ring shows the brush's size at the pointer.
 //   Split: Ctrl-click the pieces, then drag a line across them; each selected piece the line divides becomes two,
 //   each flooded or raised on its own. Undo (Ctrl+Z) takes back the last stroke or split.
-//   While a tool is on, the left button belongs to it; the right button still turns the globe.
+//   While a tool is on, the left button belongs to it; the right button still turns the globe. The tools are the
+//   Terrain tab's alone: the bar hides on every other layer.
 import { applyStroke, pointAt, arcKm } from './terrain-brush.js';
-import { mountMarks } from './edit-marks.js';
+import { mountMarks, viewKey } from './edit-marks.js';
+import { stepByWheel } from '../v2/js/view/wheel-step.js';
 
 const TOOLS = [['look', 'Look'], ['raise', 'Raise'], ['lower', 'Lower'], ['smooth', 'Smooth'], ['flatten', 'Flatten'], ['split', 'Split']];
 
@@ -53,11 +55,13 @@ export function mountEditTools(pv, hooks) {
     }
     // (each frame the view moves — a zoom easing in, a turn gliding on — the marks follow, so the ring stays under the
     // pointer and grows and shrinks with the zoom; a new Size eases in the same way)
-    const viewKey = () => { const c = pv.globe.camera.position, m = pv.globe.mapView; return `${pv.view.mode} ${c.x} ${c.y} ${c.z} ${m?.zoom} ${m?.panX} ${m?.panY}`; };
+    // (the tools are the Terrain tab's: on any other layer the bar hides and Look takes over)
     (function tick() {
         requestAnimationFrame(tick);
+        const onTerrain = pv.view.layer === 'terrain';
+        if (onTerrain === bar.hidden) { bar.hidden = !onTerrain; if (!onTerrain) { pick('look'); drag = null; at = null; } }
         if (ed.tool === 'look' || !at) return;
-        const goal = +size.value, easing = Math.abs(goal - shownKm) > 0.5, key = viewKey();
+        const goal = +size.value, easing = Math.abs(goal - shownKm) > 0.5, key = viewKey(pv);
         shownKm = easing ? shownKm + (goal - shownKm) * 0.25 : goal;
         if (easing || key !== seen) { seen = key; drawMarks(); }
     })();
@@ -67,11 +71,7 @@ export function mountEditTools(pv, hooks) {
         const input = e.shiftKey ? size : e.altKey ? str : null;
         if (!input || e.ctrlKey || e.metaKey || ed.tool === 'look' || ed.tool === 'split' || !onPlanet(e.target)) return;
         e.preventDefault(); e.stopPropagation();
-        const notch = Math.max(-3, Math.min(3, (e.deltaY || e.deltaX) / (e.deltaMode ? 3 : 100)));
-        // (at least one step, so small values still change; a stroke under way keeps its own)
-        const step = +input.step || 1, was = +input.value, to = Math.round(was * Math.pow(1.15, notch) / step) * step;
-        input.value = String(to !== was ? to : was + Math.sign(notch) * step);
-        input.dispatchEvent(new Event('input'));
+        stepByWheel(input, e);      // (a stroke under way keeps its own)
     }, { capture: true, passive: false });
     const stampAt = (pt) => {
         const s = drag.stroke, w = hooks.world();

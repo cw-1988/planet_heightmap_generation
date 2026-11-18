@@ -26,6 +26,7 @@ import { presentCrustLine } from './present-crust.js';
 import { plateColors, platesLegendHTML, INSPECT, inspectColors, drawPlateLines, platesMap } from './generate-plates.js';
 import { state } from './state.js';
 import { mountEditTools } from './edit-tools.js';
+import { mountCityRing } from './city-ring.js';
 import { store, sliderTooltip, detailWarning, redrawFoldedSliders, sidePanel, buildOverlay, tutorial } from './page-chrome.js';
 
 setDelaunator(Delaunator);
@@ -287,6 +288,7 @@ const tools = mountEditTools(pv, {
         generate(world.seed, t, true);
     },
 });
+mountCityRing(pv);
 $('editToggle')?.addEventListener('click', () => { state.editMode = !state.editMode; $('editToggle').classList.toggle('active', state.editMode); $('editToggle').setAttribute('aria-pressed', String(state.editMode)); if (!state.editMode) setHovered(-1); });
 
 // ── the sliders: their values, the stale build button, Reapply, the climate ──

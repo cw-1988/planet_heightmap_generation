@@ -517,6 +517,14 @@ body:has(#helpBtn) { --bar-help: 64px; }
 .layer-subbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
 .layer-subbar[hidden], .layer-subbar [hidden] { display: none; }
 .layer-subbar .map-tab { padding: 5px 12px; font-size: 12px; }
+/* (the City size view's reach: fork addition) */
+.layer-subbar .city-reach {
+    display: flex; align-items: center; gap: 6px; min-height: 38px; padding: 0 12px; font: 500 13px/1 var(--font-ui); color: var(--ink);
+    background-color: color-mix(in srgb, var(--bg) 96%, transparent); border: var(--line-hair) solid var(--rule); border-radius: var(--radius-md); box-shadow: var(--shadow-card);
+}
+.layer-subbar .city-reach[hidden] { display: none; }
+.layer-subbar .city-reach input { width: 110px; }
+.layer-subbar .city-reach output { min-width: 56px; }
 .layer-subbar select {
     background-color: color-mix(in srgb, var(--bg) 96%, transparent); color: var(--ink); border: var(--line-hair) solid var(--rule); border-radius: var(--radius-md);
     min-height: 38px; padding: 0 28px 0 12px; font: 500 13px/1 var(--font-ui); width: auto; box-shadow: var(--shadow-card);
@@ -1241,6 +1249,7 @@ body.edits-pending #hoverInfo { bottom: 112px; }
     background: var(--surface); border: var(--line-hair) solid var(--rule); border-radius: var(--radius-full); box-shadow: var(--shadow-card);
     font: 500 13px/1 var(--font-ui);
 }
+.terrain-tools[hidden] { display: none; }
 .terrain-tools button { min-height: var(--size-touch); padding: 0 12px; border-radius: var(--radius-full); border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
 .terrain-tools button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
 .terrain-tools button:disabled { opacity: 0.4; cursor: default; }

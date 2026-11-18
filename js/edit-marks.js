@@ -13,6 +13,9 @@ const arc = (n, a, to, steps) => {
     return out;
 };
 
+/** Where the view stands (globe or map, the camera, the map's zoom and pan): the marks are drawn again when it changes. */
+export const viewKey = (pv) => { const c = pv.globe.camera.position, m = pv.globe.mapView; return `${pv.view.mode} ${c.x} ${c.y} ${c.z} ${m?.zoom} ${m?.panX} ${m?.panY}`; };
+
 export function mountMarks(pv) {
     const svg = document.createElementNS(NS, 'svg');
     svg.setAttribute('class', 'terrain-marks');

@@ -120,6 +120,11 @@ land allows, not what its people must do.
   farming or herding would feed ten times as many, so rich coasts can stay theirs, as the Pacific Northwest's did.
 - **People**: how many the land could feed before industry, each place by its way of life: poor ground farmed in long
   fallows, so a rainforest feeds a few a km², and gatherers a tenth to a few a km².
+- **City size** (`v2/js/evolution/city-view.js`): how many people the land within the Reach (5–1000 km, the slider
+  under the tabs, or Shift+wheel over the planet: 15 % a notch, wheel down for more) could feed, so the biggest town a
+  place could hold. It is a heat map on a log scale from the richest place down ten-thousandfold. A ring of the reach
+  follows the pointer on the Generate page (`js/city-ring.js`). It is summed over the sphere's true distances from the
+  People grid, coarsened so a cell is no finer than a sixth of the reach.
 - **Soil** and **Growing season** show what lies behind it.
 
 ## Export

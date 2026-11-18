@@ -21,6 +21,7 @@ import { cloudFields, cloudStorms } from './clouds.js';
 import { paintFinished, paintWindow, riverPaths, drawRivers, drawRiversWindow, riverAt, finishedAt, REGIME_STYLE, riverYearWords } from '../evolution/finish-view.js';
 import { DetailService, DetailTiles, TileLayers, SLOT } from '../evolution/detail-view.js';
 import { GEOLOGY_LAYERS, finishedGeologyColor, geologyLegendHTML, geologyLines, rockAt, rockLine, recAt, depositLines, ageLines, districtLines } from '../evolution/geology-view.js';
+import { stepByWheel } from './wheel-step.js';
 import { FARMING_LAYERS, finishedFarmingColor, farmingLegendHTML, farmingLines, farmChipClicked, farmOptionsKey } from '../evolution/farming-view.js';
 import { initViewStrip, initProjectionPicker } from '../../../js/view-strip.js';
 import { LayerBar } from './layer-bar.js';
@@ -115,6 +116,12 @@ export class PlanetView {
         this.bar = new LayerBar(view, { onLayer: () => changed('layer'), onPick: () => changed('view') });
         // (the Food legend's chips: a technique on or off, the classes or the ramp, the season watered or not — at once)
         $('climateLegend').addEventListener('click', e => { if (farmChipClicked(e.target)) changed('farm'); });
+        // (the City size view: Shift+scroll over the planet sets its reach instead of zooming — as the edit tools' brush)
+        addEventListener('wheel', e => {
+            if (view.layer !== 'farmCity' || !e.shiftKey || e.ctrlKey || e.metaKey || !(this.ui.canvas.contains(e.target) || this.ui.map.contains(e.target))) return;
+            e.preventDefault(); e.stopPropagation();
+            stepByWheel(this.bar.reach, e);
+        }, { capture: true, passive: false });
         $('chkWater').addEventListener('change', e => { view.water = e.target.checked; changed('water'); });
         $('riverDensity').addEventListener('change', e => { view.riverQ = Number(e.target.value); changed('view'); });
         $('chkRegime').addEventListener('change', e => { view.byRegime = e.target.checked; changed('regime'); });

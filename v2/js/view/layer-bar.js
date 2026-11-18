@@ -10,7 +10,8 @@ import { DEPOSITS, METALS } from '../geology/deposits.js';
 import { AGES } from '../geology/ages.js';
 import { CLIMATE_LAYERS, SEASONAL_LAYERS, FINISHED_ONLY_LAYERS } from '../evolution/climate-view.js';
 import { GEOLOGY_LAYERS } from '../evolution/geology-view.js';
-import { FARMING_LAYERS } from '../evolution/farming-view.js';
+import { FARMING_LAYERS, farmOptions } from '../evolution/farming-view.js';
+import { CITY_REACH } from '../evolution/city-view.js';
 
 /** Every climate layer but Satellite, which comes with detail: the main five as tabs, the rest under More. */
 export const CLIMATE_SUB = new Set([...CLIMATE_LAYERS].filter(l => !FINISHED_ONLY_LAYERS.has(l)));
@@ -125,10 +126,13 @@ export function mountLayerBar({ comes = 'Comes with Add detail', platesTip = '',
                 <button class="map-tab" data-layer="farmStaple" title="What each place would live on most — paddy grains, cool-season grains, warm-season grains, roots and tubers, livestock, fish or wild foods — paler where it feeds less well, striped where a second does nearly as well. The legend's chips show one alone">Staple food</button>
                 <button class="map-tab" data-layer="farmLife" title="How each place's people would live — farming, herding or gathering (hunting, fishing and gathering: gatherers keep to their way unless farming or herding would feed ten times as many) — striped where a second does nearly as well. The legend's chips show how many each could feed, alone">Lifestyle</button>
                 <button class="map-tab" data-layer="farmPeople" title="How many people the land could feed, pre-industrial, with the farming techniques chosen, each place by its way of life — a tenth to a few a km² where gatherers live, a few on herders' pasture and in the rainforests (their poor ground farmed in long fallows), over a hundred a km² on the richest river plains">People</button>
+                <button class="map-tab" data-layer="farmCity" title="How big a city each place could feed: the people the land within the reach could feed, summed — set the reach with its slider or Shift+scroll over the planet">City size</button>
                 <button class="map-tab" data-layer="farmSoil" title="How fertile the ground is: river silt and loess richest, then volcanic ash; black earth under grassland, leached red earth in the wet tropics, acid podzol under boreal forest">Soil</button>
                 <button class="map-tab" data-layer="farmSeason" title="The months crops grow: warm enough and wet enough — by rain alone, or watered">Growing season</button>
                 <span class="evo-beta">Beta</span>
             </div>
+            <label id="cityReach" class="city-reach" title="The City size view's reach: how far round a place its food could come from — Shift+scroll over the planet sets it too" hidden>Reach
+                <input type="range" min="${CITY_REACH.min}" max="${CITY_REACH.max}" step="${CITY_REACH.step}" value="${farmOptions.reach}"><output>${farmOptions.reach} km</output></label>
             <select id="season" aria-label="Season">
                 <option value="year" selected>Year</option>
                 <option value="jan">January</option>
@@ -143,7 +147,7 @@ export function mountLayerBar({ comes = 'Comes with Add detail', platesTip = '',
         <option value="plates">Plates</option>
         <optgroup label="Climate">${[['koppen', 'Köppen'], ['temperature', 'Temperature'], ['rain', 'Rain'], ['wind', 'Wind'], ['currents', 'Currents']].map(([v, l]) => opt(v, l)).join('')}</optgroup>
         <optgroup id="mobileGeology" label="Geology">${[['geoRocks', 'Rocks'], ['geoDeposits', 'Deposits'], ['geoAges', 'Ages']].map(([v, l]) => opt(v, l)).join('')}</optgroup>
-        <optgroup id="mobileFarming" label="Food">${[['farmLand', 'Farmland'], ['farmStaple', 'Staple food'], ['farmLife', 'Lifestyle'], ['farmPeople', 'People'], ['farmSoil', 'Soil'], ['farmSeason', 'Growing season']].map(([v, l]) => opt(v, l)).join('')}</optgroup>
+        <optgroup id="mobileFarming" label="Food">${[['farmLand', 'Farmland'], ['farmStaple', 'Staple food'], ['farmLife', 'Lifestyle'], ['farmPeople', 'People'], ['farmCity', 'City size'], ['farmSoil', 'Soil'], ['farmSeason', 'Growing season']].map(([v, l]) => opt(v, l)).join('')}</optgroup>
         <optgroup label="Climate: more">${CLIMATE_MORE.flatMap(([, list]) => list).map(([v, l]) => opt(v, l)).join('')}</optgroup>`;
     $('legendCard').innerHTML = '<div id="climateLegend" class="viz-legend"></div><div id="regimeLegend" class="evo-koppen evo-regime-legend" hidden></div>';
     // (the tabs say which is shown: aria-pressed, kept by LayerBar.setLayer)
@@ -176,6 +180,14 @@ export class LayerBar {
         // the Ages view: the age, then its resources (all, one alone, or its potential) — the legend's entries switch them too
         $('agePick').addEventListener('change', e => { view.age = e.target.value; view.ageRes = 'all'; this.fillAgeRes(); onPick(); });
         $('ageRes').addEventListener('change', e => { view.ageRes = e.target.value; onPick(); });
+        // the City size view's reach: its number at once, the map a moment after the slider or the wheel stops
+        const reach = $('cityReach').querySelector('input');
+        let redraw = 0;
+        reach.addEventListener('input', () => {
+            farmOptions.reach = +reach.value; reach.nextElementSibling.textContent = `${reach.value} km`;
+            clearTimeout(redraw); redraw = setTimeout(onPick, 120);
+        });
+        this.reach = reach;
         const pickAgeRes = el => { if (view.layer !== 'geoAges') return; view.ageRes = view.ageRes === el.dataset.ageRes ? 'all' : el.dataset.ageRes; $('ageRes').value = view.ageRes; onPick(); };
         $('climateLegend').addEventListener('click', e => { const el = e.target.closest('[data-age-res]'); if (el) pickAgeRes(el); });
         $('climateLegend').addEventListener('keydown', e => { const el = e.target.closest('[data-age-res]'); if (el && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); pickAgeRes(el); } });
@@ -214,6 +226,7 @@ export class LayerBar {
         $('season').hidden = !SEASONAL_LAYERS.has(layer);
         $('depositPick').hidden = layer !== 'geoDeposits';
         $('agePick').hidden = $('ageRes').hidden = layer !== 'geoAges';
+        $('cityReach').hidden = layer !== 'farmCity';
         this.onLayer(layer);
     }
 }
