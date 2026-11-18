@@ -41,8 +41,26 @@ export function mountEditTools(pv, hooks) {
 
     const onPlanet = (t) => pv.ui.canvas.contains(t) || pv.ui.map.contains(t) || t === controls?.domElement;
     const marks = mountMarks(pv);
-    let drag = null, lastPt = null;
-    addEventListener('pointerout', (e) => { if (!drag && !e.relatedTarget) { marks.clear(); lastPt = null; } }, true);
+    let drag = null, at = null, shownKm = +size.value, seen = '';
+    addEventListener('pointerout', (e) => { if (!drag && !e.relatedTarget) { marks.clear(); at = null; } }, true);
+    /** The marks at the pointer `at`: the brush's ring, or the split's line while dragged. The place under the pointer. */
+    function drawMarks() {
+        const p = at && hooks.world() ? pv.placeUnder(at) : null;
+        if (!p) { if (!drag) marks.clear(); return null; }
+        if (ed.tool === 'split') { if (drag) marks.cut(drag.a, pointAt(p)); else marks.clear(); }
+        else marks.ring(pointAt(p), shownKm);
+        return p;
+    }
+    // (each frame the view moves — a zoom easing in, a turn gliding on — the marks follow, so the ring stays under the
+    // pointer and grows and shrinks with the zoom; a new Size eases in the same way)
+    const viewKey = () => { const c = pv.globe.camera.position, m = pv.globe.mapView; return `${pv.view.mode} ${c.x} ${c.y} ${c.z} ${m?.zoom} ${m?.panX} ${m?.panY}`; };
+    (function tick() {
+        requestAnimationFrame(tick);
+        if (ed.tool === 'look' || !at) return;
+        const goal = +size.value, easing = Math.abs(goal - shownKm) > 0.5, key = viewKey();
+        shownKm = easing ? shownKm + (goal - shownKm) * 0.25 : goal;
+        if (easing || key !== seen) { seen = key; drawMarks(); }
+    })();
     // (Ctrl+wheel over the planet: the brush's size, 15 % a notch, instead of the zoom or the browser's page zoom)
     addEventListener('wheel', (e) => {
         if (!(e.ctrlKey || e.metaKey) || ed.tool === 'look' || ed.tool === 'split' || !onPlanet(e.target)) return;
@@ -52,7 +70,6 @@ export function mountEditTools(pv, hooks) {
         const was = +size.value, to = Math.round(was * Math.pow(1.15, -notch) / 10) * 10;
         size.value = String(to !== was ? to : was + (notch < 0 ? 10 : -10));
         size.dispatchEvent(new Event('input'));
-        if (lastPt) marks.ring(lastPt, +size.value);
     }, { capture: true, passive: false });
     const stampAt = (pt) => {
         const s = drag.stroke, w = hooks.world();
@@ -82,11 +99,8 @@ export function mountEditTools(pv, hooks) {
     }, true);
     addEventListener('pointermove', (e) => {
         if (ed.tool === 'look') return;
-        const p = (drag || onPlanet(e.target)) && hooks.world() ? pv.placeUnder(e) : null;
-        // (the marks: the brush's ring at the pointer, the split's line while dragged)
-        if (!p) { if (!drag) marks.clear(); }
-        else if (ed.tool === 'split') { if (drag) marks.cut(drag.a, pointAt(p)); else marks.clear(); }
-        else marks.ring(lastPt = pointAt(p), +size.value);
+        at = drag || onPlanet(e.target) ? { clientX: e.clientX, clientY: e.clientY } : null;
+        const p = drawMarks();
         if (!drag) return;
         e.stopPropagation();
         if (!drag.stroke || !p) return;
