@@ -3,7 +3,7 @@
 // On a window of a sharper picture each line bends by its meanders (river-meander.js) as the valley under it does — the
 // same waves, faded in by the same fade (pixel-fade.js) — so up close the drawn river winds in its own valley.
 
-import { riverParts, pushSegments, LINE, CHANNEL, channelKm } from '../finish/river-valleys.js';
+import { riverParts, pushSegments, LINE, CHANNEL, BED, bedKm } from '../finish/river-valleys.js';
 import { bendSegment, MEANDER_PAD_KM } from '../finish/river-meander.js';
 import { fadeFor } from '../finish/pixel-fade.js';
 
@@ -110,7 +110,7 @@ export function drawRivers(ctx, paths, byRegime = false, widthScale = 1) {
  * (0, 0) its pixel (x0, y0), w × h of them. Only the segments near the window are drawn (a grid of them, built once per
  * moment and q0) — so a tile of the zoomed-in view costs its own rivers, not the planet's — each line's dashes offset to
  * where the whole line's stand: windows side by side meet as one picture would. `widthScale` sets the hairline (the
- * caller's: the same on the screen at every zoom); a river whose channel is wider is drawn as wide as it is, over its
+ * caller's: the same on the screen at every zoom); a river whose bed is wider is drawn as wide as it is, over its
  * valley's floor.
  */
 export function drawRiversWindow(ctx, fin, q0, byRegime, W, x0, y0, w, h, widthScale = 1) {
@@ -124,12 +124,13 @@ export function drawRiversWindow(ctx, fin, q0, byRegime, W, x0, y0, w, h, widthS
     // (how far past the window a segment's middle may lie and still touch it: half the longest segment, half the widest
     // line, a pixel's anti-aliasing, the farthest a meander moves it (0.3: a latitude's narrower pixels) — in the
     // 2048-wide texture's px)
-    const m = S.maxLen / 2 + 0.5 * Math.max(STRENGTH_WIDTH[STRENGTH_WIDTH.length - 1] * widthScale, CHANNEL.widthMax / KM) + 2 / k + MEANDER_PAD_KM / (0.3 * KM);
+    const m = S.maxLen / 2 + 0.5 * Math.max(STRENGTH_WIDTH[STRENGTH_WIDTH.length - 1] * widthScale, BED * CHANNEL.widthMax / KM) + 2 / k + MEANDER_PAD_KM / (0.3 * KM);
     const ya = Math.max(0, Math.floor((y0 / k - m) / G.C)), yb = Math.min(G.GH - 1, Math.floor(((y0 + h) / k + m) / G.C));
-    // (a segment's width: its hairline, or its channel as wide as it is (river-valleys.js channelKm — the valley's floor)
-    // where that is wider, in steps of an eighth of an octave: a stroke each)
+    // (a segment's width: its hairline, or its bed as wide as it is (river-valleys.js bedKm — the valley's floor and the
+    // foot of its banks, eased flat: drawn at the channel alone, a smooth bare band showed either side of the line) where
+    // that is wider, in steps of an eighth of an octave: a stroke each)
     const widthOf = (i, hair) => {
-        const o = LINE * i, c = channelKm((S.g[o + 4] + S.g[o + 5]) / 2) / KM;
+        const o = LINE * i, c = bedKm((S.g[o + 4] + S.g[o + 5]) / 2) / KM;
         return c > hair ? hair * 2 ** (Math.round(8 * Math.log2(c / hair)) / 8) : hair;
     };
     ctx.save();
@@ -148,6 +149,8 @@ export function drawRiversWindow(ctx, fin, q0, byRegime, W, x0, y0, w, h, widthS
         for (const b of S.order) {
             const dash = riverStyle(ctx, S.buckets[b], byRegime, widthScale), period = dash ? (dash[0] + dash[1]) * widthScale : 0;
             const hair = STRENGTH_WIDTH[S.buckets[b].strength] * widthScale;
+            // (a bed drawn as wide as it is is water filling it: as solid as the strongest line, not a faint flow-map hairline)
+            const hairAlpha = ctx.globalAlpha, bedAlpha = hairAlpha / STRENGTH_ALPHA[S.buckets[b].strength] * STRENGTH_ALPHA[STRENGTH_ALPHA.length - 1];
             let last = -1, lw = -1, open = false;
             for (const i of near) {
                 if (S.bucket[i] !== b) continue;
@@ -157,7 +160,7 @@ export function drawRiversWindow(ctx, fin, q0, byRegime, W, x0, y0, w, h, widthS
                     // line's stand there (measured along the unbent line, so a meander's extra length shifts them a little
                     // between windows)
                     if (open) ctx.stroke();
-                    ctx.beginPath(); ctx.lineWidth = lw = wi; ctx.lineDashOffset = period ? S.along[i] % period : 0; open = true;
+                    ctx.beginPath(); ctx.lineWidth = lw = wi; ctx.globalAlpha = wi > hair ? bedAlpha : hairAlpha; ctx.lineDashOffset = period ? S.along[i] % period : 0; open = true;
                 }
                 line(i, 0, !on);
                 last = i;

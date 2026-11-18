@@ -15,6 +15,10 @@ const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a
  *  hairline (river-draw.js), and the valley's floor is the channel itself — so the line fills its bed at every zoom. */
 export const CHANNEL = { widthK: 0.006, widthMax: 3 };
 export const channelKm = q => Math.min(CHANNEL.widthMax, CHANNEL.widthK * Math.sqrt(Math.max(0, q)));
+/** The river's bed as drawn (km): BED channels wide — the floor and the foot of its banks, eased flat of the finer detail
+ *  and filled with the river's colour (river-draw.js), so no smooth bare band shows beside a thinner line. */
+export const BED = 2;
+export const bedKm = q => BED * channelKm(q);
 
 /** The valleys' tunables (km unless named; q the flow, m³/s). The floor's half-width is the channel's (channelKm / 2: a
  *  floor of ~1.3 km half-width for 1,000 m³/s left the drawn line a thread in a wide flat bed up close). */
@@ -149,7 +153,7 @@ export function cropLines(lines, { W, x0, y0, w, h }, mPx) {
  */
 export function carveValleys(D, lines, { hb, gE, gN, seaB, W, X0, Y0, ew, eh, pxKm, cosLa, fade }) {
     if (!lines || !lines.length) return;
-    const N = ew * eh, cut = new Float32Array(N), flat = new Float32Array(N), lev = new Float32Array(N), levW = new Float32Array(N), k = W / TEX_W, swing = meanderSwing(fade), mo = [0, 0];
+    const N = ew * eh, cut = new Float32Array(N), flat = new Float32Array(N), levS = new Float32Array(N), levN = new Float32Array(N), levW = new Float32Array(N), k = W / TEX_W, swing = meanderSwing(fade), mo = [0, 0];
     for (let s = 0; s < lines.length; s += LINE) {
         // (faded in by the flow where each pixel's nearest point is, below: by the segment's larger end, two segments meeting
         // faded unlike, and the deepest cut stepped across the valley at every point of the line — a fringe of spurs)
@@ -192,10 +196,10 @@ export function carveValleys(D, lines, { hb, gE, gN, seaB, W, X0, Y0, ew, eh, px
             const deep = v.d * (0.4 + 0.6 * smooth(0.005, 0.08, Math.hypot(gE[p], gN[p])));
             // (the wall rising from the bank at once, easing into the land at its rim, no hard edge: a smoothstep rose flat
             // from the bank, the floor within 1 m of its lowest ~800 m wide for a 190 m channel. The finer detail eased flat
-            // on the floor only, back by two channel widths past the bank: smoothed across the wall (0.5–2.2 km), it read as a
-            // broad smooth bed 5–7× the drawn line)
+            // across the bed alone (bedKm, which the river's colour fills), back to half at its edge: smoothed across the wall
+            // (0.5–2.2 km), it read as a broad smooth bed 5–7× the drawn line; eased back past the bed, a bare rim showed)
             const u = Math.min(1, Math.max(0, (dist - v.f) / (v.out - v.f))), inV = (1 - u) * (1 - u), c = fd * deep * inV;
-            const fl = 0.8 * fd * (1 - smooth(v.f, 3 * v.f, dist));
+            const fl = 0.8 * fd * (1 - smooth((BED - 0.5) * v.f, (BED + 0.5) * v.f, dist));
             if (c > cut[p]) cut[p] = c;
             if (fl > flat[p]) flat[p] = fl;
             // (the valley level across: ground below the line's height raised toward it by a bell about the line — where
@@ -203,14 +207,17 @@ export function carveValleys(D, lines, { hb, gE, gN, seaB, W, X0, Y0, ew, eh, px
             // uphill and the ground falling away below; eased with the wall alone it still fell below the floor 3–4 km
             // out; raised flat to the valley's edge and let go over 0.6 reaches, it made a flat bed with a rim falling
             // ~4× the picture's slope. Raised only: the uphill side keeps its hill; the nearest valley's level where two meet)
+            // (the height raised to blended over every segment by its weight: taken from the heaviest alone, it stepped a few
+            // metres where two segments tied — inside a bend, a fan of dark streaks off the line)
             const lw = fd * Math.exp(-((dist / (LEVEL.bell * v.out)) ** 2)) * (1 - smooth(0.8 * wide, wide, dist));
-            if (lw > levW[p]) { levW[p] = lw; lev[p] = Math.max(0, ha + t * (hb1 - ha) - hb[p]); }
+            if (lw > levW[p]) levW[p] = lw;
+            if (lw > 0) { levS[p] += lw * Math.max(0, ha + t * (hb1 - ha) - hb[p]); levN[p] += lw; }
         }
     }
     for (let p = 0; p < N; p++) {
         if (!(cut[p] > 0 || flat[p] > 0 || levW[p] > 0)) continue;
         const before = D[p];
-        let v = before * (1 - flat[p]) - cut[p] + levW[p] * lev[p];
+        let v = before * (1 - flat[p]) - cut[p] + (levN[p] > 0 ? levW[p] * levS[p] / levN[p] : 0);
         // (no new sea inland and no channel of sea up the river: the floor stays a few metres up)
         if (hb[p] + v < 0.003) v = Math.min(before, Math.max(v, 0.003 - hb[p]));
         D[p] = v;

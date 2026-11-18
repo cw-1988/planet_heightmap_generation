@@ -73,8 +73,12 @@ showed out at sea as a 2.8 m step along a straight line. This change also applie
   a bell 1.2 reaches wide about the line, gone by 2.5 reaches. A cut a set depth into a cross slope left the line on a
   shelf, with a wall uphill and the ground falling away below. Raised flat to the valley's edge (the first fix), it made
   a flat bed with a rim that fell about 4× the picture's slope.
-- Grain on the floor: the finer detail is eased flat only on the floor and two channel widths past the bank. Eased
-  across the wall, it showed as a smooth band 5–7× the drawn line.
+- The bed: `bedKm(q)` is `BED` (2) channels wide, the floor and the foot of its banks. The finer detail is eased flat
+  across it, back to half at its edge. Up close the page draws the river as wide as its bed, as solid as its
+  strongest line, so water fills it. Eased across the wall, the bare smooth band was 5–7× the drawn line; drawn at the
+  channel alone, a bare band still showed either side of the line.
+- At a bend: the height the ground is raised to is blended over all the segments by their weights. Taken from the
+  heaviest segment alone, it stepped a few metres where two tied, which drew a fan of dark streaks inside every bend.
 - Head and tail: where a drawn line truly begins (a source, or where the flow rises past `riverQ`, not a confluence a
   drawn river ends at, nor the map's edge) or ends undrawn, the valley tapers in over one reach. Before, it ran on past
   the line's start as a rounded cap.
@@ -120,6 +124,10 @@ Rivers, checked in Node on a synthetic river (2026-11-18):
   - The downhill rim (11–14 m high for 200 m³/s, 48–77 m for 2,000) falls back at most 2.1% on the 1.5% slope and 7.1%
     on the 5% slope. Before, 5.9% and 19.6%.
   - The uphill wall is at most 4.8% and 11.1%. The line lies 0–4.2 m above the floor's lowest point within 1 km.
+  - Fourth round: the bed is drawn and smoothed 2 channels wide. At level 14 the grain is under half across 172 m for a
+    170 m drawn bed, and 534 m for a 537 m one. At level 10, which is 153 m a pixel, it is a pixel or so narrower. At a bend (a river swinging ±3 km, level 14), pixels
+    whose slope kinks by over 0.5 m in one 9.5 m pixel went from 6,633 to 0 on the 1.5% slope. On the 5% slope they
+    went from 8,736 to 343, and the worst kink from 27 m to 0.6 m.
   - A 1,400² window at level 14 carves in 5.5 s (3.8 s before: the levelling reaches 2.5 valley reaches, not 1.6); no
     non-finite values.
 
