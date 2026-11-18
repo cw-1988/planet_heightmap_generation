@@ -12,21 +12,24 @@ import { joinByBarrier } from './region-join.js';
 
 const RIVER_KM2 = 30000;                         // (the most land a wall's water is measured at: the Meuse, the Elbe's upper reach)
 
-/** A unit per mesh cell (−1 the sea) and each unit's cells, for valley size `sizeKm2`. Kept on the world per size. */
-export function valleysOf(w, sizeKm2) {
-    const memo = (w._valleys ??= new Map());
-    if (memo.has(sizeKm2)) return memo.get(sizeKm2);
+/**
+ * A unit per mesh cell (−1 the sea) and each unit's cells, for valley size `sizeKm2`, rivers from `riverQ` m³/s walls (0:
+ * the planet's own measure at that size; `riverQ` on the result says which was used). Kept on the world per both.
+ */
+export function valleysOf(w, sizeKm2, riverQ = 0) {
+    const memo = (w._valleys ??= new Map()), key = `${sizeKm2}|${riverQ}`;
+    if (memo.has(key)) return memo.get(key);
     // (the pieces at least a dozen cells: fewer and their edge is the mesh's, not the land's)
     const a = w.tMesh.cellAreaKm2, S = Math.max(12 * a, Math.min(sizeKm2, RIVER_KM2)), drain = w.fin.drain;
-    const { unit, units, wall, side } = pieces(w.tMesh, drain, S);
+    const { unit, units, wall, side, Q } = pieces(w.tMesh, drain, S, riverQ);
     joinByBarrier(w.tMesh, drain.z ?? null, unit, units, wall, side, Math.max(4, Math.round(S / a / 3)), Math.round(Math.max(sizeKm2, S) / a));
-    const v = { unit, cells: cellsOf(unit, units), sizeKm2 };
-    memo.set(sizeKm2, v);
+    const v = { unit, cells: cellsOf(unit, units), sizeKm2, riverQ: Q };
+    memo.set(key, v);
     return v;
 }
 
-/** The drainage pieces for thick rivers from S km²: { unit, units, wall (the thick river's cells), side (per unit) }. */
-function pieces(mesh, drain, S) {
+/** The drainage pieces for walls from S km² (or `riverQ` m³/s): { unit, units, wall (the walls' cells), side (per unit), Q }. */
+function pieces(mesh, drain, S, riverQ) {
     const { numCells: n, xyz, edgeKm } = mesh, { recv, area, q } = drain;
     // (water: the sea and the standing lakes, fresh or salt; a dry pan is land)
     const sea = drain.lake ? Uint8Array.from(drain.sea, (s, c) => s || drain.lake[c] === 1 || drain.lake[c] === 2) : drain.sea;
@@ -35,7 +38,9 @@ function pieces(mesh, drain, S) {
     const at = [];
     for (let c = 0; c < n; c++) if (!sea[c] && area[c] >= S && area[c] < 1.5 * S) at.push(q[c]);
     at.sort((x, y) => x - y);
-    const Q = at.length ? at[at.length >> 1] : Infinity;
+    const Qs = at.length ? at[at.length >> 1] : Infinity, Q = riverQ > 0 ? riverQ : Qs;
+    // (a dry river walls past 4 S km², or past more as the chosen wall stands above the planet's measure)
+    const dry = 4 * S * Math.max(1, Q / Qs);
     // the order upstream-first (each cell after all that drain into it)
     const up = new Int32Array(n), order = new Int32Array(n);
     for (let c = 0; c < n; c++) if (recv[c] >= 0) up[recv[c]]++;
@@ -44,7 +49,7 @@ function pieces(mesh, drain, S) {
     while (a < b) { const r = recv[order[a++]]; if (r >= 0 && --up[r] === 0) order[b++] = r; }
     // the rivers' stretches: a new one at a head, a confluence, or past the length cap
     // (and a dry river past 4 S km² still a valley's floor, so a desert's great basin is cut along its wadis too)
-    const river = (c) => !sea[c] && (q[c] >= Q || area[c] >= 4 * S), np = new Uint8Array(n), par = new Int32Array(n).fill(-1);
+    const river = (c) => !sea[c] && (q[c] >= Q || area[c] >= dry), np = new Uint8Array(n), par = new Int32Array(n).fill(-1);
     for (let c = 0; c < n; c++) { const r = recv[c]; if (r >= 0 && river(c) && river(r)) { np[r] = Math.min(255, np[r] + 1); par[r] = c; } }
     // (and each river's line, its main stem followed up through the confluences by the larger water: its left and right
     // stay apart, so a valley never holds both banks of one river, not even round its head)
@@ -80,7 +85,7 @@ function pieces(mesh, drain, S) {
     const side0 = new Int32Array(next).fill(-1);
     for (let u = 0; u < 3 * segs; u++) if (u % 3) side0[u] = 2 * segLine[(u / 3) | 0] + (u % 3) - 1;
     const { units, of } = parts(mesh, unit, next);
-    return { unit, units, wall, side: Int32Array.from(of, (u) => side0[u]) };
+    return { unit, units, wall, side: Int32Array.from(of, (u) => side0[u]), Q };
 }
 
 /**

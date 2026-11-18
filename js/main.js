@@ -56,7 +56,7 @@ if (IS_TOUCH) document.body.classList.add('touch');
 console.info(`[generate] painting ${pv.gpu ? `on the GPU at ${pv.GPU_WIDTH} px` : 'on the CPU'}`);
 
 let world = null;            // the planet shown: its mesh, first picture, plates and edits, and its finished moment once done
-let dirty = true, version = 0;
+let dirty = true, linesDirty = false, version = 0;
 const pending = new Set();   // the pieces whose edit waits for Rebuild
 let hoveredPiece = -1;
 const finisher = new FinishService();
@@ -199,7 +199,9 @@ function paint() {
 }
 function tick(now) {
     requestAnimationFrame(tick);
-    if (world && dirty) { dirty = false; paint(); }
+    // (only the lines over the picture changed: those alone drawn again, when the picture shown allows it)
+    if (world && !dirty && linesDirty) { linesDirty = false; if (!pv.relayLines()) dirty = true; }
+    if (world && dirty) { dirty = linesDirty = false; paint(); }
     pv.updatePatch(now, world ? pv.shows(world.fin) : null, world?.fin, world?.seed);
     pv.render(now);
 }
@@ -230,7 +232,7 @@ function readout(e) {
     }
     pv.hover(pv.readoutLines({ p, fin: pv.shows(w.fin), heightKm: w.heightKm[r], head, story: w.story, rec: w.regionCell[r] }));
 }
-function setHovered(piece) { if (piece !== hoveredPiece) { hoveredPiece = piece; dirty = true; } }
+function setHovered(piece) { if (piece !== hoveredPiece) { hoveredPiece = piece; linesDirty = true; } }
 pv.onPointer(readout);
 for (const el of [pv.ui.canvas, pv.ui.map]) {
     let down = null;
@@ -259,7 +261,7 @@ addEventListener('blur', () => { editKey = false; setHovered(-1); });
 for (const el of [pv.ui.canvas, pv.ui.map]) el.addEventListener('pointerleave', () => { lastPointer = null; if (!(IS_TOUCH && state.editMode)) setHovered(-1); });
 const rebuildFab = $('rebuildFab');
 function pendingChanged() {
-    dirty = true;
+    linesDirty = true;
     rebuildFab.querySelector('span').textContent = `Rebuild (${pending.size})`;
     rebuildFab.style.display = pending.size ? '' : 'none';
     document.body.classList.toggle('edits-pending', pending.size > 0);      // (the readout steps up over the button)
@@ -290,7 +292,7 @@ const tools = mountEditTools(pv, {
     },
 });
 mountCityRing(pv);
-mountRegionPick(pv, { world: () => world, changed: () => { dirty = true; } });
+mountRegionPick(pv, { world: () => world, changed: () => { linesDirty = true; } });
 $('editToggle')?.addEventListener('click', () => { state.editMode = !state.editMode; $('editToggle').classList.toggle('active', state.editMode); $('editToggle').setAttribute('aria-pressed', String(state.editMode)); if (!state.editMode) setHovered(-1); });
 
 // ── the sliders: their values, the stale build button, Reapply, the climate ──

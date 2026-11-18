@@ -228,6 +228,7 @@ export class PlanetView {
      * per cell (true when it painted them); `legendHead` above a preview climate's legend.
      */
     paintLive({ T, tMesh, table = null, C = null, cells = null, sharpTable = null, legendHead = '' }) {
+        this.underOf = null;                                                            // (relayLines: no finished picture now)
         const view = this.view, out = this.cellRgb?.length === 3 * tMesh.numCells ? this.cellRgb : (this.cellRgb = new Uint8Array(3 * tMesh.numCells));
         const shade = view.shaded ? T.shade : this.flatShade(tMesh.numCells);
         // (the terrain and the heightmap are coloured per pixel from the heights — their coasts crisp; the other layers per cell)
@@ -339,6 +340,11 @@ export class PlanetView {
         // (the rivers' lines on the Terrain view — and on Farmland, the water its canals and floods come from; from space they
         // are ground, not lines — the Satellite view draws none: drawn at a 2048-wide texture's scale, as thick on the sharper one)
         if (view.water && (view.layer === 'terrain' || view.layer === 'farmLand') && fin.rivers) { const k = t.width / this.MAP_WIDTH * (this.MAP_WIDTH / 2048); t.ctx.save(); t.ctx.scale(k, k); drawRivers(t.ctx, riverPaths(fin, view.riverQ), view.byRegime && view.layer === 'terrain'); t.ctx.restore(); }
+        // (the picture kept without the lines, so lines alone changing — a hover, a choice — draw over it again: relayLines)
+        const under = (this.under ??= document.createElement('canvas'));
+        if (under.width !== t.canvas.width || under.height !== t.canvas.height) { under.width = t.canvas.width; under.height = t.canvas.height; }
+        under.getContext('2d').drawImage(t.canvas, 0, 0);
+        this.underOf = { t, C };
         this.drawLines(t, C);
         this.show(t);
         // (and made again for another finished moment — the same moment finished again, with another climate, has the same key)
@@ -352,6 +358,17 @@ export class PlanetView {
             legend.dataset.key = legendKey;
         }
         this.prepareSatelliteSoon(fin);
+    }
+
+    /** Only the page's lines changed: the last finished picture again with its lines drawn anew, not painted again (a
+     *  repaint is ~80 ms, too slow under a moving pointer). False when the last picture was not a finished one: paint it. */
+    relayLines() {
+        const u = this.underOf;
+        if (!u || u.t.canvas.width !== this.under.width || u.t.canvas.height !== this.under.height) return false;
+        u.t.ctx.drawImage(this.under, 0, 0);
+        this.drawLines(u.t, u.C);
+        this.show(u.t);
+        return true;
     }
 
     /** The legend's card and the rivers' regime key: shown when they hold something (`detailed`: a finished moment shown). */

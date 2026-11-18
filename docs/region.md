@@ -11,9 +11,14 @@ and roads. In that last step the region's rivers and passes go back to the plane
   along its natural borders: divides, thick rivers and coasts. Each side of a thick river is its own valley, so a
   river can be a region's edge. The valley under the pointer is lightened with a white rim, and a click takes it in or
   out (the sea is refused); a drag still turns the globe. The chosen valleys are tinted magenta, each with a darker
-  rim. Both show on the zoomed-in tiles too.
+  rim. Both show on the zoomed-in tiles too. A hover or a click redraws only the lines over the kept picture
+  (`relayLines` in planet-view.js), not the whole planet, which took ~80 ms each time.
 - **Valleys**: small (about 30,000 km²), medium (150,000) or large (600,000). A new size starts the choice again. Large
   ones often stay smaller: a valley grows only between its rivers and ridges.
+- **Rivers** (40–40,000 m³/s, log scale): the rivers that bound a valley, from this much water up; thinner ones lie
+  inside one valley. It starts at the planet's own measure for the valley size (shown "auto"; double-click returns
+  to it). Low: every drawn river is a border, the valleys come out as strips between them. High: only the great
+  rivers, and the ridges do the rest. A new value starts the choice again.
 - **Border** (50–400 km): the land around the valleys that is simulated with them, so their edges know what lies beyond
   (passes, rivers coming in, the neighbours). The box is the valleys' reach from their centre plus the border on each
   side (200–6000 km). What falls in the box past the border is still simulated but drawn greyed.
@@ -31,7 +36,7 @@ and whether it is sea or a lake.
 
 - **Walls**: a thick river is one the map draws thick. Its water is measured, not its land: the wall is the median
   water of the planet's rivers at the piece size S (30,000 km², less for the small size, never under a dozen cells),
-  about 280 m³/s here. So a rainforest's many rivers wall early and a desert's wadis late; a dry river past 4 S of land
+  about 280 m³/s here, unless the Rivers slider sets another. So a rainforest's many rivers wall early and a desert's wadis late; a dry river past 4 S of land
   is still a wall, or a desert basin comes out as one piece. Lakes (fresh or salt) count as water, dry pans as land.
 - **Pieces**: a wall's stretches break at a head, a confluence, or a length over 2√S km, and each land cell joins the
   stretch its water first reaches, on the bank it comes in from. The bank is read from the arc of neighbours round the
