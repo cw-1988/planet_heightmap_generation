@@ -93,6 +93,8 @@ sea or a lake. T is the valley size (never under a dozen cells), S a fifth of it
 - **Checked** on the test planet with `tuning/region-check.js` (`onePiece`): small 3,721 valleys, medium 1,130, large
   471, none in two pieces on the map or on the mesh. Before the repair, the cells alone left 62 valleys at medium in
   two or more patches (968 px).
+- **Rivers versus cells**: why the edges and the drawn rivers still differ (a label grid against a vector line) and
+  what would make them match: [region-rivers-vs-cells.md](region-rivers-vs-cells.md).
 - **Limits**: the map is ~20 km a pixel, so an edge is within ~10 km of the ridge or river it follows. Pixels cut off
   from the rest of their valley by an edge river: 0.24% of land at small, 0.05% at medium, 0.12% at large; most are
   single pixels shut in by a wall's corner, the largest a valley that holds both banks at cell level. At small, a
