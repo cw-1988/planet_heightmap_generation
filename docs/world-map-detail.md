@@ -69,9 +69,12 @@ showed out at sea as a 2.8 m step along a straight line. This change also applie
   ~2.5 km wide, so the line never matched its bed.
 - Only drawn rivers are cut: `riverLines(R, riverQ, r)` takes the page's density (`PlanetView.riversDrawn`, Infinity
   with water off or on other layers). Before, every reach was carved, so valleys showed with no river in them.
-- Level across: each line point carries the picture's height under it. Ground below that height is raised to it out to
-  the valley's edge, then eased back to the picture by 1.6 reaches. A cut a set depth into a cross slope left the line
-  on a shelf, with a wall uphill and the ground falling away below.
+- Level across: each line point carries the picture's height under it. Ground below that height is raised toward it by
+  a bell 1.2 reaches wide about the line, gone by 2.5 reaches. A cut a set depth into a cross slope left the line on a
+  shelf, with a wall uphill and the ground falling away below. Raised flat to the valley's edge (the first fix), it made
+  a flat bed with a rim that fell about 4× the picture's slope.
+- Grain on the floor: the finer detail is eased flat only on the floor and two channel widths past the bank. Eased
+  across the wall, it showed as a smooth band 5–7× the drawn line.
 - Head and tail: where a drawn line truly begins (a source, or where the flow rises past `riverQ`, not a confluence a
   drawn river ends at, nor the map's edge) or ends undrawn, the valley tapers in over one reach. Before, it ran on past
   the line's start as a rounded cap.
@@ -111,6 +114,14 @@ Rivers, checked in Node on a synthetic river (2026-11-18):
 - Head: no change upstream of a line's start (0 m at 1, 3 and 6 km), −14 to −16 m 1 km downstream, full depth by 3 km.
   At a confluence the trunk is not tapered. Nothing is cut with rivers off (`riverQ` Infinity). A 1,400² window at level 14
   carves in 3.8 s; a tile's ~300² in about 0.2 s.
+- Bed and sides (2026-11-18, third round), at levels 10 and 14 on pictures sloping 1.5% and 5% across the river:
+  - The grain-free band is 150–160 m for an 85 m channel and 460–510 m for a 270 m channel (about 1.9×). Before, it was
+    0.5–1.6 km, 5–7× the line.
+  - The downhill rim (11–14 m high for 200 m³/s, 48–77 m for 2,000) falls back at most 2.1% on the 1.5% slope and 7.1%
+    on the 5% slope. Before, 5.9% and 19.6%.
+  - The uphill wall is at most 4.8% and 11.1%. The line lies 0–4.2 m above the floor's lowest point within 1 km.
+  - A 1,400² window at level 14 carves in 5.5 s (3.8 s before: the levelling reaches 2.5 valley reaches, not 1.6); no
+    non-finite values.
 
 ## Limits
 

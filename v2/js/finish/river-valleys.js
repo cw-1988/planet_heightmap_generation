@@ -116,8 +116,8 @@ export function riverLines(R, q0, r) {
     return out;
 }
 
-/** How far out the ground is levelled to the line's height, in valley reaches (past one, eased back to the picture). */
-const LEVEL_OUT = 1.6;
+/** How the ground is levelled to the line's height, in valley reaches: a bell LEVEL.bell wide, ending at LEVEL.out. */
+const LEVEL = { bell: 1.2, out: 2.5 }, LEVEL_OUT = LEVEL.out;
 /** The most a valley reaches from its line (km). */
 const reachOf = q => { const f = channelKm(q) / 2, d = Math.min(VALLEY.depthMax, VALLEY.depthK * q ** 0.4); return { f, d, out: f + d / VALLEY.side }; };
 
@@ -191,17 +191,19 @@ export function carveValleys(D, lines, { hb, gE, gN, seaB, W, X0, Y0, ew, eh, px
             if (!(dist < wide)) continue;
             const deep = v.d * (0.4 + 0.6 * smooth(0.005, 0.08, Math.hypot(gE[p], gN[p])));
             // (the wall rising from the bank at once, easing into the land at its rim, no hard edge: a smoothstep rose flat
-            // from the bank, the floor within 1 m of its lowest ~800 m wide for a 190 m channel. The floor's finer detail
-            // eased flat, not wholly: a floodplain's own swells stay)
-            const u = Math.min(1, Math.max(0, (dist - v.f) / (v.out - v.f))), inV = (1 - u) * (1 - u), c = fd * deep * inV, fl = 0.8 * fd * (1 - smooth(0.6 * v.f, v.f + 0.5 * (v.out - v.f), dist));
+            // from the bank, the floor within 1 m of its lowest ~800 m wide for a 190 m channel. The finer detail eased flat
+            // on the floor only, back by two channel widths past the bank: smoothed across the wall (0.5–2.2 km), it read as a
+            // broad smooth bed 5–7× the drawn line)
+            const u = Math.min(1, Math.max(0, (dist - v.f) / (v.out - v.f))), inV = (1 - u) * (1 - u), c = fd * deep * inV;
+            const fl = 0.8 * fd * (1 - smooth(v.f, 3 * v.f, dist));
             if (c > cut[p]) cut[p] = c;
             if (fl > flat[p]) flat[p] = fl;
-            // (the valley level across: ground below the line's height raised to it out to the valley's edge, then eased
-            // back to the picture — where the picture's slope ran across the river, a cut a set depth into it left the
-            // line on a shelf, a wall above it uphill and the ground falling away below; eased with the wall alone it
-            // still fell below the floor 3–4 km out. Raised only: the uphill side keeps its hill; the nearest valley's
-            // level where two meet)
-            const lw = fd * (1 - smooth(v.out, wide, dist));
+            // (the valley level across: ground below the line's height raised toward it by a bell about the line — where
+            // the picture's slope ran across the river, a cut a set depth into it left the line on a shelf, a wall above it
+            // uphill and the ground falling away below; eased with the wall alone it still fell below the floor 3–4 km
+            // out; raised flat to the valley's edge and let go over 0.6 reaches, it made a flat bed with a rim falling
+            // ~4× the picture's slope. Raised only: the uphill side keeps its hill; the nearest valley's level where two meet)
+            const lw = fd * Math.exp(-((dist / (LEVEL.bell * v.out)) ** 2)) * (1 - smooth(0.8 * wide, wide, dist));
             if (lw > levW[p]) { levW[p] = lw; lev[p] = Math.max(0, ha + t * (hb1 - ha) - hb[p]); }
         }
     }
