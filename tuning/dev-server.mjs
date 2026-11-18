@@ -8,6 +8,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { relay } from './shot-relay.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -38,6 +39,7 @@ function resolveFile(urlPath) {
 const SHOTS = path.join(__dirname, 'screenshots');
 
 http.createServer((req, res) => {
+    if (relay(req, res)) return;
     if (req.method === 'POST' && req.url.startsWith('/__shot')) {
         const name = path.basename(new URL(req.url, 'http://x').searchParams.get('name') || 'shot.png');
         fs.mkdirSync(SHOTS, { recursive: true });

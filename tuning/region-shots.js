@@ -36,13 +36,29 @@ export async function shot(C, ids, name, { px = 900, pad = 0.8, mark = true } = 
     const e = Math.max(u1 - u0, (v1 - v0) / 2) * (1 + 2 * pad), cu = (u0 + u1) / 2, cv = (v0 + v1) / 2;
     const W = Math.round(px / e), H = W / 2, w = px, h = Math.min(Math.round(px * 0.8), Math.round(e * W * 0.8));
     const x0 = Math.round(cu * W - w / 2), y0 = Math.max(0, Math.round(cv * H - h / 2));
+    await render(C, W, x0, y0, w, h, new Set(ids), mark, name);
+    return { name, w, h, kmPx: 40030 * Math.cos(Math.PI / 2 - cv * Math.PI) / W };
+}
+
+/**
+ * The whole planet at `W` px wide (equirectangular, longitude −180° at the left), every valley's edge a dark line,
+ * none chosen: for an inspector to pick its own places. Posted as `name`.
+ */
+export async function atlas(C, name, W = 4096) {
+    await valleyGrid(C.world, C.V);
+    await render(C, W, 0, 0, W, W / 2, new Set(), false, name);
+    return { name, w: W, h: W / 2, kmPxEquator: 40030 / W };
+}
+
+async function render(C, W, x0, y0, w, h, chosen, mark, name) {
+    const { world, V } = C, mesh = world.tMesh, H = W / 2;
     const cv2 = new OffscreenCanvas(w, h), ctx = cv2.getContext('2d'), B = base(world), k = B.width / W;
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(B, x0 * k, y0 * k, w * k, h * k, 0, 0, w, h);
     drawRiversWindow(ctx, world.fin, 40, false, W, x0, y0, w, h, 2 * (W / 4096) ** 0.3 / (W / 2048));
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     // each pixel's valley
-    const U = new Int32Array(w * h), chosen = new Set(ids);
+    const U = new Int32Array(w * h);
     for (let j = 0; j < h; j++) {
         const lat = Math.PI / 2 - (y0 + j + 0.5) / H * Math.PI, cl = Math.cos(lat), sl = Math.sin(lat);
         for (let i = 0; i < w; i++) {
@@ -68,5 +84,4 @@ export async function shot(C, ids, name, { px = 900, pad = 0.8, mark = true } = 
     ctx.putImageData(img, 0, 0);
     const blob = await cv2.convertToBlob({ type: 'image/png' });
     await fetch(`/__shot?name=${encodeURIComponent(name)}`, { method: 'POST', body: blob });
-    return { name, w, h, kmPx: 40030 * Math.cos(Math.PI / 2 - cv * Math.PI) / W };
 }
