@@ -30,7 +30,7 @@ export function regionOverlay(globe) {
                 if (u > units) units = u;
                 data[4 * p] = u & 255; data[4 * p + 1] = (u >> 8) & 255; data[4 * p + 2] = u >> 16;
             }
-            globe.setRegionCells(data, W, H);
+            globe.setRegionCells(data, W, H, C.V.lines);                  // (the edge rivers' drawn lines: region-lines.js)
         });
     }
     return {

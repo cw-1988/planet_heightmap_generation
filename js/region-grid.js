@@ -1,12 +1,15 @@
 // The valleys' map (fork addition, for the region pick): which valley each pixel of a 2048 × 1024 grid is in. It is
 // the one picture of the valleys: the overlay draws it (region-overlay.js), the pointer picks from it and the region's
 // mask is cut from it (region-pick.js), so what is shown is what is chosen. Its pixels are filled over the planet's
-// heights from the valleys' cells, the edge rivers walls (region-flood.js). A valley is one piece on it by
+// heights from the valleys' cells, the edge rivers walls (region-flood.js); along an edge river its drawn line decides
+// (region-lines.js), on the pixels and, finer, wherever a point is read (gridAt, the shader). A valley is one piece on it by
 // construction: a cell's or a river half's pixels can fall apart on the grid (a Voronoi corner thinner than a pixel,
 // a half pinched at a bend), so each valley keeps its largest patch and every other patch goes to the valley round
 // it, the one it shares the longest border with.
 
 import { floodGrid } from './region-flood.js';
+import { wallMask } from './region-walls.js';
+import { cutAlong, packLines, lineAt } from './region-lines.js';
 
 export const W = 2048, H = 1024;
 const SLICE_MS = 8;
@@ -38,7 +41,9 @@ function pixelCells(w) {
 export function valleyGrid(w, V) {
     return (V._grid ??= pixelCells(w).then((pc) => {
         const G = floodGrid(w, V, pc, W, H);
+        cutAlong(w, V, G, wallMask(w, V, W, H), W, H);
         onePiece(G, V, pc);
+        packLines(V, G, W, H);
         return (V.grid = G);
     }));
 }
@@ -61,7 +66,10 @@ export function gridAt(V, x, y, z) {
         for (let b = 0; b < 4; b++) if (id[b] === id[a]) s += wt[b];
         if (s > most) { most = s; best = id[a]; }
     }
-    return best;
+    // (near an edge river, the side of its drawn line: the coast stays the map's)
+    if (best < 0 || !V.lines) return best;
+    const l = lineAt(V.lines, W, H, px + 0.5, py + 0.5);
+    return l >= 0 ? l : best;
 }
 
 /** Each pixel's 4 neighbours (east–west round the planet). */

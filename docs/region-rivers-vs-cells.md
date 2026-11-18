@@ -1,6 +1,6 @@
 # Rivers versus the valleys' cells (region pick)
 
-Why a valley's edge and the river the map draws don't sit on the same line, and what would make them. Part of
+Why a valley's edge and the river the map draws did not sit on the same line, and the vector edge that fixed it. Part of
 [Region](region.md).
 
 ## The rivers are not a different mesh
@@ -59,17 +59,24 @@ Each new layer (cells, then halves, then walls, then pixels) re-approximated the
 The fixes so far (water-based edges, bank-true halves, land-only seeds) remove the wrong-river and wrong-bank errors.
 None of them can remove the first three, because those are the raster itself.
 
-## What would make them match
+## What is built: the drawn line is the edge
 
-Stop approximating the river: **use the drawn line itself as the edge**, at draw time.
+The river edges no longer approximate the line; they use it (`js/region-lines.js`).
 
-- **Border:** along an edge river, stroke the rim from the same `riverSegments` points the river is drawn from, at the
-  same zoom. The rim then is the river, at any zoom.
-- **Which side:** for a point within a pixel or two of an edge river, decide its valley by the side of that same
-  polyline it falls on (a signed-distance test on the segments near it, the way `drawRiversWindow` finds them by
-  grid), not by the label texture. The label grid then decides only away from the rivers: along ridges and divides,
-  where nothing is drawn to match.
-- **Chosen mask and pick:** use the same side test, so what is shown is what is picked.
+- **The line:** `edgeLines` rebuilds the edge rivers from `fin.rivers` with the map's own reaches and Chaikin
+  smoothing; a step is an edge if its cell is (a cut corner only if both its steps are). x is unwrapped along a reach.
+- **Its sides:** `cutAlong` reads each segment's left and right valley from the flood 1.5–3.5 px off it, then gives
+  every pixel within 2 px of the line its side's valley. `packLines` keeps, per texel within 3.5 px, the nearest
+  segment (its ends in 1/32 px) and both valleys in three byte textures.
+- **Drawn and picked alike:** the shader (`v2/js/app/region-glsl.js` `regionLine`) and the pick (`region-grid.js`
+  `gridAt` → `lineAt`) test the 3 × 3 texels round a point, take the nearest segment and return the valley on its
+  side, so the rim and the chosen area sit on the river at any zoom. Past a real end of the line (a river's tip) the
+  label grid decides; the coast stays the grid's.
 
-The cells and label grid stay for everything else (which valleys exist, their joins, ridges). Only the river edges
-switch from raster to vector.
+**Measured** (medium, the test planet): 12,211 edge segments; 0.05 px off the line on either side gives two different
+valleys at 89.4% of them, and the side 0.2 px off agrees with the one 3 px off at 93%. All the rest lie within 10 px
+of a run's end (1,142 within 3 px): short stubs and tips inside one valley, where both banks are one valley by the
+partition, so there is no edge to draw. Every valley is still one piece. The grid takes ~1.2 s a size (was ~0.6 s).
+
+What stays raster: the edges along ridges and divides (nothing is drawn there to match), and which rivers are edges
+(the valleys' size, not the map's `riverQ` slider).

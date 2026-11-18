@@ -86,16 +86,20 @@ sea or a lake. T is the valley size (never under a dozen cells), S a fifth of it
   lowest ground first, and two valleys meet on the ridge between them. A pixel goes only to a valley of its own
   cell or a cell beside it, so the heights move an edge by at most a cell (lowest first over the whole planet, a valley
   seeded low ran up its neighbours' gullies: combs of fingers). The edge rivers are drawn in as walls the
-  floods never cross (`js/region-walls.js`), the same lines the map draws (cell centres, smoothed by Chaikin twice,
-  4-connected), so a bank's edge is the drawn river. The coast is the picture's. About 0.6 s a size. **Every valley is
+  floods never cross (`js/region-walls.js`). **Along an edge river the edge is the drawn line itself**
+  (`js/region-lines.js`): the map's own reaches, smoothed as the map smooths them, each segment knowing the valley on
+  its left and right; a point within 2 px of one takes its side's valley, in the globe's shader
+  (`v2/js/app/region-glsl.js`) and in the pick (`gridAt`) alike, at any zoom. The coast is the picture's. About 1.2 s a
+  size. **Every valley is
   one piece on it, by construction**: each valley keeps its largest patch and every other patch goes to the valley it
   shares the longest border with, until none is left; a patch with no land round it becomes a valley of its own.
 - **Checked** on the test planet with `tuning/region-check.js` (`onePiece`): small 3,721 valleys, medium 1,130, large
   471, none in two pieces on the map or on the mesh. Before the repair, the cells alone left 62 valleys at medium in
   two or more patches (968 px).
-- **Rivers versus cells**: why the edges and the drawn rivers still differ (a label grid against a vector line) and
-  what would make them match: [region-rivers-vs-cells.md](region-rivers-vs-cells.md).
-- **Limits**: the map is ~20 km a pixel, so an edge is within ~10 km of the ridge or river it follows. Pixels cut off
+- **Rivers versus cells**: why a label grid could not match the drawn rivers, and the vector edge that replaced it:
+  [region-rivers-vs-cells.md](region-rivers-vs-cells.md).
+- **Limits**: the map is ~20 km a pixel, so an edge along a ridge or divide is within ~10 km of it (along an edge
+  river it is the line). Pixels cut off
   from the rest of their valley by an edge river: 0.24% of land at small, 0.05% at medium, 0.12% at large; most are
   single pixels shut in by a wall's corner, the largest a valley that holds both banks at cell level. At small, a
   few slivers of 4–6 cells between edge rivers end up with no pixels (131 of 3,797); their land goes to their
