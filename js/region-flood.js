@@ -40,13 +40,23 @@ export function floodGrid(w, V, pc, W, H) {
             seed(p, unitAt(V, mesh, c, Math.cos(lat) * Math.cos(lon), Math.cos(lat) * Math.sin(lon), Math.sin(lat)));
         }
     }
+    // (a pixel only to a valley of its own cell or a cell beside it: lowest first over the whole planet, a valley seeded
+    // low ran up its neighbours' gullies before their own floods began — combs of fingers. So the heights move an edge
+    // up to a cell, onto the ridge or the river there, never the valleys themselves)
+    const { adjOffset, adjList } = mesh, hf = V.half;
+    const of = (c, u) => V.unit[c] === u || !!hf && V.wall[c] && (hf[2 * c] === u || hf[2 * c + 1] === u);
+    const near = (c, u) => {
+        if (of(c, u)) return true;
+        for (let e = adjOffset[c]; e < adjOffset[c + 1]; e++) if (of(adjList[e], u)) return true;
+        return false;
+    };
     // the flood, lowest first (a pixel reached over a higher one waits at that height: a basin fills to its rim)
     for (let lev = 0; lev < buckets.length; lev++) {
         const b = buckets[lev];
         if (!b) continue;
         for (let k = 0; k < b.length; k++) {
             const p = b[k], u = G[p], i = p % W, j = (p - i) / W;
-            const go = (q) => { if (G[q] === -2 && !M[q]) { G[q] = u; push(q, Math.max(lev, h[q] - low)); } };
+            const go = (q) => { if (G[q] === -2 && !M[q] && near(pc[q], u)) { G[q] = u; push(q, Math.max(lev, h[q] - low)); } };
             go(j * W + (i + 1) % W); go(j * W + (i + W - 1) % W);
             if (j > 0) go(p - W);
             if (j < H - 1) go(p + W);

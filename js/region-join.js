@@ -13,7 +13,7 @@ import { bankAt } from './region-bank.js';
 const SIZE_M = 300;                                                          // (m of barrier the size of a whole valley weighs)
 const STREAM_M = 100;                                                        // (m: a stream just short of an edge river)
 const HARD_M = 600;                                                          // (m: a ridge this high over both sides)
-const NECK_M = 250, NECK_R = 0.3;                                            // (m: a join by a point; the border share that costs none)
+const NECK_M = 400, NECK_R = 0.35;                                           // (m: a join by a point; the border share that costs none)
 
 /**
  * `unit` (a piece per cell, −1 the sea) relabelled in place to the valleys: first the slivers under `min` cells join their
