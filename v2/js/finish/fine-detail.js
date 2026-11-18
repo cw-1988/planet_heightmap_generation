@@ -56,11 +56,12 @@ export const FINE = {
 };
 
 /** What a finished moment's detail is drawn from: { r (the picture), d (its drivers, or null), g (its rock picture, or
- *  null: a moment without geology), c (its climate's picture: tAnnual, pAnnual — or null), seed, cellKm (the mesh's spacing) }. */
-export function detailSource(fin, seed) {
+ *  null: a moment without geology), c (its climate's picture: tAnnual, pAnnual — or null), seed, cellKm (the mesh's spacing),
+ *  rvAll (the valleys' lines: the rivers carrying at least `riverQ` m³/s, those the page draws — Infinity: none) }. */
+export function detailSource(fin, seed, riverQ) {
     const r = fin.raster, cells = fin.cells ?? 2.5e6;
     return { r, d: r.drivers ?? null, g: r.geology?.rock ? r.geology : null, c: fin.climate?.raster?.tAnnual ? fin.climate.raster : null, seed, cellKm: 24200 / Math.sqrt(cells),
-        rvAll: fin.rivers ? riverLines(fin.rivers) : null };
+        rvAll: fin.rivers ? riverLines(fin.rivers, riverQ, r) : null };
 }
 
 /** How many pixels a window reads past its edges: its coasts' reach, and the octaves' slopes a pixel each. */

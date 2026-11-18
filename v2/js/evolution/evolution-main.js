@@ -807,7 +807,8 @@ const exportPanel = initEvolutionExport({
     look: () => ({ lut: heightLutOf(view.palette), exaggeration: pv.SHADING.exaggeration, water: view.water, riverQ: view.riverQ, byRegime: view.byRegime, deposit: view.deposit }),
     centerLon: () => view.centerLon, projection: () => (view.mode === 'map' ? { id: view.projection, opts: view.projOpts } : null), isTouch: IS_TOUCH, planetFile,
     // (an export wider than the picture: the whole planet drawn with the detail finer than the mesh, in bands)
-    fine: (fin, _seed, W, onProgress) => pv.detail.window(fin, B.seed, { W, x0: 0, y0: 0, w: W, h: W >> 1 }, null, onProgress) });
+    // (its valleys cut along the rivers it draws alone)
+    fine: (fin, _seed, W, onProgress) => pv.detail.window(fin, B.seed, { W, x0: 0, y0: 0, w: W, h: W >> 1 }, null, onProgress, view.water && fin.rivers ? view.riverQ : Infinity) });
 
 // ── the climate (step D): calculated on request for the moment shown, kept per moment while the history is open ──
 const climateOf = frame => { const e = B?.climates.get(frame); return e && e.tMesh === B.tMesh && e.key === climateKey() ? e.data : null; };

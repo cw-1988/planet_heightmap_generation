@@ -457,14 +457,20 @@ export class PlanetView {
         if (!fin || !DetailService.can(fin) || !this.patchLayer(view.layer)) { layers.hide(); return; }
         const mv = globe.mapView, sig = view.mode === 'map' ? `m|${mv?.zoom}|${mv?.panX}|${mv?.panY}|${view.centerLon}|${view.projection}|${ui.map.clientWidth}|${ui.map.clientHeight}`
             : `${globe.camera.position.toArray().map(v => v.toFixed(4)).join()}|${ui.canvas.clientWidth}|${ui.canvas.clientHeight}`;
-        if ((sig !== this.viewSig || fin !== tiles.fin) && now - this.wantedAt >= PATCH_EVERY_MS) {
+        if ((sig !== this.viewSig || fin !== tiles.fin || this.riversDrawn(fin) !== tiles.riverQ) && now - this.wantedAt >= PATCH_EVERY_MS) {
             this.viewSig = sig; this.wantedAt = now;
             if (fin !== tiles.fin) layers.clear();
             const { places, px } = this.viewPlaces();
-            tiles.want(fin, seed, places, px, this.SHARP_WIDTH || this.MAP_WIDTH);
+            tiles.want(fin, seed, places, px, this.SHARP_WIDTH || this.MAP_WIDTH, this.riversDrawn(fin));
         }
         const look = this.patchLookOf(fin), extra = this.extraLines ? this.extraLinesKey(view) : null;
         layers.lay(tiles, look, t => this.paintTile(fin, t, look, extra), this.PATCH_BUDGET_MS, extra);
+    }
+    /** The rivers the tiles draw: their threshold (m³/s), or Infinity where none are drawn — the tiles' valleys are cut
+     *  along these alone (a valley with no river in it otherwise). */
+    riversDrawn(fin) {
+        const v = this.view;
+        return v.water && (v.layer === 'terrain' || v.layer === 'farmLand') && fin.rivers ? v.riverQ : Infinity;
     }
     /** A tile painted for the layer shown (as paintFinished paints the planet), once per look: a SLOT-px canvas — the tile
      *  and a pixel of its neighbours' all round — with the rivers' lines and the grid over it; and the page's own lines
@@ -500,9 +506,10 @@ export class PlanetView {
         const ctx = t.base.getContext('2d'), x0 = t.win.x0 + 1, y0 = t.win.y0 + 1;     // (the canvas's pixel 0, 0 on the planet W px wide)
         ctx.putImageData(this.tileImage, -1, -1);                               // (the window's outer pixel the hillshade's neighbours only)
         ctx.globalCompositeOperation = 'source-atop';
-        // (the planet's rivers, crisp: a little thicker the closer the view, not as thick as the picture's enlarged)
-        // (and on Farmland, as the picture has them: the water canals and floods come from)
-        if (view.water && (view.layer === 'terrain' || view.layer === 'farmLand') && fin.rivers) drawRiversWindow(ctx, fin, view.riverQ, view.byRegime && view.layer === 'terrain', W, x0, y0, SLOT, SLOT, 2 * (W / 4096) ** 0.3 / (W / 2048));
+        // (the planet's rivers, crisp: a hairline as wide on the screen at every zoom, and as wide as its channel — its
+        // valley's floor — once that is wider (a hairline grown by the zoom's 0.3th power drew a river of another width at
+        // every level, in a floor of its own). And on Farmland, as the picture has them: the water canals and floods come from)
+        if (this.riversDrawn(fin) < Infinity) drawRiversWindow(ctx, fin, view.riverQ, view.byRegime && view.layer === 'terrain', W, x0, y0, SLOT, SLOT, 2 / (W / 2048));
         if (view.grid) {
             // (the grid's lines, as thin as the screen's pixels)
             const st = view.gridStep, w0 = x0 / W * 360 - 180, e0 = (x0 + SLOT) / W * 360 - 180, n0 = 90 - y0 / (W >> 1) * 180, s0 = 90 - (y0 + SLOT) / (W >> 1) * 180;

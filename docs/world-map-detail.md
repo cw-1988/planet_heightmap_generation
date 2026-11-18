@@ -62,8 +62,21 @@ showed out at sea as a 2.8 m step along a straight line. This change also applie
 - The page's drawn line (`v2/js/evolution/river-draw.js`, `bendSegment`) and the valley cut under it
   (`carveValleys`, `meanderAt`) bend by the same waves, so the river stays on its valley floor.
 - The valleys have gentle sides: `VALLEY.side` is 0.04 (about 2.3°). At 0.2, every river sat in a trench with a hard rim
-  up close.
-- Dashed rivers measure their dash phase along the unbent line, so the dashes can shift slightly where two tiles meet.
+  up close. The wall rises from the bank at once and eases into the land at its rim.
+- Width: a river's channel is `channelKm(q)` = 0.006 · √q km, at most 3 km (40 m³/s ≈ 40 m, 1,000 ≈ 190 m). The valley
+  floor is that channel. The page draws a constant hairline (2 screen px × the strength's width) and, where the channel
+  is wider on screen, the channel itself, in ⅛-octave steps. Before, the line grew with zoom while the floor stayed
+  ~2.5 km wide, so the line never matched its bed.
+- Only drawn rivers are cut: `riverLines(R, riverQ, r)` takes the page's density (`PlanetView.riversDrawn`, Infinity
+  with water off or on other layers). Before, every reach was carved, so valleys showed with no river in them.
+- Level across: each line point carries the picture's height under it. Ground below that height is raised to it out to
+  the valley's edge, then eased back to the picture by 1.6 reaches. A cut a set depth into a cross slope left the line
+  on a shelf, with a wall uphill and the ground falling away below.
+- Head and tail: where a drawn line truly begins (a source, or where the flow rises past `riverQ`, not a confluence a
+  drawn river ends at, nor the map's edge) or ends undrawn, the valley tapers in over one reach. Before, it ran on past
+  the line's start as a rounded cap.
+- Dashed rivers set `lineDashOffset` from the distance along the unbent line per stroke, so the dashes can shift
+  slightly where two tiles meet.
 
 ## Coast distance past the tile's margin
 
@@ -91,6 +104,13 @@ Rivers, checked in Node on a synthetic river (2026-11-18):
   corners of at most 20°, apart from one step of 8 px at level 14.
 - Valley: at levels 10 to 14 the drawn line lies at 97–100% of the floor's depth. The steepest side is 0.024–0.057,
   against about 0.3 before. A 320 × 320 window carves in at most 90 ms.
+- Across a picture sloping 1.5% across the river, 1,000 m³/s (2026-11-18, second round): at levels 10–14 the ground under
+  the line is at most 1.7–2.3 m above the valley's lowest, both sides 2.5 km out stand 36–44 m above the floor, and
+  the floor within 1 m of its lowest is 270–310 m wide for a 190 m channel. Before: the lowest ground lay 4 km off the
+  line and the floor was 0.8–2.4 km wide. At level 8 the valley is mostly faded out, so the picture's slope still wins.
+- Head: no change upstream of a line's start (0 m at 1, 3 and 6 km), −14 to −16 m 1 km downstream, full depth by 3 km.
+  At a confluence the trunk is not tapered. Nothing is cut with rivers off (`riverQ` Infinity). A 1,400² window at level 14
+  carves in 3.8 s; a tile's ~300² in about 0.2 s.
 
 ## Limits
 

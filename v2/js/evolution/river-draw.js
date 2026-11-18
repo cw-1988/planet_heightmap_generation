@@ -3,7 +3,7 @@
 // On a window of a sharper picture each line bends by its meanders (river-meander.js) as the valley under it does — the
 // same waves, faded in by the same fade (pixel-fade.js) — so up close the drawn river winds in its own valley.
 
-import { riverParts, pushSegments, LINE } from '../finish/river-valleys.js';
+import { riverParts, pushSegments, LINE, CHANNEL, channelKm } from '../finish/river-valleys.js';
 import { bendSegment, MEANDER_PAD_KM } from '../finish/river-meander.js';
 import { fadeFor } from '../finish/pixel-fade.js';
 
@@ -108,9 +108,10 @@ export function drawRivers(ctx, paths, byRegime = false, widthScale = 1) {
 /**
  * A moment's rivers drawn as drawRivers draws them, on a window of a sharper picture: `W` px wide, the canvas's pixel
  * (0, 0) its pixel (x0, y0), w × h of them. Only the segments near the window are drawn (a grid of them, built once per
- * moment and q0) — so a tile of the zoomed-in view costs its own rivers, not the planet's — each line begun where its
- * dashes begin, a little before the window (so they stand where the whole line's do): windows side by side meet as one
- * picture would.
+ * moment and q0) — so a tile of the zoomed-in view costs its own rivers, not the planet's — each line's dashes offset to
+ * where the whole line's stand: windows side by side meet as one picture would. `widthScale` sets the hairline (the
+ * caller's: the same on the screen at every zoom); a river whose channel is wider is drawn as wide as it is, over its
+ * valley's floor.
  */
 export function drawRiversWindow(ctx, fin, q0, byRegime, W, x0, y0, w, h, widthScale = 1) {
     const S = riverSegments(fin, q0), k = W / 2048, G = S.grid ??= segmentGrid(S), KM = 2 * Math.PI * 6371 / 2048;
@@ -123,8 +124,14 @@ export function drawRiversWindow(ctx, fin, q0, byRegime, W, x0, y0, w, h, widthS
     // (how far past the window a segment's middle may lie and still touch it: half the longest segment, half the widest
     // line, a pixel's anti-aliasing, the farthest a meander moves it (0.3: a latitude's narrower pixels) — in the
     // 2048-wide texture's px)
-    const m = S.maxLen / 2 + 0.5 * STRENGTH_WIDTH[STRENGTH_WIDTH.length - 1] * widthScale + 2 / k + MEANDER_PAD_KM / (0.3 * KM);
+    const m = S.maxLen / 2 + 0.5 * Math.max(STRENGTH_WIDTH[STRENGTH_WIDTH.length - 1] * widthScale, CHANNEL.widthMax / KM) + 2 / k + MEANDER_PAD_KM / (0.3 * KM);
     const ya = Math.max(0, Math.floor((y0 / k - m) / G.C)), yb = Math.min(G.GH - 1, Math.floor(((y0 + h) / k + m) / G.C));
+    // (a segment's width: its hairline, or its channel as wide as it is (river-valleys.js channelKm — the valley's floor)
+    // where that is wider, in steps of an eighth of an octave: a stroke each)
+    const widthOf = (i, hair) => {
+        const o = LINE * i, c = channelKm((S.g[o + 4] + S.g[o + 5]) / 2) / KM;
+        return c > hair ? hair * 2 ** (Math.round(8 * Math.log2(c / hair)) / 8) : hair;
+    };
     ctx.save();
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     for (const turn of [-1, 0, 1]) {                                      // (a window across the date line: the rivers either side)
@@ -140,34 +147,22 @@ export function drawRiversWindow(ctx, fin, q0, byRegime, W, x0, y0, w, h, widthS
         ctx.setTransform(k, 0, 0, k, turn * W - x0, -y0);
         for (const b of S.order) {
             const dash = riverStyle(ctx, S.buckets[b], byRegime, widthScale), period = dash ? (dash[0] + dash[1]) * widthScale : 0;
-            let last = -1, any = false;
-            ctx.beginPath();
+            const hair = STRENGTH_WIDTH[S.buckets[b].strength] * widthScale;
+            let last = -1, lw = -1, open = false;
             for (const i of near) {
                 if (S.bucket[i] !== b) continue;
-                let move = false;
-                if (!(S.joined[i] && S.prev[i] === last)) {
-                    // (a line begun here, where the whole line carries on from the segment before: dashed, from where its
-                    // dashes last began — back along the line — so they fall where the whole line's do; measured along the
-                    // unbent line, so a meander's extra length shifts them a little between windows)
-                    let back = period ? S.along[i] % period : 0, j = i, fromT = -1;
-                    while (back > 0 && S.joined[j]) {
-                        const p = S.prev[j], q = 4 * p, len = Math.hypot(S.xy[q + 2] - S.xy[q], S.xy[q + 3] - S.xy[q + 1]);
-                        j = p;
-                        if (len >= back) { fromT = 1 - back / len; break; }
-                        back -= len;
-                    }
-                    if (j !== i && fromT < 0) fromT = 0;   // (the line's own start)
-                    if (fromT >= 0) {
-                        const chain = [];
-                        for (let q = S.prev[i]; ; q = S.prev[q]) { chain.push(q); if (q === j) break; }
-                        line(chain[chain.length - 1], fromT, true);
-                        for (let c = chain.length - 2; c >= 0; c--) line(chain[c], 0, false);
-                    } else move = true;
+                const wi = widthOf(i, hair), on = S.joined[i] && S.prev[i] === last && wi === lw;
+                if (!on) {
+                    // (a stroke begun here — a line's start in this window, or another width: its dashes from where the whole
+                    // line's stand there (measured along the unbent line, so a meander's extra length shifts them a little
+                    // between windows)
+                    if (open) ctx.stroke();
+                    ctx.beginPath(); ctx.lineWidth = lw = wi; ctx.lineDashOffset = period ? S.along[i] % period : 0; open = true;
                 }
-                line(i, 0, move);
-                last = i; any = true;
+                line(i, 0, !on);
+                last = i;
             }
-            if (any) ctx.stroke();
+            if (open) ctx.stroke();
         }
     }
     ctx.restore();

@@ -19,10 +19,13 @@ export class DetailService {
     /** Whether a detailed moment can be drawn finer: one made before the drivers were (a planet file from before) cannot. */
     static can(fin) { return !!fin?.raster?.drivers; }
 
-    /** The moment's source, once per moment. */
-    source(fin, seed) {
-        let s = this.sources.get(fin);
-        if (!s) this.sources.set(fin, s = detailSource(fin, seed));
+    /** The moment's source, once per moment and rivers' threshold (`riverQ`, m³/s: the valleys cut are the rivers the page
+     *  draws — Infinity when it draws none). */
+    source(fin, seed, riverQ) {
+        let m = this.sources.get(fin);
+        if (!m) this.sources.set(fin, m = new Map());
+        let s = m.get(riverQ);
+        if (!s) m.set(riverQ, s = detailSource(fin, seed, riverQ));
         return s;
     }
 
@@ -76,9 +79,9 @@ export class DetailService {
      * A window ({W, x0, y0, w, h}: W the width of the planet it is a window of) drawn in bands of rows across the
      * workers, put together: { h, sea, wat }.
      */
-    async window(fin, seed, win, signal = null, onBand = null) {
+    async window(fin, seed, win, signal = null, onBand = null, riverQ = Infinity) {
         // (bands of at most ~1.5 million pixels — a worker's band holds ~60 bytes a pixel — and at least one per worker)
-        const src = this.source(fin, seed), parts = Math.max(Math.min(this.n, Math.floor(win.h / 64)), Math.ceil(win.w * win.h / 1.5e6), 1), rows = Math.max(16, Math.ceil(win.h / parts)), bands = [];
+        const src = this.source(fin, seed, riverQ), parts = Math.max(Math.min(this.n, Math.floor(win.h / 64)), Math.ceil(win.w * win.h / 1.5e6), 1), rows = Math.max(16, Math.ceil(win.h / parts)), bands = [];
         for (let y = 0; y < win.h; y += rows) bands.push({ y, win: { W: win.W, x0: win.x0, y0: win.y0 + y, w: win.w, h: Math.min(rows, win.h - y) } });
         const out = { h: new Float32Array(win.w * win.h), sea: new Uint8Array(win.w * win.h), wat: new Uint8Array(win.w * win.h) };
         let done = 0;
@@ -103,24 +106,24 @@ export class DetailTiles {
      *  view; the finest level; most across or down (TileLayers' layers on this GPU) */
     constructor(service, { keep = 200, most = 150, maxLevel = 9, maxSpan = 31 } = {}) {
         this.service = service; this.keep = keep; this.most = most; this.maxLevel = maxLevel; this.maxSpan = maxSpan;
-        this.tiles = new Map(); this.fin = null; this.seed = 0; this.range = null; this.clock = 0;
+        this.tiles = new Map(); this.fin = null; this.seed = 0; this.riverQ = Infinity; this.range = null; this.clock = 0;
         this.onTile = null;                                   // (called as each tile is drawn)
     }
 
-    /** Forget every tile (another moment). */
-    reset(fin = null, seed = 0) {
+    /** Forget every tile (another moment, or other rivers drawn: other valleys). */
+    reset(fin = null, seed = 0, riverQ = Infinity) {
         for (const t of this.tiles.values()) t.ctl?.abort();
-        this.tiles.clear(); this.fin = fin; this.seed = seed; this.range = null;
+        this.tiles.clear(); this.fin = fin; this.seed = seed; this.riverQ = riverQ; this.range = null;
     }
 
     /**
      * The tiles a view wants, asked for where not drawn: `places` its sampled points as [lon, lat] (degrees; null off the
-     * planet), `screenPx` its height in device pixels, `textureW` the picture shown's width. Returns the range
-     * { L, tx0, tx1, ty0, ty1 } (tx may run past the planet's edge: wrapped), or null where the picture's own pixels are
-     * fine enough.
+     * planet), `screenPx` its height in device pixels, `textureW` the picture shown's width, `riverQ` the rivers drawn
+     * (DetailService.source). Returns the range { L, tx0, tx1, ty0, ty1 } (tx may run past the planet's edge: wrapped), or
+     * null where the picture's own pixels are fine enough.
      */
-    want(fin, seed, places, screenPx, textureW) {
-        if (fin !== this.fin) this.reset(fin, seed);
+    want(fin, seed, places, screenPx, textureW, riverQ = Infinity) {
+        if (fin !== this.fin || riverQ !== this.riverQ) this.reset(fin, seed, riverQ);
         const g = this.range = tileRange(places, screenPx, textureW, this.most, this.maxLevel, this.maxSpan), wanted = new Set();
         const list = [];
         if (g) for (let ty = g.ty0; ty <= g.ty1; ty++) for (let tx = g.tx0; tx <= g.tx1; tx++) {
@@ -142,7 +145,7 @@ export class DetailTiles {
         // (two pixels more all round: the slot's pixel of its neighbours', and the hillshade's neighbours beyond that)
         const t = { key, L, tx: x, ty, win: { W: TILE * n, x0: x * TILE - 2, y0: ty * TILE - 2, w: TILE + 4, h: TILE + 4 }, data: null, ctl: new AbortController(), ticket: { order }, used: ++this.clock, canvas: null, look: -1 };
         this.tiles.set(key, t);
-        this.service.run(this.service.source(this.fin, this.seed), t.win, t.ctl.signal, t.ticket).then(data => {
+        this.service.run(this.service.source(this.fin, this.seed, this.riverQ), t.win, t.ctl.signal, t.ticket).then(data => {
             if (this.tiles.get(key) !== t) return;
             t.data = data; t.ctl = null; t.ticket = null;
             this.onTile?.(t);
