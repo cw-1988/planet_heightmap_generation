@@ -49,12 +49,18 @@ sea or a lake. T is the valley size (never under a dozen cells), S a fifth of it
   by its share of T. An edge river: never. Slivers join their weakest neighbour first; then all pairs join weakest
   first (plus 300 m per valley's worth of size, so the valleys come out even), never past 1.6× the size and never over
   600 m. Leftovers under a quarter of the size join their weakest neighbour; a piece enclosed by one neighbour joins
-  it; the last slivers join anything but across an edge river.
+  it; the last slivers join anything but across an edge river. A valley never holds both banks of one edge river, even
+  joined round its upper end where it is still a stream: each piece knows which bank of which river it lies on (the
+  river's main stem, followed up each confluence by the larger land), and two pieces on opposite banks never join.
 - **River halves** (`js/region-halves.js`): a river runs through its cells' centres, so a river cell is cut by its
   line in two halves. Each half goes to the valley that most of the land along it is in, measured on the cells' shared
-  edges, unless the cell's own valley would come apart without it (a valley that crosses a stream may hang together
-  only through the stream's cells). So a bank's valley reaches the river itself. `js/region-bank.js` `unitAt` reads a
-  point's valley off them.
+  edges (a half pinched at a bend, with no edge long enough: the land whose centre is on its side). A half with no land
+  at all, between two rivers or at a confluence, takes the valley of the nearest half along the river that has one.
+  A half moves only if its valley stays one piece without it (a valley that crosses a stream may hang together only
+  through the stream's cells), judged with every other half already where it is going: a row of far-bank halves once
+  held one another for the near bank's valley. So a bank's valley reaches the river itself, and only on its bank (at
+  medium 3 of 5,778 halves still disagree with the land beside them, none at large). `js/region-bank.js` `unitAt`
+  reads a point's valley off them.
 - **The valleys' map** (`js/region-grid.js`): which valley each pixel of a 2048 × 1024 grid is in (~20 km a pixel). It
   is the one picture of the valleys: the overlay draws it, the pointer picks from it, the region's mask is cut from it,
   so what is shown is what is chosen. Built in slices between frames (~0.4 s the first time on a planet, then ~0.1 s a

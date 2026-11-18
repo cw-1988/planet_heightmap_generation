@@ -21,7 +21,39 @@ export function halves(mesh, full, unit, { wall, recv, main, np }) {
     for (let r = 0; r < n; r++) if (wall[r]) half[2 * r] = half[2 * r + 1] = unit[r];
     // (the graph: land cell c is node c, half b of river cell r node n + 2r + b − 1; links between land cells are the
     // mesh's, the rest measured)
-    const link = contacts(mesh, full, unit, wall, recv, main, np), unitOf = (k) => (k < n ? unit[k] : half[k - n]);
+    const link = contacts(mesh, full, unit, wall, recv, main, np), votes = new Map();
+    // (each half's land vote: the valley most of the land along it is in, −1 if none)
+    const want = new Int32Array(2 * n).fill(-1);
+    for (let r = 0; r < n; r++) {
+        if (!wall[r] || !np[r]) continue;
+        for (let b = 0; b < 2; b++) {
+            const l = link.get(n + 2 * r + b) ?? [];
+            votes.clear();
+            for (let i = 0; i < l.length; i += 2) if (l[i] < n) votes.set(unit[l[i]], (votes.get(unit[l[i]]) ?? 0) + l[i + 1]);
+            // (no land edge long enough along it, the half pinched at a bend: the land whose centre is on its side)
+            if (!votes.size) for (let e = adjOffset[r]; e < adjOffset[r + 1]; e++) {
+                const d = adjList[e];
+                if (wall[d] || unit[d] < 0 || bankAt(mesh.xyz, recv, main, np, r, mesh.xyz[3 * d], mesh.xyz[3 * d + 1], mesh.xyz[3 * d + 2]) !== b + 1) continue;
+                votes.set(unit[d], (votes.get(unit[d]) ?? 0) + 1);
+            }
+            let most = 0;
+            for (const [u, w] of votes) if (u >= 0 && w > most) { most = w; want[2 * r + b] = u; }
+        }
+    }
+    // (a half with no land along it, between two rivers or at a confluence, takes its target from the nearest halves of
+    // other river cells that have one: else it kept the near bank's valley, and that valley reached across the river)
+    const queue = [];
+    for (let h = 0; h < 2 * n; h++) if (want[h] >= 0) queue.push(h);
+    for (let q = 0; q < queue.length; q++) {
+        const h = queue[q], l = link.get(n + h) ?? [];
+        for (let i = 0; i < l.length; i += 2) {
+            const j = l[i] - n;
+            if (j >= 0 && j >> 1 !== h >> 1 && want[j] < 0 && np[j >> 1]) { want[j] = want[h]; queue.push(j); }
+        }
+    }
+    // (a half bound elsewhere counts as gone already: else a row of far halves along a river held one another for the
+    // near bank's valley, each one a link the next one's valley "needed")
+    const unitOf = (k) => (k < n ? unit[k] : want[k - n] >= 0 && want[k - n] !== half[k - n] ? -2 : half[k - n]);
     const nbrs = (k, fn) => {
         if (k < n) for (let e = adjOffset[k]; e < adjOffset[k + 1]; e++) { const d = adjList[e]; if (!wall[d] && unit[d] >= 0) fn(d); }
         const l = link.get(k);
@@ -46,18 +78,14 @@ export function halves(mesh, full, unit, { wall, recv, main, np }) {
         stack.length = 0;
         return left > 0;
     };
-    const votes = new Map();
-    for (let r = 0; r < n; r++) {
-        if (!wall[r] || !np[r]) continue;
-        for (let b = 0; b < 2; b++) {
-            const k = n + 2 * r + b, l = link.get(k) ?? [];
-            votes.clear();
-            for (let i = 0; i < l.length; i += 2) if (l[i] < n) votes.set(unit[l[i]], (votes.get(unit[l[i]]) ?? 0) + l[i + 1]);
-            let y = -1, most = 0;
-            for (const [u, w] of votes) if (w > most) { most = w; y = u; }
-            const x = half[k - n];
-            if (y >= 0 && y !== x && !cuts(k, x)) half[k - n] = y;
+    // (each half to its target unless its valley would come apart; again while any moves, as one move can free another)
+    for (let pass = 0; pass < 6; pass++) {
+        let changed = 0;
+        for (let h = 0; h < 2 * n; h++) {
+            const y = want[h], x = half[h];
+            if (y >= 0 && y !== x && np[h >> 1] && !cuts(n + h, x)) { half[h] = y; changed++; }
         }
+        if (!changed) break;
     }
     return half;
 }

@@ -44,10 +44,11 @@ export function joinByBarrier(mesh, z, unit, units, riv, min, target) {
             if (qx > 0) { rec.cross++; rec.q = Math.max(rec.q, qx); } else { rec.open++; rec.h += Math.max(zc[c], zc[d]); }
         }
     }
+    const banks = banksOf(mesh, unit, units, riv);
     const mean = (u) => sumZ[u] / size[u];
     // (an edge river anywhere on the border: never; a stream one cell apart and otherwise open is a bank's corner)
     const barrier = (u, v, rec) => {
-        if (rec.q >= edgeKm2) return Infinity;
+        if (rec.q >= edgeKm2 || bothBanks(banks[u], banks[v])) return Infinity;
         const divide = rec.open ? 1000 * (rec.h / rec.open - (mean(u) + mean(v)) / 2) : 0;
         const river = rec.cross ? STREAM_M * rec.q / edgeKm2 : 0;
         return rec.cross >= 2 || !rec.open ? Math.max(divide, river) : divide;
@@ -55,6 +56,7 @@ export function joinByBarrier(mesh, z, unit, units, riv, min, target) {
     const merge = (u, v) => {
         const [t, s] = (nb[u]?.size ?? 0) >= (nb[v]?.size ?? 0) ? [u, v] : [v, u], mt = (nb[t] ??= new Map());
         root[s] = t; size[t] += size[s]; sumZ[t] += sumZ[s]; coast[t] |= coast[s]; ver[t]++;
+        if (banks[s]) { const bt = (banks[t] ??= new Map()); for (const [k, m] of banks[s]) bt.set(k, (bt.get(k) ?? 0) | m); banks[s] = null; }
         for (const [x, rec] of nb[s] ?? []) {
             if (x === t) continue;
             const mx = nb[x], have = mt.get(x);
@@ -88,7 +90,8 @@ export function joinByBarrier(mesh, z, unit, units, riv, min, target) {
     const holes = () => {
         for (let u = 0; u < units; u++) {
             if (root[u] !== u || !size[u] || coast[u] || nb[u]?.size !== 1) continue;
-            merge(u, nb[u].keys().next().value);
+            const v = nb[u].keys().next().value;
+            if (!bothBanks(banks[u], banks[v])) merge(u, v);
         }
     };
     slivers(min, Infinity);
@@ -111,6 +114,43 @@ export function joinByBarrier(mesh, z, unit, units, riv, min, target) {
     // (the leftovers: under a quarter of a valley to their weakest neighbour; holes; the last slivers anywhere)
     slivers(Math.max(min, target / 4), 2.2 * target, HARD_M); holes(); slivers(min, Infinity, Infinity); holes();
     for (let c = 0; c < n; c++) if (unit[c] >= 0) unit[c] = find(unit[c]);
+}
+
+/**
+ * Per piece, the edge rivers it lies along and on which bank: Map(stem → 1 left | 2 right | 3), null if none. A stem is
+ * a river's main line (followed up each confluence by the larger land), and only its stretch that drains a valley's land
+ * or more counts. A valley may hold one bank of each: never both, even joined round the river's head, where it is
+ * still a stream (a valley wrapped round a great river's upper end was drawn on both its banks).
+ */
+function banksOf(mesh, unit, units, { wall, recv, main, np, qe, edgeKm2 }) {
+    const { adjOffset, adjList, xyz } = mesh, n = unit.length, stem = new Int32Array(n).fill(-1), banks = new Array(units).fill(null), path = [];
+    for (let c = 0; c < n; c++) {
+        if (!wall[c] || stem[c] >= 0) continue;
+        let k = c;
+        while (stem[k] < 0) { path.push(k); const r = recv[k]; if (r < 0 || !wall[r] || main[r] !== k) break; k = r; }
+        const s = stem[k] >= 0 ? stem[k] : k;
+        for (const p of path) stem[p] = s;
+        path.length = 0;
+    }
+    const mark = (u, s, side) => { const m = (banks[u] ??= new Map()); m.set(s, (m.get(s) ?? 0) | side); };
+    for (let r = 0; r < n; r++) {
+        if (!wall[r] || !np[r] || qe[r] < edgeKm2) continue;
+        if (unit[r] >= 0) mark(unit[r], stem[r], 1);                           // (a river's cells: its left bank's piece)
+        for (let e = adjOffset[r]; e < adjOffset[r + 1]; e++) {
+            const d = adjList[e];
+            if (unit[d] < 0 || wall[d]) continue;
+            mark(unit[d], stem[r], bankAt(xyz, recv, main, np, r, xyz[3 * d], xyz[3 * d + 1], xyz[3 * d + 2]));
+        }
+    }
+    return banks;
+}
+
+/** Would two pieces together lie on both banks of one edge river? */
+function bothBanks(a, b) {
+    if (!a || !b) return false;
+    const [s, l] = a.size <= b.size ? [a, b] : [b, a];
+    for (const [k, m] of s) if (((l.get(k) ?? 0) | m) === 3) return true;
+    return false;
 }
 
 /** A binary min-heap of (cost, u, v, ver u, ver v). */
