@@ -25,6 +25,7 @@ import { showBuildError, describeFailure, holdControls } from './build-error.js'
 import { presentCrustLine } from './present-crust.js';
 import { plateColors, platesLegendHTML, INSPECT, inspectColors, drawPlateLines, platesMap } from './generate-plates.js';
 import { state } from './state.js';
+import { mountEditTools } from './edit-tools.js';
 import { store, sliderTooltip, detailWarning, redrawFoldedSliders, sidePanel, buildOverlay, tutorial } from './page-chrome.js';
 
 setDelaunator(Delaunator);
@@ -88,11 +89,12 @@ function sliders() {
 const climateOptions = () => ({ greenhouseWm2: +$('sTmp').value, precipScale: Math.max(0, 1 + 0.5 * +$('sPrc').value) });
 
 let building = null;         // what the worker is doing: 'generate', 'reapply', 'edit'
-function generate(seed, toggledIndices = []) {
+function generate(seed, toggledIndices = [], keepEdits = false) {
     building = 'generate'; finisher.cancel();
+    if (!keepEdits) tools.reset();
     showBuildOverlay();
     $('generate').disabled = true; $('generate').textContent = 'Building…'; $('generate').classList.add('generating');
-    worker.postMessage({ cmd: 'generate', ...sliders(), seed, toggledIndices, next: true, shared: true });
+    worker.postMessage({ cmd: 'generate', ...sliders(), seed, toggledIndices, next: true, shared: true, cuts: tools.cuts, strokes: tools.strokes });
 }
 function failed(message) {
     console.error('[generate] build failed:', message);
@@ -271,6 +273,19 @@ rebuildFab.addEventListener('click', () => {
     pv.hover(['Rebuilding…']);
     worker.postMessage({ cmd: 'editRecompute', plateIsOcean: [...world.plateIsOcean], ...sliders() });
 });
+// ── the edit tools (js/edit-tools.js): terrain brushes, region split ──
+const tools = mountEditTools(pv, {
+    world: () => world,
+    busy: () => !!building,
+    preview: () => { if (world.fin) { finisher.cancel(); world.fin = null; world.finishing = null; } dirty = true; },
+    strokes: (list) => { building = 'brush'; worker.postMessage({ cmd: 'brush', strokes: list }); },
+    recut: (parent) => {
+        // (the same world, cut again; a parent with a Ctrl-click edit hands it to its new piece, the last in the list)
+        const t = toggledIndices();
+        if (parent != null && world.originalPlateIsOcean.has(parent) !== world.plateIsOcean.has(parent)) t.push(world.plateSeeds.length);
+        generate(world.seed, t, true);
+    },
+});
 $('editToggle')?.addEventListener('click', () => { state.editMode = !state.editMode; $('editToggle').classList.toggle('active', state.editMode); $('editToggle').setAttribute('aria-pressed', String(state.editMode)); if (!state.editMode) setHovered(-1); });
 
 // ── the sliders: their values, the stale build button, Reapply, the climate ──
@@ -325,7 +340,7 @@ genBtn.addEventListener('click', () => {
     // (Rebuild: the same seed and edits, only the resolution and noise; the plate sliders: a fresh world)
     const plateChanged = PLATE_SLIDERS.some((id) => $(id).value !== lastGenValues[id]);
     const rebuild = genBtn.classList.contains('stale') && world && !plateChanged;
-    generate(rebuild ? world.seed : undefined, rebuild ? toggledIndices() : []);
+    generate(rebuild ? world.seed : undefined, rebuild ? toggledIndices() : [], rebuild);
 });
 /** The pieces edited, as indices into the layout's list (the planet code's toggles). */
 function toggledIndices() {

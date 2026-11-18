@@ -1234,6 +1234,21 @@ body.edits-pending #hoverInfo { bottom: 112px; }
     body.touch .edit-toggle.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 }
 
+/* Edit tools (fork): terrain brushes and region split — js/edit-tools.js */
+.terrain-tools {
+    position: fixed; bottom: 112px; left: calc(50% + var(--open-shift, 0px)); transform: translateX(-50%); z-index: 26;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px; max-width: calc(100vw - 32px); padding: 4px;
+    background: var(--surface); border: var(--line-hair) solid var(--rule); border-radius: var(--radius-full); box-shadow: var(--shadow-card);
+    font: 500 13px/1 var(--font-ui);
+}
+.terrain-tools button { min-height: var(--size-touch); padding: 0 12px; border-radius: var(--radius-full); border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.terrain-tools button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+.terrain-tools button:disabled { opacity: 0.4; cursor: default; }
+.terrain-tools label { display: flex; align-items: center; gap: 6px; padding: 0 8px; }
+.terrain-tools input[type="range"] { width: 90px; }
+.terrain-tools output { min-width: 52px; }
+body.terrain-tool-on #planetCanvas, body.terrain-tool-on canvas { cursor: crosshair; }
+
 /* Refresh FAB — hidden on desktop */
 .refresh-fab { display: none; }
 

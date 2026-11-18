@@ -24,6 +24,8 @@ import { buildSimMesh } from '../v2/js/core/sim-mesh.js';
 import { plainCarveInputs } from '../v2/js/terrain/synthesize.js';
 import { surfaceConfig } from '../v2/js/finish/finish.js';
 import { terrainConfig } from '../v2/js/terrain/terrain-config.js';
+import { applyStroke } from './terrain-brush.js';
+import { applyCuts } from './region-cut.js';
 import Delaunator from 'https://cdn.jsdelivr.net/npm/delaunator@5.0.1/+esm';
 
 setDelaunator(Delaunator);
@@ -76,12 +78,36 @@ function presentGround(present, plateIsOcean, mesh, r_xyz, seed, knobs) {
     present.world = presentWorld(present, pieceLand, mesh, r_xyz, { seed, knobs, regionLand, regionCell: present.regionCell, regionPlate: present.regionPlate, finish: finishConfigOf(knobs), unedited: present.base });
     present.knobs = knobs;
     present.world.shade = hillshade(presentTerrainMesh(mesh, r_xyz), present.world.heightKm);
+    groundDrawn(present, mesh, r_xyz);
+}
+// ── the terrain brushes (js/terrain-brush.js): the ground as drawn kept, the strokes replayed onto it ──
+/** A ground just drawn: kept unbrushed (an undo replays from it), the strokes so far laid on it. */
+function groundDrawn(present, mesh, r_xyz) {
+    const w = present.world;
+    present.unbrushed = { h: w.heightKm.slice(), s: w.surface.heightKm === w.heightKm ? null : w.surface.heightKm.slice() };
+    present.brushed = 0;
+    brushTo(present, mesh, r_xyz, W?.strokes ?? pendingStrokes);
+}
+let pendingStrokes = [];                                       // (a Generate's strokes, before W holds them)
+/** The ground brushed with `strokes`: only the new ones if it holds a prefix of them, else from the unbrushed ground. */
+function brushTo(present, mesh, r_xyz, strokes) {
+    const w = present.world, tm = presentTerrainMesh(mesh, r_xyz);
+    let changed = false;
+    if (strokes.length < present.brushed) {
+        w.heightKm.set(present.unbrushed.h);
+        if (present.unbrushed.s) w.surface.heightKm.set(present.unbrushed.s);
+        present.brushed = 0; changed = true;
+    }
+    for (let i = present.brushed; i < strokes.length; i++) { applyStroke(strokes[i], tm, w.heightKm, w.surface.heightKm); changed = true; }
+    present.brushed = strokes.length;
+    if (changed) w.shade = hillshade(tm, w.heightKm);
 }
 /** Reapply (G6): the same Frame, only the ground drawn again with the sculpting knobs. */
 function presentReground(present, mesh, r_xyz, seed, knobs) {
     const g = presentGroundOf(present.world.frame, present.L.sim, mesh, r_xyz, { seed, knobs, mask: present.world.mask, frontKm: present.world.frontKm, finish: finishConfigOf(knobs) });
     Object.assign(present.world, { heightKm: g.heightKm, surface: g.surface, shade: hillshade(presentTerrainMesh(mesh, r_xyz), g.heightKm) });
     present.knobs = knobs;
+    groundDrawn(present, mesh, r_xyz);
 }
 /** The Inspect list's layers of the present-day world's past (G6b), per render region off its sim cell. */
 function pastLayers(present, n) {
@@ -147,7 +173,10 @@ function handleGenerate(data) {
     const seed = overrideSeed ?? Math.floor(Math.random() * SEED_MAX);
     const { mesh, r_xyz } = buildSphere(N, jitter, makeRng(seed));
     progress(10, 'Generating coarse plates…');
-    const { coarseMesh, coarse_xyz, coarse_r_plate, coarsePlateSeeds, coarsePlateVec, coarsePlateIsOcean } = generateCoarsePlates(seed, P, numContinents, continentSizeVariety, landCoverage);
+    const coarseLayout = generateCoarsePlates(seed, P, numContinents, continentSizeVariety, landCoverage);
+    applyCuts(data.cuts, coarseLayout);                       // (the region cuts, before the first land is read off it)
+    const { coarseMesh, coarse_xyz, coarse_r_plate, coarsePlateSeeds, coarsePlateVec, coarsePlateIsOcean } = coarseLayout;
+    W = null; pendingStrokes = data.strokes ?? [];
     progress(20, 'Projecting plates…');
     const r_plate = projectCoarsePlates(mesh, r_xyz, coarseMesh, coarse_xyz, coarse_r_plate, seed, P);
     smoothAndReconnectPlates(mesh, r_plate, coarsePlateSeeds, 3);
@@ -166,7 +195,7 @@ function handleGenerate(data) {
     present.edit = { pieceVec, coarse, P, original: originalPlateIsOcean };   // (kept for an edit: the coarse layout, the pieces' motion — G1d — and their first land)
     progress(35, 'Raising the ground…');
     presentGround(present, plateIsOcean, mesh, r_xyz, seed, knobsOf(data, nMag));
-    W = { mesh, r_xyz, seed, nMag, plateIsOcean: new Set(plateIsOcean), present, r_plate: new Int32Array(r_plate) };
+    W = { mesh, r_xyz, seed, nMag, plateIsOcean: new Set(plateIsOcean), present, r_plate: new Int32Array(r_plate), strokes: pendingStrokes };
     present.r_plate = W.r_plate;
     progress(95, 'Done');
     sendWorld('done', { r_plate, plateSeeds: Array.from(plateSeeds), plateIsOcean: Array.from(plateIsOcean), originalPlateIsOcean: Array.from(originalPlateIsOcean), _workerTotal: performance.now() - t0 });
@@ -191,6 +220,15 @@ function handleEditRecompute(data) {
     const E = W.present.edit;
     W.present = { ...presentPlatesFor({ coarse: E.coarse, P: E.P, pieceOcean: W.plateIsOcean, pieceVec: E.pieceVec, seed: W.seed, mesh: W.mesh, r_xyz: W.r_xyz, r_plate: W.r_plate, original: E.original, reuse: W.present }), edit: E };
     presentGround(W.present, W.plateIsOcean, W.mesh, W.r_xyz, W.seed, knobsOf(data, W.nMag));
+    sendWorld('editDone', { _workerTotal: performance.now() - t0 });
+}
+
+/** The terrain brushes: all strokes so far (fewer than before: an undo). */
+function handleBrush(data) {
+    if (!W?.present) { self.postMessage({ type: 'error', message: 'No retained state for brush' }); return; }
+    const t0 = performance.now();
+    W.strokes = data.strokes;
+    brushTo(W.present, W.mesh, W.r_xyz, W.strokes);
     sendWorld('editDone', { _workerTotal: performance.now() - t0 });
 }
 
@@ -260,7 +298,7 @@ function importGround(data, again = false) {
 }
 
 self.onmessage = (e) => {
-    const handlers = { generate: handleGenerate, reapply: handleReapply, editRecompute: handleEditRecompute, importHeightmap: (d) => importGround(d) };
+    const handlers = { generate: handleGenerate, reapply: handleReapply, editRecompute: handleEditRecompute, brush: handleBrush, importHeightmap: (d) => importGround(d) };
     const run = handlers[e.data.cmd];
     if (!run) { self.postMessage({ type: 'error', message: `Unknown command: ${e.data.cmd}` }); return; }
     try { run(e.data); } catch (err) { self.postMessage({ type: 'error', message: err.message, stack: err.stack }); }

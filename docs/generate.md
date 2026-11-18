@@ -99,6 +99,22 @@ lightens while Ctrl (⌘) is held, and each pending piece is tinted by what it w
 sink — with the ground showing through, to its own outline (`js/generate-plates.js`). The hover card steps up over the
 Rebuild button while edits wait.
 
+### Edit tools (fork addition)
+
+A tool bar over the planet (`js/edit-tools.js`). While a tool is on, the left button is the tool's and right-drag turns
+the globe; Undo (Ctrl+Z) takes back the last stroke or split.
+
+- **Raise / Lower / Smooth / Flatten** (`js/terrain-brush.js`): drag to brush the ground; Size is the brush's radius in
+  km, Strength the change per stamp (Raise/Lower up to 1 km at the centre; Smooth/Flatten the pull). Flatten holds the
+  height where the stroke began. Strokes are kept as places on the sphere, so the worker lays them again after every
+  Rebuild, Reapply or plate edit; the finish (rivers, climate) runs on the brushed ground, so a raise above sea level
+  is land.
+- **Split** (`js/region-cut.js`): drag a line across a piece; the world is built again (same seed) with the piece cut
+  along that great circle into two, each Ctrl-clicked to flood or raise on its own. The cut is made on the coarse
+  layout, so the new piece has its own outline at any Detail; its index follows the existing ones, so earlier edits hold.
+
+Strokes and splits live with the page, not in the planet code: a new world clears them, Rebuild keeps them.
+
 ## Mobile Support
 
 Generate is fully usable on phones and tablets:
