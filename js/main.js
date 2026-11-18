@@ -28,6 +28,7 @@ import { state } from './state.js';
 import { mountEditTools } from './edit-tools.js';
 import { mountCityRing } from './city-ring.js';
 import { mountRegionPick, regionChosen } from './region-pick.js';
+import { regionOverlay } from './region-overlay.js';
 import { store, sliderTooltip, detailWarning, redrawFoldedSliders, sidePanel, buildOverlay, tutorial } from './page-chrome.js';
 
 setDelaunator(Delaunator);
@@ -46,10 +47,11 @@ const inspectEl = $('debugLayer');
 const pv = new PlanetView({ isTouch: IS_TOUCH, gpu: new URLSearchParams(location.search).get('gpu') !== '0', paletteKey: 'orogen.generate.palette',
     band: { below: document.getElementById('info'), gap: 24 },
     onChange: viewChanged, alive: (fin) => fin === world?.fin,
-    extraLines: (ctx, W, view) => drawPlateLines(ctx, W, view, world, { pending, hovered: hoveredPiece, chosen: regionChosen }),
-    extraLinesKey: (view) => `${world?.version ?? 0}|${view.layer === 'plates'}|${[...pending].join(',')}|${hoveredPiece}|${regionChosen.size}:${[...regionChosen.ids].join(',')}:${regionChosen.hover}`,
+    extraLines: (ctx, W, view) => drawPlateLines(ctx, W, view, world, { pending, hovered: hoveredPiece }),
+    extraLinesKey: (view) => `${world?.version ?? 0}|${view.layer === 'plates'}|${[...pending].join(',')}|${hoveredPiece}`,
     infoText: (mode) => (IS_TOUCH ? 'Drag to rotate · Pinch to zoom · Use edit button to reshape' : `Drag to ${mode === 'map' ? 'move the map' : 'rotate'} · Scroll to zoom · Ctrl-click (⌘-click on a Mac) to reshape continents`) });
 const view = pv.view;
+const regionShown = regionOverlay(pv.globe);
 if (IS_TOUCH) $('info').textContent = 'Drag to rotate · Pinch to zoom · Use edit button to reshape';
 // (a touch screen wider than a phone — a tablet — keeps the edit button too: styles.css body.touch)
 if (IS_TOUCH) document.body.classList.add('touch');
@@ -203,6 +205,7 @@ function tick(now) {
     if (world && !dirty && linesDirty) { linesDirty = false; if (!pv.relayLines()) dirty = true; }
     if (world && dirty) { dirty = linesDirty = false; paint(); }
     pv.updatePatch(now, world ? pv.shows(world.fin) : null, world?.fin, world?.seed);
+    regionShown.sync(world, regionChosen);                               // (the region pick's valleys: the shader's)
     pv.render(now);
 }
 requestAnimationFrame(tick);
@@ -292,7 +295,7 @@ const tools = mountEditTools(pv, {
     },
 });
 mountCityRing(pv);
-mountRegionPick(pv, { world: () => world, changed: () => { linesDirty = true; } });
+mountRegionPick(pv, { world: () => world });
 $('editToggle')?.addEventListener('click', () => { state.editMode = !state.editMode; $('editToggle').classList.toggle('active', state.editMode); $('editToggle').setAttribute('aria-pressed', String(state.editMode)); if (!state.editMode) setHovered(-1); });
 
 // ── the sliders: their values, the stale build button, Reapply, the climate ──

@@ -8,14 +8,14 @@ import { regionFrame, placeAt, xyOf, cropPlanet, cropBuffers } from '../v2/js/re
 import { regionWindow } from '../v2/js/region/region-view.js';
 import { valleysOf } from './region-basin.js';
 
-/** The valleys chosen, for the planet's tint (generate-plates.js drawPlateLines): ids, the partition (unit per cell,
- *  cells per unit), the tint's masks, the valley under the pointer (hover). */
-export const regionChosen = { ids: new Set(), unit: null, cells: null, masks: new Map(), hover: -1, world: null, size: 0, riverQ: 0, wallQ: 0 };
+/** The valleys chosen, for the planet's tint (region-overlay.js, drawn by the globe's shader): ids, the partition (unit
+ *  per cell, cells per unit), the valley under the pointer (hover). */
+export const regionChosen = { ids: new Set(), unit: null, cells: null, hover: -1, world: null, size: 0, riverQ: 0, wallQ: 0 };
 const D = Math.PI / 180, KM_MIN = 200, KM_MAX = 6000;
 // (km²; region-basin.js keeps a valley at least a dozen of the planet's cells, so its shape follows the land at any detail)
 const SIZES = [['small', 30000], ['medium', 150000], ['large', 600000]];
 
-/** The bar and its clicks. Hooks: world() the world shown, changed() the planet drawn again. */
+/** The bar and its clicks. Hooks: world() the world shown. (The tint is region-overlay.js's, read off `regionChosen`.) */
 export function mountRegionPick(pv, hooks) {
     const bar = document.createElement('div');
     bar.className = 'terrain-tools region-pick';
@@ -38,7 +38,7 @@ export function mountRegionPick(pv, hooks) {
         if (!w?.fin?.drain) return null;
         if (C.world !== w || C.size !== +size.value || C.riverQ !== riverQ) {
             const V = valleysOf(w, +size.value, riverQ);
-            Object.assign(C, { unit: V.unit, cells: V.cells, masks: new Map(), hover: -1, world: w, size: +size.value, riverQ, wallQ: V.riverQ });
+            Object.assign(C, { unit: V.unit, cells: V.cells, hover: -1, world: w, size: +size.value, riverQ, wallQ: V.riverQ });
             C.ids.clear();
         }
         return C;
@@ -56,7 +56,6 @@ export function mountRegionPick(pv, hooks) {
         openBtn.disabled = !F || !!open;
         openBtn.textContent = F ? `Open ${Math.round(F.km)} km · ${Math.round(F.cellKm * 1000)} m` : 'Open';
         clearBtn.disabled = !n;
-        hooks.changed();
     }
     function setOn(v) {
         on = v; onBtn.setAttribute('aria-pressed', String(on)); more.hidden = !on;
@@ -86,7 +85,7 @@ export function mountRegionPick(pv, hooks) {
         const w = hooks.world();
         if (!on || down || !valleys(w)) return;
         const u = onPlanet(e.target) ? unitUnder(e, w) : -1;
-        if (u !== C.hover) { C.hover = Math.max(-1, u); hooks.changed(); }
+        C.hover = Math.max(-1, u);                                          // (region-overlay.js sends it on)
     }, true);
     addEventListener('pointerdown', (e) => { down = on && e.button === 0 && !e.ctrlKey && !e.metaKey && onPlanet(e.target) ? { x: e.clientX, y: e.clientY } : null; }, true);
     addEventListener('pointerup', (e) => {

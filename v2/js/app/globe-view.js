@@ -53,6 +53,47 @@ vec4 withPatch(vec4 base, vec2 tc) {
     vec4 b = patchLayer(uPatchAtl1, uPatchTab1, uPatchRange1, uPatchGrid1, tc);
     return vec4(mix(mix(base.rgb, b.rgb, b.a), a.rgb, a.a), base.a);
 }`;
+// (fork addition) the region pick's valleys over the picture (js/region-overlay.js, setRegionCells): uRegionId the valley
+// + 1 under each texel (RGB, the first row the south), uRegionState a byte per valley (chosen), uRegionHover the one under
+// the pointer; uRegionSize: the grid's width and height, the bytes' width and rows. A valley's outline is where its share
+// of the four texels round the place passes the others' — a smooth line at any zoom, not the texels' steps — and its rim
+// the pixels 1.5 px from another valley.
+const REGION_GLSL = `uniform sampler2D uRegionId, uRegionState; uniform vec4 uRegionSize; uniform float uRegionHover, uRegionOn;
+float regionTexel(vec2 i) {
+    i.x = mod(i.x, uRegionSize.x); i.y = clamp(i.y, 0.0, uRegionSize.y - 1.0);
+    vec3 k = floor(texture2D(uRegionId, (i + 0.5) / uRegionSize.xy).rgb * 255.0 + 0.5);
+    return k.r + 256.0 * k.g + 65536.0 * k.b;
+}
+float regionAt(vec2 tc) {
+    vec2 p = vec2(fract(tc.x), tc.y) * uRegionSize.xy - 0.5, i = floor(p), f = p - i;
+    float a = regionTexel(i), b = regionTexel(i + vec2(1.0, 0.0)), c = regionTexel(i + vec2(0.0, 1.0)), d = regionTexel(i + vec2(1.0, 1.0));
+    float wa = (1.0 - f.x) * (1.0 - f.y), wb = f.x * (1.0 - f.y), wc = (1.0 - f.x) * f.y, wd = f.x * f.y;
+    float sa = wa + (b == a ? wb : 0.0) + (c == a ? wc : 0.0) + (d == a ? wd : 0.0);
+    float sb = wb + (a == b ? wa : 0.0) + (c == b ? wc : 0.0) + (d == b ? wd : 0.0);
+    float sc = wc + (a == c ? wa : 0.0) + (b == c ? wb : 0.0) + (d == c ? wd : 0.0);
+    float sd = wd + (a == d ? wa : 0.0) + (b == d ? wb : 0.0) + (c == d ? wc : 0.0);
+    float id = a, s = sa;
+    if (sb > s) { id = b; s = sb; }
+    if (sc > s) { id = c; s = sc; }
+    if (sd > s) id = d;
+    return id - 1.0;
+}
+bool regionChosenAt(float u) {
+    if (u < 0.0) return false;
+    vec2 i = vec2(mod(u, uRegionSize.z), floor(u / uRegionSize.z));
+    return texture2D(uRegionState, (i + 0.5) / uRegionSize.zw).r > 0.5;
+}
+vec3 withRegion(vec3 base, vec2 tc, vec2 gx, vec2 gy) {
+    if (uRegionOn < 0.5) return base;
+    float u = regionAt(tc);
+    bool hov = u >= 0.0 && u == uRegionHover, cho = regionChosenAt(u);
+    if (!hov && !cho) return base;
+    bool rim = regionAt(tc + 1.5 * gx) != u || regionAt(tc - 1.5 * gx) != u || regionAt(tc + 1.5 * gy) != u || regionAt(tc - 1.5 * gy) != u;
+    vec3 c = base;                                                    // (linear light: the old sRGB tints' values)
+    if (cho) { c = mix(c, vec3(0.83, 0.045, 0.64), 0.38); if (rim) c = mix(c, vec3(0.19, 0.003, 0.155), 0.9); }
+    if (hov) { c = mix(c, vec3(1.0), 0.22); if (rim) c = mix(c, vec3(1.0), 0.9); }
+    return c;
+}`;
 
 export class GlobeView {
     /** @param {HTMLCanvasElement} glCanvas  @param {HTMLCanvasElement} mapCanvas  @param {{space?: boolean}} [o] */
@@ -92,6 +133,7 @@ export class GlobeView {
         this.scene.add(this.globe);
         // (a patch: tiles of the planet painted sharper, laid over the texture where they are — putPatchTile)
         this.patch = { uPatchSlot: { value: 1 } };
+        Object.assign(this.patch, { uRegionId: { value: null }, uRegionState: { value: null }, uRegionSize: { value: new THREE.Vector4(1, 1, 1, 1) }, uRegionHover: { value: -2 }, uRegionOn: { value: 0 } });
         for (const k of [0, 1]) Object.assign(this.patch, { [`uPatchAtl${k}`]: { value: null }, [`uPatchTab${k}`]: { value: null }, [`uPatchRange${k}`]: { value: new THREE.Vector4() }, [`uPatchGrid${k}`]: { value: new THREE.Vector4() } });
         this.patchLayers = [0, 1].map(() => ({ atl: null, tab: null, cols: 0, rows: 0, range: null }));
         // (the texture read where each pixel looks — its place on the sphere, not the sphere mesh's UVs, which smear across
@@ -105,16 +147,18 @@ export class GlobeView {
                 .replace('#include <common>', '#include <common>\nvarying vec3 vSphere;')
                 .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSphere = position;');
             shader.fragmentShader = shader.fragmentShader
-                .replace('#include <common>', `#include <common>\nvarying vec3 vSphere;\n${PATCH_GLSL}`)
+                .replace('#include <common>', `#include <common>\nvarying vec3 vSphere;\n${PATCH_GLSL}\n${REGION_GLSL}`)
                 .replace('#include <map_fragment>', `vec3 sd = normalize(vSphere);
     vec2 tcS = vec2(fract(atan(sd.z, -sd.x) / 6.283185307179586), 1.0 - acos(clamp(sd.y, -1.0, 1.0)) / 3.141592653589793);
     vec2 gxS = dFdx(tcS), gyS = dFdy(tcS);
     gxS.x -= floor(gxS.x + 0.5); gyS.x -= floor(gyS.x + 0.5);
     float clS = max(sqrt(max(0.0, 1.0 - sd.y * sd.y)), 0.02);
+    vec2 gxR = gxS, gyR = gyS;                                    // (a screen pixel's step on the texture: the region's rim)
     gxS.x *= clS; gyS.x *= clS;
 #ifdef USE_MAP
     vec4 sampledDiffuseColor = withPatch(textureGrad(map, tcS, gxS, gyS), tcS);
     diffuseColor *= sampledDiffuseColor;
+    diffuseColor.rgb = withRegion(diffuseColor.rgb, tcS, gxR, gyR);
 #endif`)
                 .replace('#include <specularmap_fragment>', `float specularStrength;
 #ifdef USE_SPECULARMAP
@@ -476,6 +520,30 @@ void main() {
         this._dirty = true;
     }
 
+    // ── (fork addition) the region pick's valleys, drawn by the shader over the picture (REGION_GLSL; js/region-overlay.js) ──
+    /** The valley + 1 under each texel of a W × H grid (RGBA bytes, RGB the number, the first row the south), or null: none. */
+    setRegionCells(data, W, H) {
+        const U = this.patch;
+        U.uRegionId.value?.dispose();
+        U.uRegionId.value = data ? Object.assign(new THREE.DataTexture(data, W, H), { magFilter: THREE.NearestFilter, minFilter: THREE.NearestFilter, needsUpdate: true }) : null;
+        if (data) U.uRegionSize.value.setX(W).setY(H);
+        U.uRegionOn.value = data ? 1 : 0;
+        this._dirty = true;
+    }
+    /** The chosen valleys: a byte each (R ≥ 128: chosen) on a W-wide grid of `rows` rows. */
+    setRegionChosen(bytes, W, rows) {
+        const U = this.patch, t = U.uRegionState.value;
+        if (t && t.image.width === W && t.image.height === rows) { t.image.data.set(bytes); t.needsUpdate = true; }
+        else {
+            t?.dispose();
+            U.uRegionState.value = Object.assign(new THREE.DataTexture(bytes, W, rows), { magFilter: THREE.NearestFilter, minFilter: THREE.NearestFilter, needsUpdate: true });
+            U.uRegionSize.value.setZ(W).setW(rows);
+        }
+        this._dirty = true;
+    }
+    /** The valley under the pointer (−1: none). */
+    setRegionHover(u) { this.patch.uRegionHover.value = u < 0 ? -2 : u; this._dirty = true; }
+
     /** Crisp texels (sim cells, the default) or smoothly filtered ones (shaded terrain) — a canvas's texture. */
     setSmooth(on) {
         const filter = on ? THREE.LinearFilter : THREE.NearestFilter;
@@ -507,6 +575,7 @@ void main() {
                 vertexShader: 'varying vec2 vUv;\nvoid main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
                 fragmentShader: `uniform sampler2D map; uniform float turn; uniform vec4 uView; uniform vec2 uWrap; uniform float uAniso; varying vec2 vUv;
 ${PATCH_GLSL}
+${REGION_GLSL}
 ${PROJECTION_GLSL}
 ${CLOUD_GLSL}
 uniform vec4 uCloudOp; uniform vec2 uCloudGrey; uniform float uCloudOn, uCloudLight, uCloudLit, uCloudShadow, uCloudShadowOn, uCloudShadowStep;
@@ -547,6 +616,7 @@ void main() {
     if (!on) discard;
 #if __VERSION__ >= 300
     gl_FragColor = withPatch(textureGrad(map, tc, gx, gy), tc);
+    gl_FragColor.rgb = withRegion(gl_FragColor.rgb, tc, gx, gy);
 #else
     gl_FragColor = withPatch(texture2D(map, tc), tc);
 #endif

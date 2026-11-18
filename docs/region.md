@@ -11,8 +11,11 @@ and roads. In that last step the region's rivers and passes go back to the plane
   along its natural borders: divides, thick rivers and coasts. Each side of a thick river is its own valley, so a
   river can be a region's edge. The valley under the pointer is lightened with a white rim, and a click takes it in or
   out (the sea is refused); a drag still turns the globe. The chosen valleys are tinted magenta, each with a darker
-  rim. Both show on the zoomed-in tiles too. A hover or a click redraws only the lines over the kept picture
-  (`relayLines` in planet-view.js), not the whole planet, which took ~80 ms each time.
+  rim. Both show on the zoomed-in tiles and the flat map too. The globe's shader draws them (`js/region-overlay.js`,
+  `REGION_GLSL` in globe-view.js): each pixel's valley goes to the GPU once per cut (a 2048 × 1024 grid, built in
+  slices, ~0.4 s, so the first tint shows a moment after Region turns on), the chosen ones a byte each, the hover as
+  one number. A hover costs nothing extra: 16.6 ms frames while sweeping, as idle. Painted into the picture it had
+  re-sent the 2048-px planet texture each hover (28 ms frames) and repainted every zoomed-in tile.
 - **Valleys**: small (about 30,000 km²), medium (150,000) or large (600,000). A new size starts the choice again. Large
   ones often stay smaller: a valley grows only between its rivers and ridges.
 - **Rivers** (40–40,000 m³/s, log scale): the rivers that bound a valley, from this much water up; thinner ones lie
