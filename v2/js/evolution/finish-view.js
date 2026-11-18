@@ -3,6 +3,8 @@
 // painting of a finished moment, its picture of heights, onto the page's textures: coloured by the palette and shaded as
 // the live terrain is.
 
+import { riverParts } from '../finish/river-valleys.js';
+
 export class FinishService {
     constructor() { this.worker = null; this.jobs = new Map(); this.next = 1; this.prepared = 0; }
 
@@ -196,6 +198,9 @@ export function paintFinished(r, t, lut, { seaImage = null, seaWidth = 0, exagge
 export function paintWindow(fw, win, out, lut, { exaggeration = 20, lakes = false, colorAt = null, shaded = true } = {}) {
     const { W, x0, y0, w, h } = win, HE = W >> 1, { h: hh, sea, wat } = fw, L = lut.rgb, { minM, stepM, zero } = lut, top = lut.n - 1;
     const pxKm = 2 * Math.PI * 6371 / W, Le = -0.5, Ln = 0.5, Lu = Math.SQRT1_2;
+    // (fork) the picture's exaggeration at every level: the fine detail's slopes fall gently (fine-ladder.js LADDER), so the
+    // shading of the broad forms stays the world map's and the finer ones join it. (Lowered as the pixels shrank, the
+    // picture's forms faded to flat and only the finest detail shaded: a uniform crinkle up close.)
     for (let y = 0; y < h; y++) {
         const Y = Math.min(HE - 1, Math.max(0, y0 + y)), cl = Math.max(0.05, Math.cos(((Y + 0.5) / HE - 0.5) * Math.PI)), up = Math.max(0, y - 1) * w, dn = Math.min(h - 1, y + 1) * w;
         for (let x = 0; x < w; x++) {
@@ -303,25 +308,8 @@ function riverSegments(fin, q0) {
     };
     for (let r = 0; r < starts.length - 1; r++) {
         // (a reach below the threshold ends its line — a river that dries out is not bridged to where it flows again —
-        // and a reach is split where it crosses the map's edge)
-        const parts = [[]];
-        for (let i = starts[r]; i < starts[r + 1]; i++) {
-            if (!(R.q[i] >= q0)) { if (parts[parts.length - 1].length) parts.push([]); continue; }
-            const p = [(R.lon[i] + 180) / 360 * W, (90 - R.lat[i]) / 180 * H, R.q[i], regimeAt(R, i)], cur = parts[parts.length - 1];
-            if (cur.length && Math.abs(p[0] - cur[cur.length - 1][0]) > W / 2) parts.push([]);
-            parts[parts.length - 1].push(p);
-        }
-        for (let pts of parts) {
-            if (pts.length < 2) continue;
-            for (let it = 0; it < 2; it++) {
-                const nx = [pts[0]];
-                // (the regime is not blended: each new point keeps its nearer point's)
-                for (let i = 0; i < pts.length - 1; i++) {
-                    const a = pts[i], b = pts[i + 1];
-                    nx.push([0.75 * a[0] + 0.25 * b[0], 0.75 * a[1] + 0.25 * b[1], 0.75 * a[2] + 0.25 * b[2], a[3]], [0.25 * a[0] + 0.75 * b[0], 0.25 * a[1] + 0.75 * b[1], 0.25 * a[2] + 0.75 * b[2], b[3]]);
-                }
-                nx.push(pts[pts.length - 1]); pts = nx;
-            }
+        // split where it crosses the map's edge, smoothed; the world map cuts its valleys along the same lines)
+        for (const pts of riverParts(R, starts[r], starts[r + 1], q0, i => regimeAt(R, i))) {
             for (let i = 0; i < pts.length - 1; i++) {
                 const a = pts[i], b = pts[i + 1];
                 add(riverStrength(a[2], q0), a[3], a[0], a[1], b[0], b[1]);

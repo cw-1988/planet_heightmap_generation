@@ -29,29 +29,76 @@ export function detailOf(b, k, out) {
     return out;
 }
 const NO_T = -32768;
+// (detailWaves: the octaves under the broad warp — 1, ½, ¼ of the ladder's top — and the finer ones' warp strength,
+// its amplitude times its frequency: 0.35 stretched the ground ~2.15 : 1 in the median, 0.1 stretches it ~1.34 : 1)
+export const WIDE = 3;
+const FINE_WARP = 0.1;
+// (`vary`'s turns, one per octave: octaves of one lattice, each twice the last, line their lattices up, and the
+// hillshade drew rows of even ripples — a washboard)
+const ROTS = Array.from({ length: 17 }, (_, o) => {
+    const a = 2.39996 * o, b = 1.1 * o + 0.6, c = 0.71 * o, ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b), cc = Math.cos(c), sc = Math.sin(c);
+    return [ca * cc - sa * cb * sc, -ca * sc - sa * cb * cc, sa * sb, sa * cc + ca * cb * sc, -sa * sc + ca * cb * cc, -ca * sb, sb * sc, sb * cc, cb];
+});
 
 /**
  * The detail's waves (seeded): fn(px, py, pz, b, L, o0, o1, out) at a point on the sphere (km) over ground `b` m high,
  * octaves o0 … o1 of the ladder L ({ top: the longest wave, km; s1: the roughness noise's frequency }), each wave
  * halving: out.d the height they add (m), out.A their summed height. A zoom tile (region-refine.js) goes on down the
  * same ladder from where its region stopped, so its detail is the region's own, only finer. `wts` (optional): each
- * octave's weight by its index (the world map's tiles fade each in by their pixel, fine-ladder.js).
+ * octave's weight by its index (the world map's tiles fade each in by their pixel, fine-ladder.js). `ridgedTo`: the
+ * mountains' ridged waves only in the octaves under it (the world map passes 0: their creases drew noodles up close);
+ * out.m, out.slope and out.relief give what those are drawn by. `vary` (the world map's; a region's erosion breaks the
+ * evenness itself): each octave turned its own way, and the rolling waves' roughness patchy. `fineWarp`: the finer
+ * octaves' warp (the world map's 0: up close its bends drew every small wave out into a worm); `rolling` (the world
+ * map's): plain fractal noise everywhere — rolling waves on the mountains too, no ridges (their creases wandered as
+ * noodles up close), no patchy roughness (its edges followed the contours). `broadTo`: the octaves under the broad warp
+ * (the world map's 0: its bends drew the waves into worms, swirls on the hills).
  */
-export function detailWaves(seed) {
+export function detailWaves(seed, vary = false, { fineWarp = FINE_WARP, rolling = false, broadTo = WIDE } = {}) {
     const noise = new FastNoise(seed), warp = new FastNoise(seed + 7), rough = new FastNoise(seed + 29), det = { slope: 0, relief: 0 };
-    return (px, py, pz, b, L, o0, o1, out, wts = null) => {
+    const warp2 = new FastNoise(seed + 11), hist = new Float32Array(17);
+    const nz = (x, y, z, o, f) => {
+        if (!vary) return noise.noise3D(x * f, y * f, z * f);
+        const q = ROTS[o];
+        return noise.noise3D((q[0] * x + q[1] * y + q[2] * z) * f + 0.37 * o, (q[3] * x + q[4] * y + q[5] * z) * f, (q[6] * x + q[7] * y + q[8] * z) * f);
+    };
+    return (px, py, pz, b, L, o0, o1, out, wts = null, ridgedTo = Infinity) => {
         const top = L.top, s0 = 1 / top, s1 = L.s1;
-        // (warped by a third of the widest wave; each wave as tall as its length times the slope wanted, a quarter for a
-        // wave's mean slope, a little less as they add; none taller than the relief)
-        const wx = px + 0.35 * top * warp.noise3D(px * s0, py * s0, pz * s0), wy = py + 0.35 * top * warp.noise3D(py * s0 + 31.7, pz * s0, px * s0);
-        const wz = pz + 0.35 * top * warp.noise3D(pz * s0 - 17.3, px * s0, py * s0);
-        const k = 0.3 + 1.3 * smooth(-0.5, 0.5, rough.noise3D(px * s1 / 6, py * s1 / 6, pz * s1 / 6)), dt = detailOf(b, k, det), m = smooth(500, 2200, b);
+        // (the widest waves warped by a third of the widest — the coasts' and hills' broad shapes; each wave as tall as
+        // its length times the slope wanted, a quarter for a wave's mean slope, a little less as they add; none taller
+        // than the relief)
+        let wx = 0, wy = 0, wz = 0, gx = 0, gy = 0, gz = 0;
+        if (o0 < broadTo) {
+            wx = px + 0.35 * top * warp.noise3D(px * s0, py * s0, pz * s0); wy = py + 0.35 * top * warp.noise3D(py * s0 + 31.7, pz * s0, px * s0);
+            wz = pz + 0.35 * top * warp.noise3D(pz * s0 - 17.3, px * s0, py * s0);
+        }
+        // (the finer ones under a weak warp of their own: that one stretches the ground 2 : 1 in half the places and 9 : 1
+        // in some, and every small wave under it was drawn out into a streak — brushed, swirling ground up close.
+        // This one stretches it ~1.3 : 1, under 2 : 1 nearly everywhere)
+        const k = 0.3 + 1.3 * smooth(-0.5, 0.5, rough.noise3D(px * s1 / 6, py * s1 / 6, pz * s1 / 6)), dt = detailOf(b, k, det), m = rolling ? 0 : smooth(500, 2200, b);
+        const rEnd = Math.min(o1, ridgedTo);
+        gx = px; gy = py; gz = pz;
+        if (fineWarp > 0 && (o1 > broadTo ||(m > 0 && o0 < rEnd))) {
+            const s8 = 8 * s0, a8 = fineWarp * top / 8;
+            gx = px + a8 * warp2.noise3D(px * s8, py * s8, pz * s8); gy = py + a8 * warp2.noise3D(py * s8 + 31.7, pz * s8, px * s8);
+            gz = pz + a8 * warp2.noise3D(pz * s8 - 17.3, px * s8, py * s8);
+        }
         let d = 0, A = 0, f = s0 * 2 ** o0, lam = top * 1000 / 2 ** o0;
         for (let o = o0; o < o1; o++, f *= 2, lam /= 2) {
-            const v = noise.noise3D(wx * f, wy * f, wz * f), r = 1 - Math.abs(v), a = Math.min(dt.relief, dt.slope * lam / 5) * (wts ? wts[o] : 1);
-            d += a * ((1 - m) * v + m * 1.6 * (r * r - 0.45)); A += a;
+            const v = o < broadTo ? nz(wx, wy, wz, o, f) : nz(gx, gy, gz, o, f);
+            const a = Math.min(dt.relief, dt.slope * lam / 5) * (wts ? wts[o] : 1);
+            // (the mountains' ridges under the weak warp only, the widest too: under the broad one every ridge bent into a
+            // worm — the coasts keep it, in the rolling waves)
+            let rr = 0;
+            // (on the world map, `vary`, the crest rounded — |u| eased to √(u² + ε²) − ε: a creased crest drew a hairline in the
+            // hillshade a pixel wide at every zoom; a region's erosion rounds its own. Its mean r² 0.112 higher: the offset with it)
+            if (m > 0 && o < rEnd) { const u = o < broadTo ? nz(gx, gy, gz, o, f) : v, r = 1 - (vary ? Math.sqrt(u * u + 0.0144) - 0.12 : Math.abs(u)); rr = 1.6 * (r * r - (vary ? 0.5615 : 0.45)); }
+            // (`vary`, the world map's: a rolling wave rougher on the highs of the one two octaves up, smoother in its lows)
+            hist[o] = v;
+            const g = vary && !rolling && o - 2 >= o0 ? 1.8 * smooth(-0.5, 0.3, hist[o - 2]) : 1;
+            d += a * ((1 - m) * g * v + m * rr); A += a;
         }
-        out.d = d; out.A = A;
+        out.d = d; out.A = A; out.m = m; out.slope = dt.slope; out.relief = dt.relief;
         return out;
     };
 }
