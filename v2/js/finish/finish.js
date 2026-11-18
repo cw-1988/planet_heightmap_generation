@@ -377,8 +377,8 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     lap('farming');
     const flow = new Float32Array(n);
     for (let c = 0; c < n; c++) flow[c] = Math.log10(Math.max(1, Hy.area[c]));
-    // (drain: where each cell's water goes and the land it drains, km², for the region pick's valleys — js/region-basin.js)
-    return { mesh, z: C.z, ocean, lake: Hy.lake, lakeLevel: Hy.lakeLevel, rivers: Hy.rivers, drain: { recv: Hy.recv.slice(), area: Hy.area.slice(), sea: ocean.slice() }, drivers, ms, stats, geology, farming,
+    // (drain: where each cell's water goes, the land it drains (km²), its water (m³/s), height (km) and lake, for the region pick's valleys — js/region-basin.js)
+    return { mesh, z: C.z, ocean, lake: Hy.lake, lakeLevel: Hy.lakeLevel, rivers: Hy.rivers, drain: { recv: Hy.recv.slice(), area: Hy.area.slice(), sea: ocean.slice(), q: Float32Array.from(Hy.q), z: Float32Array.from(C.z), lake: Hy.lake.slice() }, drivers, ms, stats, geology, farming,
         climate: { page: pageC, cell: { koppen: cellsClimate.koppen, tAnnual: cellsClimate.tAnnual, pAnnual: cellsClimate.pAnnual, sat, cover, stats: cellStats.stats, mottleSeed: ((seed | 0) * 0x2f71 + 0x6d) >>> 0,
             flow, young, rivers: Hy.rivers, ripSat, families: famGrid.done() } },
         layers: debug ? { ice: I.ice, sink: B.sink, erg: W.erg, loess: W.loess, basalt, koppen, before, rain: pAnn, lat, lon, q: Hy.q, terminal: Hy.terminal } : null };

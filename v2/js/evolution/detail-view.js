@@ -205,13 +205,15 @@ export class TileLayers {
     /**
      * Each frame: the view's tiles (`tiles`: their range and those drawn) laid — those drawn and not yet laid, as `paint`
      * paints them for `look` (another look: every tile painted again, the planet's own shown until it is), until `budgetMs`
-     * is spent.
+     * is spent. `lines`: what the page draws over the tiles (another: each tile laid again where it is, the old one shown
+     * until then — a pick's tint changes as the pointer moves, and the view should not blink back to the planet's).
      */
-    lay(tiles, look, paint, budgetMs) {
+    lay(tiles, look, paint, budgetMs, lines = null) {
         const g = tiles.range;
         if (!g) { this.hide(); return; }
         const n = 1 << g.L, nx = g.tx1 - g.tx0 + 1, ny = g.ty1 - g.ty0 + 1;
         if (look !== this.look) { this.look = look; this.empty(0); this.empty(1); }
+        if (lines !== this.lines) { this.lines = lines; this.linesV = (this.linesV ?? 0) + 1; }
         let A = this.layers[0];
         if (A.L !== g.L || nx > A.cols || ny > A.rows) {
             // (another level, or more tiles than the layer holds: the layer under goes on top if it holds the view's level;
@@ -231,7 +233,7 @@ export class TileLayers {
         const todo = [];
         for (let ty = g.ty0; ty <= g.ty1; ty++) for (let tx = tx0; tx < tx0 + nx; tx++) {
             const s = (ty % A.rows) * A.cols + (((tx % A.cols) + A.cols) % A.cols), key = tx * 1e5 + ty;
-            if (A.slots[s] === key) continue;
+            if (A.slots[s] === key && A.lv[s] === this.linesV) continue;
             const t = tiles.tile(g.L, ((tx % n) + n) % n, ty);
             if (t?.data) todo.push({ t, tx, ty, s, key, d: (tx + 0.5 - g.cx - shift) ** 2 + (ty + 0.5 - g.cy) ** 2 });
         }
@@ -241,7 +243,7 @@ export class TileLayers {
         for (const j of todo) {
             this.globe.putPatchTile(0, j.s % A.cols, Math.floor(j.s / A.cols), j.tx, j.ty, paint(j.t));
             if (!(A.slots[j.s] === A.slots[j.s])) A.count++;              // (NaN: the slot was empty)
-            A.slots[j.s] = j.key;
+            A.slots[j.s] = j.key; A.lv[j.s] = this.linesV;
             if (performance.now() - t0 > budgetMs) break;
         }
     }
@@ -253,7 +255,7 @@ export class TileLayers {
     start(L, nx, ny) {
         const A = this.layers[0];
         const cols = Math.max(A.cols, Math.min(this.maxSpan, nx + 1)), rows = Math.max(A.rows, Math.min(this.maxSpan, ny + 1));
-        if (cols !== A.cols || rows !== A.rows) { this.globe.sizePatchLayer(0, cols, rows, SLOT); A.cols = cols; A.rows = rows; A.slots = new Float64Array(cols * rows).fill(NaN); }
+        if (cols !== A.cols || rows !== A.rows) { this.globe.sizePatchLayer(0, cols, rows, SLOT); A.cols = cols; A.rows = rows; A.slots = new Float64Array(cols * rows).fill(NaN); A.lv = new Int32Array(cols * rows); }
         else this.empty(0);
         A.L = L; A.count = 0; A.view = null;
     }

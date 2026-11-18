@@ -9,10 +9,11 @@ and roads. In that last step the region's rivers and passes go back to the plane
 
 - **Region** (the button under the layer tabs, `js/region-pick.js`) turns picking on. The land is cut into valleys
   along its natural borders: divides, thick rivers and coasts. Each side of a thick river is its own valley, so a
-  river can be a region's edge. The valley under the pointer is lightened, and a click takes it in or out (the sea is
-  refused); a drag still turns the globe. The chosen valleys are tinted magenta.
+  river can be a region's edge. The valley under the pointer is lightened with a white rim, and a click takes it in or
+  out (the sea is refused); a drag still turns the globe. The chosen valleys are tinted magenta, each with a darker
+  rim. Both show on the zoomed-in tiles too.
 - **Valleys**: small (about 30,000 km²), medium (150,000) or large (600,000). A new size starts the choice again. Large
-  ones often stay smaller: a valley grows only between its rivers.
+  ones often stay smaller: a valley grows only between its rivers and ridges.
 - **Border** (50–400 km): the land around the valleys that is simulated with them, so their edges know what lies beyond
   (passes, rivers coming in, the neighbours). The box is the valleys' reach from their centre plus the border on each
   side (200–6000 km). What falls in the box past the border is still simulated but drawn greyed.
@@ -25,19 +26,28 @@ and roads. In that last step the region's rivers and passes go back to the plane
 
 ## How the valleys are cut (`js/region-basin.js`)
 
-The planet's finish sends its drainage out: each cell's receiver, the area it drains and whether it is sea.
+The planet's finish sends its drainage out: each cell's receiver, the area it drains, its water (m³/s), its height,
+and whether it is sea or a lake.
 
-- **Pieces**: a thick river is a cell draining at least 30,000 km² (a river like the Meuse; less only for the small
-  size, and never under a dozen of the planet's cells). Its stretches break at a head, a confluence, or a length over
-  about 350 km, and each land cell joins the stretch its water first reaches, on the bank it comes from. Land that
-  drains straight to the coast or to a sink is cut into chunks of about the same size.
+- **Walls**: a thick river is one the map draws thick. Its water is measured, not its land: the wall is the median
+  water of the planet's rivers at the piece size S (30,000 km², less for the small size, never under a dozen cells),
+  about 280 m³/s here. So a rainforest's many rivers wall early and a desert's wadis late; a dry river past 4 S of land
+  is still a wall, or a desert basin comes out as one piece. Lakes (fresh or salt) count as water, dry pans as land.
+- **Pieces**: a wall's stretches break at a head, a confluence, or a length over 2√S km, and each land cell joins the
+  stretch its water first reaches, on the bank it comes in from. The bank is read from the arc of neighbours round the
+  river cell between its way in (the main stem) and its way out: a straight line through the cell misreads a bend and
+  gives the inside of the bend to both banks. Land that drains to the coast or a lake first is a piece per outlet. A
+  piece that comes in patches (a bank cut by land draining past it) is split into one piece per patch.
 - **River lines**: each river's main stem is followed up through its confluences by the larger water, so its left and
   right bank are known along its whole length.
-- **Joining**: slivers under a third of a piece merge into the neighbour they share the longest border with. Then the
-  pieces grow to the valley size chosen, smallest first, into the neighbour across the longest divide, never through a
-  thick river's cells, never past 1.6× the size, and never so that one valley holds both banks of the same river. That
-  last rule matters at the river's head: without it, the left bank, the land above the source and the right bank join
-  round it.
+- **Joining** (`js/region-join.js`): a border's barrier is how far its divide stands above the two pieces' mean
+  heights. Slivers join their lowest neighbour first. Then all pairs join lowest barrier first (plus 300 m per
+  valley's worth of size, so the valleys come out even), never across a wall, never past 1.6× the size, and never so
+  that one valley holds both banks of one river. A ridge or a range so holds longest. The leftovers under a quarter of
+  the size join their lowest open neighbour, a piece enclosed by one neighbour joins it, and only the last tiny slivers
+  may join across a river's cells.
+- **Checked** on the test planet at all three sizes: no drawn river below the wall between two valleys, no valley in
+  two patches, no holes; about 0.1 s.
 
 ## How it is built (`v2/js/region/`)
 

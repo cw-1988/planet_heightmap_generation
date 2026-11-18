@@ -164,8 +164,8 @@ function piecesOf(w) {
 // the ground showing through. Each piece is a mask on the picture's grid, its pixels the ones whose nearest region is
 // the piece's — so it follows the piece's own outline, not a scatter of squares. ──
 const MASK_W = 4096;                                  // (the masks' grid: ~10 km a pixel at the equator; the overlay's width)
-const EDIT_TINT = { raise: [70, 230, 110], sink: [30, 100, 255], hover: [255, 255, 255], region: [235, 60, 210] };
-const EDIT_ALPHA = { pending: 0.38, hover: 0.22 };
+const EDIT_TINT = { raise: [70, 230, 110], sink: [30, 100, 255], hover: [255, 255, 255], region: [235, 60, 210], rim: [120, 10, 110] };
+const EDIT_ALPHA = { pending: 0.38, hover: 0.22, rim: 0.9 };
 
 /** A piece's mask (or, with `src` { unit, cells, masks }, another partition's: region-pick.js's valleys): its box on the MASK_W grid (x0 may be negative, x1 past the edge: a piece across the date line) and,
  *  per pixel of the box, whether it is the piece's. Kept on the world. */
@@ -203,27 +203,29 @@ function pieceMask(w, id, src = null) {
     return m;
 }
 
-/** A mask as a canvas in one colour (the last few kept: a piece hovered again draws at once). */
+/** A mask as a canvas in one colour, or (`edge`) only its rim: the pixels beside one not its own (the last few kept: a
+ *  piece hovered again draws at once). */
 const maskCanvases = new Map();
-function maskCanvas(m, rgb) {
-    const key = rgb.join(',');
+function maskCanvas(m, rgb, edge = false) {
+    const key = rgb.join(',') + (edge ? '|edge' : '');
     let byColour = maskCanvases.get(m);
     if (!byColour) { if (maskCanvases.size >= 24) maskCanvases.delete(maskCanvases.keys().next().value); maskCanvases.set(m, byColour = new Map()); }
     let c = byColour.get(key);
     if (c) return c;
     c = document.createElement('canvas'); c.width = m.bw; c.height = m.bh;
     const g = c.getContext('2d'), img = g.createImageData(m.bw, m.bh), d = img.data;
-    for (let i = 0; i < m.on.length; i++) if (m.on[i]) { d[4 * i] = rgb[0]; d[4 * i + 1] = rgb[1]; d[4 * i + 2] = rgb[2]; d[4 * i + 3] = 255; }
+    const { on, bw } = m, rim = (i) => { const x = i % bw; return !(x > 0 && on[i - 1] && x < bw - 1 && on[i + 1] && on[i - bw] && on[i + bw]); };
+    for (let i = 0; i < on.length; i++) if (on[i] && (!edge || rim(i))) { d[4 * i] = rgb[0]; d[4 * i + 1] = rgb[1]; d[4 * i + 2] = rgb[2]; d[4 * i + 3] = 255; }
     g.putImageData(img, 0, 0);
     byColour.set(key, c);
     return c;
 }
 
 /** A piece tinted on the picture (W px wide), its ground showing through. */
-function tintPiece(ctx, w, id, W, rgb, alpha, src = null) {
+function tintPiece(ctx, w, id, W, rgb, alpha, src = null, edge = false) {
     const m = pieceMask(w, id, src);
     if (!m) return;
-    const c = maskCanvas(m, rgb), s = W / MASK_W, x = m.x0 * s, y = m.y0 * s, cw = m.bw * s, ch = m.bh * s;
+    const c = maskCanvas(m, rgb, edge), s = W / MASK_W, x = m.x0 * s, y = m.y0 * s, cw = m.bw * s, ch = m.bh * s;
     ctx.save(); ctx.globalAlpha = alpha; ctx.imageSmoothingEnabled = true;
     for (const dx of [0, -W, W]) if (x + dx < W && x + dx + cw > 0) ctx.drawImage(c, x + dx, y, cw, ch);
     ctx.restore();
@@ -248,8 +250,13 @@ export function drawPlateLines(ctx, W, view, w, { pending, hovered, chosen }) {
     }
     // (region-pick.js: the valleys chosen, as { ids, unit, cells, masks } — a mask per valley, like a piece's)
     if (chosen?.unit && chosen.world === w) {
+        // (each with its rim, so valleys side by side stay apart)
         for (const id of chosen.ids) tintPiece(ctx, w, id, W, EDIT_TINT.region, EDIT_ALPHA.pending, chosen);
-        if (chosen.hover >= 0) tintPiece(ctx, w, chosen.hover, W, EDIT_TINT.hover, EDIT_ALPHA.hover, chosen);
+        for (const id of chosen.ids) tintPiece(ctx, w, id, W, EDIT_TINT.rim, EDIT_ALPHA.rim, chosen, true);
+        if (chosen.hover >= 0) {
+            tintPiece(ctx, w, chosen.hover, W, EDIT_TINT.hover, EDIT_ALPHA.hover, chosen);
+            tintPiece(ctx, w, chosen.hover, W, EDIT_TINT.hover, EDIT_ALPHA.rim, chosen, true);
+        }
     }
     for (const id of pending) tintPiece(ctx, w, id, W, w.plateIsOcean.has(id) ? EDIT_TINT.raise : EDIT_TINT.sink, EDIT_ALPHA.pending);
     if (hovered >= 0) tintPiece(ctx, w, hovered, W, EDIT_TINT.hover, EDIT_ALPHA.hover);

@@ -446,13 +446,27 @@ export class PlanetView {
             const { places, px } = this.viewPlaces();
             tiles.want(fin, seed, places, px, this.SHARP_WIDTH || this.MAP_WIDTH);
         }
-        const look = this.patchLookOf(fin);
-        layers.lay(tiles, look, t => this.paintTile(fin, t, look), this.PATCH_BUDGET_MS);
+        const look = this.patchLookOf(fin), extra = this.extraLines ? this.extraLinesKey(view) : null;
+        layers.lay(tiles, look, t => this.paintTile(fin, t, look, extra), this.PATCH_BUDGET_MS, extra);
     }
     /** A tile painted for the layer shown (as paintFinished paints the planet), once per look: a SLOT-px canvas — the tile
-     *  and a pixel of its neighbours' all round — with the rivers' lines and the grid over it. */
-    paintTile(fin, t, look) {
-        if (t.look === look) return t.canvas;
+     *  and a pixel of its neighbours' all round — with the rivers' lines and the grid over it; and the page's own lines
+     *  (`extra`, their key: the region pick's valleys) laid over that again, as they change. */
+    paintTile(fin, t, look, extra = null) {
+        if (t.look === look && t.extra === extra) return extra === null ? t.base : t.canvas;
+        if (t.look !== look) this.paintTileBase(fin, t, look);
+        if (extra === null) { t.extra = null; return t.base; }
+        if (!t.canvas) { t.canvas = document.createElement('canvas'); t.canvas.width = t.canvas.height = SLOT; }
+        const ctx = t.canvas.getContext('2d'), W = t.win.W, k = W / this.MAP_WIDTH;
+        ctx.clearRect(0, 0, SLOT, SLOT); ctx.drawImage(t.base, 0, 0);
+        ctx.save(); ctx.translate(-(t.win.x0 + 1), -(t.win.y0 + 1)); ctx.scale(k, k);
+        this.extraLines(ctx, this.MAP_WIDTH, this.view);
+        ctx.restore();
+        t.extra = extra;
+        return t.canvas;
+    }
+    /** The tile's own picture for `look` (paintTile's base). */
+    paintTileBase(fin, t, look) {
         const view = this.view, W = t.win.W, lut = heightLutOf(view.layer === 'heightmap' ? 'heightmap' : view.palette), water = view.water && (view.layer === 'terrain' || view.layer === 'satellite');
         const C = CLIMATE_LAYERS.has(view.layer) ? fin.climate : null, geo = GEOLOGY_LAYERS.has(view.layer), farm = FARMING_LAYERS.has(view.layer), tc = this.tileColors;
         if (tc.look !== look) { tc.look = look; tc.byWidth.clear(); }
@@ -461,8 +475,8 @@ export class PlanetView {
         if (this.tileImage?.width !== t.win.w || this.tileImage.height !== t.win.h) this.tileImage = new ImageData(t.win.w, t.win.h);
         paintWindow(t.data, t.win, this.tileImage.data, lut, { exaggeration: this.SHADING.exaggeration * (view.layer === 'satellite' ? 1.25 : 1), lakes: water || view.layer === 'satellite' || geo || farm, shaded: view.shaded,
             colorAt: C || geo || farm ? tc.byWidth.get(W) : null });
-        if (!t.canvas) { t.canvas = document.createElement('canvas'); t.canvas.width = t.canvas.height = SLOT; }
-        const ctx = t.canvas.getContext('2d'), x0 = t.win.x0 + 1, y0 = t.win.y0 + 1;     // (the canvas's pixel 0, 0 on the planet W px wide)
+        if (!t.base) { t.base = document.createElement('canvas'); t.base.width = t.base.height = SLOT; }
+        const ctx = t.base.getContext('2d'), x0 = t.win.x0 + 1, y0 = t.win.y0 + 1;     // (the canvas's pixel 0, 0 on the planet W px wide)
         ctx.putImageData(this.tileImage, -1, -1);                               // (the window's outer pixel the hillshade's neighbours only)
         // (the planet's rivers, crisp: a little thicker the closer the view, not as thick as the picture's enlarged)
         // (and on Farmland, as the picture has them: the water canals and floods come from)
@@ -478,8 +492,8 @@ export class PlanetView {
             ctx.stroke();
             ctx.restore();
         }
-        t.look = look;
-        return t.canvas;
+        t.look = look; t.extra = undefined;
+        return t.base;
     }
     /** The patch's height (m), sea and lake at a place [u, v] of the map, where a tile of it is drawn — the finer picture's. */
     patchAt(fin, u, v) {
