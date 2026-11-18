@@ -18,10 +18,10 @@ and roads. In that last step the region's rivers and passes go back to the plane
   re-sent the 2048-px planet texture each hover (28 ms frames) and repainted every zoomed-in tile.
 - **Valleys**: small (about 30,000 km²), medium (150,000) or large (600,000). A new size starts the choice again. Large
   ones often stay smaller: a valley grows only between its rivers and ridges.
-- **Rivers** (40–40,000 m³/s, log scale): the rivers that bound a valley, from this much water up; thinner ones lie
-  inside one valley. It starts at the planet's own measure for the valley size (shown "auto"; double-click returns
-  to it). Low: every drawn river is a border, the valleys come out as strips between them. High: only the great
-  rivers, and the ridges do the rest. A new value starts the choice again.
+- **Rivers** (40–40,000 m³/s, log scale): a floor, not the cut itself. It starts at "all drawn" (every river the map
+  draws at its default density, from 40 m³/s, is a border, weighed by its water; double-click returns to it). Raised,
+  the rivers under it lie inside a valley and only the ridges and greater rivers part the land. A new value starts
+  the choice again.
 - **Border** (50–400 km): the land around the valleys that is simulated with them, so their edges know what lies beyond
   (passes, rivers coming in, the neighbours). The box is the valleys' reach from their centre plus the border on each
   side (200–6000 km). What falls in the box past the border is still simulated but drawn greyed.
@@ -37,10 +37,9 @@ and roads. In that last step the region's rivers and passes go back to the plane
 The planet's finish sends its drainage out: each cell's receiver, the area it drains, its water (m³/s), its height,
 and whether it is sea or a lake.
 
-- **Walls**: a thick river is one the map draws thick. Its water is measured, not its land: the wall is the median
-  water of the planet's rivers at the piece size S (30,000 km², less for the small size, never under a dozen cells),
-  about 280 m³/s here, unless the Rivers slider sets another. So a rainforest's many rivers wall early and a desert's wadis late; a dry river past 4 S of land
-  is still a wall, or a desert basin comes out as one piece. Lakes (fresh or salt) count as water, dry pans as land.
+- **Rivers**: every river the map draws (from 40 m³/s, or the slider's floor) parts the land into pieces; a dry river
+  past 4 S of land (S the piece size: 30,000 km², less for the small size, never under a dozen cells) does too, or a
+  desert basin comes out as one piece. Lakes (fresh or salt) count as water, dry pans as land.
 - **Pieces**: a wall's stretches break at a head, a confluence, or a length over 2√S km, and each land cell joins the
   stretch its water first reaches, on the bank it comes in from. The bank is read from the arc of neighbours round the
   river cell between its way in (the main stem) and its way out: a straight line through the cell misreads a bend and
@@ -48,14 +47,24 @@ and whether it is sea or a lake.
   piece that comes in patches (a bank cut by land draining past it) is split into one piece per patch.
 - **River lines**: each river's main stem is followed up through its confluences by the larger water, so its left and
   right bank are known along its whole length.
-- **Joining** (`js/region-join.js`): a border's barrier is how far its divide stands above the two pieces' mean
-  heights. Slivers join their lowest neighbour first. Then all pairs join lowest barrier first (plus 300 m per
-  valley's worth of size, so the valleys come out even), never across a wall, never past 1.6× the size, and never so
-  that one valley holds both banks of one river. A ridge or a range so holds longest. The leftovers under a quarter of
-  the size join their lowest open neighbour, a piece enclosed by one neighbour joins it, and only the last tiny slivers
-  may join across a river's cells.
-- **Checked** on the test planet at all three sizes: no drawn river below the wall between two valleys, no valley in
-  two patches, no holes; about 0.1 s.
+- **Joining** (`js/region-join.js`): every border weighs in metres of barrier. A divide: the mean height of its cells
+  over the two pieces' mean heights. A river between them: 800 m per tenfold of its water over 40 m³/s, so a brook is a
+  low saddle, a 100 m³/s river a 320 m ridge. Slivers join their weakest neighbour first; then all pairs join weakest
+  first (plus 300 m per valley's worth of size, so the valleys come out even), never past 1.6× the size, and **never
+  over a border of 600 m or more**: a ridge 600 m over both sides, a river from ~225 m³/s. Without that ceiling the
+  weakest-first joining crossed anything once the cheap borders ran out (a quarter of the 250–900 m³/s rivers' length
+  had one valley on both banks). The leftovers under a quarter of the size join their weakest neighbour under the same
+  ceiling; a piece enclosed by one neighbour joins it; only the last tiny slivers may join over anything.
+- **Banks, per pixel** (`js/region-bank.js` `unitAt`): a river runs through its cells' centres, so a river cell is half
+  on each bank. Each pixel of a river cell takes the valley of the nearest land cell on its side of the river's line,
+  so every valley along a bank reaches the river itself (before, a river cell belonged to its left bank only and the
+  right bank's edge stopped half a cell, ~25 km, short of the drawn line). The overlay and the pick both read it.
+- **Checked** on the test planet (medium): the share of a river's length with one valley on both banks is 33% at
+  40–100 m³/s, 16% at 100–250, 2% at 250–900 (the last slivers), none above. Median valley 48,000 km² (small 33,000;
+  large barely more than medium where big rivers lie dense). No valley in two patches, no holes; 0.1–0.14 s.
+- **Limits**: rivers under ~225 m³/s may lie inside a valley where a low divide was weaker; the map draws every
+  river 0.45–1 px wide on the 2048 texture, so thick and thin are hard to tell apart; the overlay's grid is ~20 km a
+  pixel, so edges look stepped close up.
 
 ## How it is built (`v2/js/region/`)
 
