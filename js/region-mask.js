@@ -79,7 +79,7 @@ function outlineOf(on, m) {
     const P = m + 2, hk = (i, j) => 2 * ((j + 1) * P + i + 1), vk = (i, j) => hk(i, j) + 1;
     const mid = (k) => { const e = k >> 1, i = e % P - 1, j = (e - e % P) / P - 1; return k & 1 ? [i, j + 0.5] : [i + 0.5, j]; };
     const ends = new Map(), segs = [];
-    const add = (a, b) => { const s = segs.length; segs.push(a, b); for (const k of [a, b]) { const l = ends.get(k); if (l) l.push(s); else ends.set(k, [s]); } };
+    const add = (a, b) => { const s = segs.length / 2; segs.push(a, b); for (const k of [a, b]) { const l = ends.get(k); if (l) l.push(s); else ends.set(k, [s]); } };
     for (let j = -1; j < m; j++) for (let i = -1; i < m; i++) {
         const tl = In(i, j), tr = In(i + 1, j), br = In(i + 1, j + 1), bl = In(i, j + 1);
         if (tl === tr && tr === br && br === bl) continue;

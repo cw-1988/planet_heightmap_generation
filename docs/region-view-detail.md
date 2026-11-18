@@ -11,7 +11,10 @@ their drawn line, the region's own coast. It is read at half the region's cells 
 parts (chosen, border, beyond) come from a chamfer distance to the chosen land, and the outline is traced by marching
 squares, smoothed (Chaikin) and drawn as closed dashed loops. The window opens on the ground first; the parts come in
 about 0.3–0.4 s later. Checked: at 1,359 land points the mask and `gridAt` agree on all of them (only one sea point
-fell in the sample, so the coast is barely tested by it).
+fell in the sample, so the coast is barely tested by it). The tracer's first version stored each segment at twice its
+index, so the walk jumped between unrelated segments and drew straight lines across the region (656 scraps, steps up
+to 245 px); fixed, two valleys trace as 10 closed loops with no step over 0.52 screen px, and a disc, two blobs and a
+ring trace as 1, 2 and 2 loops.
 
 ## Rivers as shared lines (`v2/js/region/region-rivers.js`)
 
