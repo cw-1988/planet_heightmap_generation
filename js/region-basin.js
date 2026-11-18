@@ -1,21 +1,27 @@
 // Valleys (fork addition): the planet's land cut along its natural borders, for the region pick (region-pick.js). From
-// the finish's drainage (world.fin.drain: where each cell's water goes, the land it drains, the sea) at a valley size S:
-// the rivers are the cells draining at least S km², cut into stretches at each confluence and every ~2√S km; each land
+// the finish's drainage (world.fin.drain: where each cell's water goes, the land it drains, the sea): the thick rivers
+// are the cells draining at least RIVER_KM2, cut into stretches at each confluence and every ~2√RIVER_KM2 km; each land
 // cell belongs to the stretch its water first reaches, on the bank it comes in from (the land above a river's head is
-// its own valley). So a valley is bounded by divides (ridges), by rivers and by the coast. Land whose water reaches the
-// sea or a closed basin before any such river is grouped in pieces of about S km² along the coast or round the basin.
+// its own piece). Land whose water reaches the sea or a closed basin before any thick river is grouped in pieces of
+// about that size. Those pieces then grow to the valley size chosen by joining across divides only: a thick river is a
+// wall like a ridge, so each side of it can be chosen on its own at any size. A valley is bounded by ridges, by thick
+// rivers and by the coast.
+
+const RIVER_KM2 = 30000;                                                    // (a thick river: the Meuse, the Elbe's upper reach)
 
 /** A unit per mesh cell (−1 the sea) and each unit's cells, for valley size `sizeKm2`. Kept on the world per size. */
 export function valleysOf(w, sizeKm2) {
     const memo = (w._valleys ??= new Map());
     if (memo.has(sizeKm2)) return memo.get(sizeKm2);
-    // (at least a dozen cells: fewer and its edge is the mesh's, not the land's)
-    const v = cut(w.tMesh, w.fin.drain, Math.max(sizeKm2, 12 * w.tMesh.cellAreaKm2));
+    // (the pieces at least a dozen cells: fewer and their edge is the mesh's, not the land's)
+    const a = w.tMesh.cellAreaKm2, river = Math.max(12 * a, Math.min(sizeKm2, RIVER_KM2));
+    const v = cut(w.tMesh, w.fin.drain, river, Math.max(sizeKm2, river));
     memo.set(sizeKm2, v);
     return v;
 }
 
-function cut(mesh, drain, S) {
+/** The pieces for thick rivers from S km², grown across divides to about `size` km². */
+function cut(mesh, drain, S, size) {
     const { numCells: n, xyz, adjOffset, adjList, edgeKm, cellAreaKm2 } = mesh, { recv, area, sea } = drain;
     // the order upstream-first (each cell after all that drain into it)
     const up = new Int32Array(n), order = new Int32Array(n);
@@ -26,12 +32,17 @@ function cut(mesh, drain, S) {
     // the rivers' stretches: a new one at a head, a confluence, or past the length cap
     const river = (c) => !sea[c] && area[c] >= S, np = new Uint8Array(n), par = new Int32Array(n).fill(-1);
     for (let c = 0; c < n; c++) { const r = recv[c]; if (r >= 0 && river(c) && river(r)) { np[r] = Math.min(255, np[r] + 1); par[r] = c; } }
-    const seg = new Int32Array(n).fill(-1), len = new Float32Array(n), lMax = 2 * Math.sqrt(S);
-    let segs = 0;
+    // (and each river's line, its main stem followed up through the confluences by the larger water: its left and right
+    // stay apart, so a valley never holds both banks of one river, not even round its head)
+    const main = new Int32Array(n).fill(-1);
+    for (let c = 0; c < n; c++) { const r = recv[c]; if (r >= 0 && river(c) && river(r) && (main[r] < 0 || area[c] > area[main[r]])) main[r] = c; }
+    const seg = new Int32Array(n).fill(-1), len = new Float32Array(n), lMax = 2 * Math.sqrt(S), line = new Int32Array(n), segLine = [];
+    let segs = 0, lines = 0;
     for (let k = 0; k < b; k++) {
         const c = order[k];
         if (!river(c)) continue;
-        if (np[c] === 1 && len[par[c]] < lMax) { seg[c] = seg[par[c]]; len[c] = len[par[c]] + edgeKm; } else seg[c] = segs++;
+        line[c] = main[c] >= 0 ? line[main[c]] : lines++;
+        if (np[c] === 1 && len[par[c]] < lMax) { seg[c] = seg[par[c]]; len[c] = len[par[c]] + edgeKm; } else { seg[c] = segs++; segLine.push(line[c]); }
     }
     // each cell: the stretch its water reaches and the bank (0 above a head, 1 left, 2 right); downstream-first
     const unit = new Int32Array(n).fill(-1);
@@ -55,7 +66,11 @@ function cut(mesh, drain, S) {
             for (let e = adjOffset[c]; e < adjOffset[c + 1] && qb < cap; e++) { const d = adjList[e]; if (!sea[d] && unit[d] < 0) { unit[d] = id; q[qb++] = d; } }
         }
     }
-    mergeSmall(unit, next, adjOffset, adjList, Math.max(4, Math.round(S / cellAreaKm2 / 3)));
+    // (what keeps the joins on one side: the river cells a border may not run through, each bank's river side)
+    const wall = new Uint8Array(n), side = new Int32Array(next).fill(-1);
+    for (let c = 0; c < n; c++) if (river(c)) wall[c] = 1;
+    for (let u = 0; u < 3 * segs; u++) if (u % 3) side[u] = 2 * segLine[(u / 3) | 0] + (u % 3) - 1;
+    join(unit, next, adjOffset, adjList, wall, side, Math.max(4, Math.round(S / cellAreaKm2 / 3)), Math.round(size / cellAreaKm2));
     // each unit's cells
     const count = new Int32Array(next);
     for (let c = 0; c < n; c++) if (unit[c] >= 0) count[unit[c]]++;
@@ -67,36 +82,64 @@ function cut(mesh, drain, S) {
 }
 
 /**
- * Units under `min` cells (a short stretch's bank, a sliver between two confluences) go into the neighbour they share
- * the longest border with, smallest first, over a few passes; `unit` is relabelled in place.
+ * The pieces joined, smallest first, each into the neighbour it shares the longest border with; `unit` is relabelled in
+ * place. First those under `min` cells (a short stretch's bank, a sliver between two confluences), across a divide if
+ * they touch one and across a river only if not; then all under `target` cells, across divides only (a border through
+ * a `wall` cell, a thick river, is never crossed) and to at most 1.6 × target. No join puts both sides of one river in
+ * a piece (`side`: each piece's river side, 2 × line + 0 left / 1 right, or −1), unless a sliver has no other way.
  */
-function mergeSmall(unit, units, adjOffset, adjList, min) {
+function join(unit, units, adjOffset, adjList, wall, side, min, target) {
     const root = new Int32Array(units).map((_, i) => i), find = (u) => { while (root[u] !== u) u = root[u] = root[root[u]]; return u; };
-    const n = unit.length, size = new Int32Array(units);
-    for (let pass = 0; pass < 4; pass++) {
+    const n = unit.length, size = new Int32Array(units), sides = Array.from(side, (s) => (s >= 0 ? new Set([s]) : null));
+    const clash = (u, v) => {
+        const a = sides[u], b = sides[v];
+        if (!a || !b) return false;
+        const [s, l] = a.size < b.size ? [a, b] : [b, a];
+        for (const k of s) if (l.has(k ^ 1)) return true;
+        return false;
+    };
+    const into = (u, t) => {
+        root[u] = t; size[t] += size[u];
+        if (sides[u]) { if (!sides[t]) sides[t] = sides[u]; else for (const k of sides[u]) sides[t].add(k); }
+        sides[u] = null;
+    };
+    for (let pass = 0; pass < 12; pass++) {
+        const small = pass < 3, below = small ? min : target;
         size.fill(0);
         for (let c = 0; c < n; c++) if (unit[c] >= 0) size[find(unit[c])]++;
-        const shared = new Map();                                           // small unit → Map(neighbour → edges)
+        const shared = new Map();                                           // small unit → Map(neighbour → [open, walled] edges)
         for (let c = 0; c < n; c++) {
             if (unit[c] < 0) continue;
             const u = find(unit[c]);
-            if (size[u] >= min) continue;
+            if (size[u] >= below) continue;
             let m = shared.get(u);
             if (!m) shared.set(u, m = new Map());
             for (let e = adjOffset[c]; e < adjOffset[c + 1]; e++) {
                 const d = adjList[e];
                 if (unit[d] < 0) continue;
                 const v = find(unit[d]);
-                if (v !== u) m.set(v, (m.get(v) ?? 0) + 1);
+                if (v === u) continue;
+                let k = m.get(v);
+                if (!k) m.set(v, k = [0, 0]);
+                k[wall[c] || wall[d] ? 1 : 0]++;
             }
         }
-        if (!shared.size) break;
+        let joined = 0;
         for (const u of [...shared.keys()].sort((a, b) => size[a] - size[b])) {
-            let best = -1, most = 0;
-            for (const [v, k] of shared.get(u)) if (k > most) { most = k; best = v; }
-            const a = find(u), t = best >= 0 ? find(best) : a;
-            if (t !== a) { root[a] = t; size[t] += size[a]; }
+            if (find(u) !== u || size[u] >= below) continue;
+            let best = -1, most = 0, bestW = -1, mostW = 0;
+            for (const [v0, [open, walled]] of shared.get(u)) {
+                const v = find(v0);
+                if (v === u || (!small && size[u] + size[v] > 1.6 * target)) continue;
+                const ok = !clash(u, v);
+                if (ok && open > most) { most = open; best = v; }
+                const score = open + walled + (ok ? 1e6 : 0);                   // (a sliver: one side of the river if it can)
+                if ((ok || small) && score > mostW) { mostW = score; bestW = v; }
+            }
+            const t = best >= 0 ? best : small ? bestW : -1;
+            if (t >= 0) { into(u, t); joined++; }
         }
+        if (!joined && !small) break;
     }
     for (let c = 0; c < n; c++) if (unit[c] >= 0) unit[c] = find(unit[c]);
 }

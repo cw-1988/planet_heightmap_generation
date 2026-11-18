@@ -8,9 +8,11 @@ and roads. In that last step the region's rivers and passes go back to the plane
 ## Use
 
 - **Region** (the button under the layer tabs, `js/region-pick.js`) turns picking on. The land is cut into valleys
-  along its natural borders: divides, rivers and coasts. The valley under the pointer is lightened, and a click takes it
-  in or out (the sea is refused); a drag still turns the globe. The chosen valleys are tinted magenta.
-- **Valleys**: small (about 30,000 km²), medium (150,000) or large (600,000). A new size starts the choice again.
+  along its natural borders: divides, thick rivers and coasts. Each side of a thick river is its own valley, so a
+  river can be a region's edge. The valley under the pointer is lightened, and a click takes it in or out (the sea is
+  refused); a drag still turns the globe. The chosen valleys are tinted magenta.
+- **Valleys**: small (about 30,000 km²), medium (150,000) or large (600,000). A new size starts the choice again. Large
+  ones often stay smaller: a valley grows only between its rivers.
 - **Border** (50–400 km): the land around the valleys that is simulated with them, so their edges know what lies beyond
   (passes, rivers coming in, the neighbours). The box is the valleys' reach from their centre plus the border on each
   side (200–6000 km). What falls in the box past the border is still simulated but drawn greyed.
@@ -23,12 +25,19 @@ and roads. In that last step the region's rivers and passes go back to the plane
 
 ## How the valleys are cut (`js/region-basin.js`)
 
-The planet's finish sends its drainage out: each cell's receiver, the area it drains and whether it is sea. A river is
-a cell draining at least the valley size. Its stretches break at a head, a confluence, or a length over 2√size km, and
-each land cell joins the stretch its water first reaches, on the bank it comes from, so a valley's borders are the
-divides and the river itself. Land that drains straight to the coast or to a sink is cut into chunks of about the same
-size. Last, any piece under a third of the size (and never under a dozen of the planet's cells) merges into the
-neighbour it shares the longest border with, so no valley is a speck.
+The planet's finish sends its drainage out: each cell's receiver, the area it drains and whether it is sea.
+
+- **Pieces**: a thick river is a cell draining at least 30,000 km² (a river like the Meuse; less only for the small
+  size, and never under a dozen of the planet's cells). Its stretches break at a head, a confluence, or a length over
+  about 350 km, and each land cell joins the stretch its water first reaches, on the bank it comes from. Land that
+  drains straight to the coast or to a sink is cut into chunks of about the same size.
+- **River lines**: each river's main stem is followed up through its confluences by the larger water, so its left and
+  right bank are known along its whole length.
+- **Joining**: slivers under a third of a piece merge into the neighbour they share the longest border with. Then the
+  pieces grow to the valley size chosen, smallest first, into the neighbour across the longest divide, never through a
+  thick river's cells, never past 1.6× the size, and never so that one valley holds both banks of the same river. That
+  last rule matters at the river's head: without it, the left bank, the land above the source and the right bank join
+  round it.
 
 ## How it is built (`v2/js/region/`)
 
