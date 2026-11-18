@@ -134,7 +134,7 @@ export class GlobeView {
         this.controls.maxDistance = 8;
         this.controls.rotateSpeed = 0.6;
         this.controls.enableZoom = false;                  // (V1's zoom instead, below)
-        this.zoomTo = this.camera.position.length();
+        this.zoomTo = this._baseDist = this.camera.position.length();
         this._zoomAt = 0;
         glCanvas.addEventListener('wheel', e => {
             if (!this.controls.enabled) return;
@@ -746,7 +746,11 @@ void main() {
             this._dirty = false;
             return true;
         }
-        const zoomed = this.easeZoom(), moved = this.controls.update();
+        const zoomed = this.easeZoom();
+        // (fork: the turn slows as the camera nears the ground, so a drag moves the ground about as far as the pointer;
+        // a fixed speed spun the globe past the place when zoomed in)
+        this.controls.rotateSpeed = 0.6 * Math.max(0.05, (this.camera.position.length() - 1) / (this._baseDist - 1));
+        const moved = this.controls.update();
         if (!zoomed && !moved && !this._dirty) return false;
         this.renderer.render(this.scene, this.camera);
         this._dirty = false;

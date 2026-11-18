@@ -3,7 +3,7 @@
 //   (and again after every Rebuild, Reapply or plate edit); a ring shows the brush's size at the pointer.
 //   Split: Ctrl-click the pieces, then drag a line across them; each selected piece the line divides becomes two,
 //   each flooded or raised on its own. Undo (Ctrl+Z) takes back the last stroke or split.
-//   While a tool is on, the left button belongs to it; Shift-drag or the right button still turns the globe.
+//   While a tool is on, the left button belongs to it; the right button still turns the globe.
 import { applyStroke, pointAt, arcKm } from './terrain-brush.js';
 import { mountMarks } from './edit-marks.js';
 
@@ -27,13 +27,11 @@ export function mountEditTools(pv, hooks) {
     const size = bar.querySelector('[data-k="size"]'), str = bar.querySelector('[data-k="str"]'), undoBtn = bar.querySelector('[data-undo]');
     size.addEventListener('input', () => { size.nextElementSibling.textContent = `${size.value} km`; });
     str.addEventListener('input', () => { str.nextElementSibling.textContent = str.value; });
-    const controls = pv.globe?.controls, rightWas = controls?.mouseButtons?.RIGHT, leftWas = controls?.mouseButtons?.LEFT;
+    const controls = pv.globe?.controls, rightWas = controls?.mouseButtons?.RIGHT;
     function pick(tool) {
         ed.tool = tool;
         for (const b of bar.querySelectorAll('[data-tool]')) b.setAttribute('aria-pressed', String(b.dataset.tool === tool));
-        // (0: rotate. Left set to 2, pan, which OrbitControls turns into a rotate under Shift; a plain left press never
-        // reaches it while a tool is on, and the globe's pan is off anyway)
-        if (controls) { controls.mouseButtons.RIGHT = tool === 'look' ? rightWas : 0; controls.mouseButtons.LEFT = tool === 'look' ? leftWas : 2; }
+        if (controls) controls.mouseButtons.RIGHT = tool === 'look' ? rightWas : 0;     // (0: rotate)
         document.body.classList.toggle('terrain-tool-on', tool !== 'look');
         if (tool === 'look' || tool === 'split') marks?.clear();
     }
@@ -63,8 +61,8 @@ export function mountEditTools(pv, hooks) {
         hooks.preview();
     };
     addEventListener('pointerdown', (e) => {
-        // (Ctrl-click still selects pieces, Shift-drag still turns the globe or pans the map)
-        if (ed.tool === 'look' || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || !onPlanet(e.target)) return;
+        // (Ctrl-click still selects pieces)
+        if (ed.tool === 'look' || e.button !== 0 || e.ctrlKey || e.metaKey || !onPlanet(e.target)) return;
         e.stopPropagation(); e.preventDefault();
         const w = hooks.world(), p = w && !hooks.busy() ? pv.placeUnder(e) : null;
         if (!p) return;

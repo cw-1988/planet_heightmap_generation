@@ -101,8 +101,8 @@ Rebuild button while edits wait.
 
 ### Edit tools (fork addition)
 
-A tool bar over the planet (`js/edit-tools.js`). While a tool is on, the left button is the tool's; Shift-drag or
-right-drag turns the globe (Shift-drag pans the map), and Ctrl-click still selects pieces. Undo (Ctrl+Z) takes back the
+A tool bar over the planet (`js/edit-tools.js`). While a tool is on, the left button is the tool's; right-drag
+turns the globe, and Ctrl-click still selects pieces. The globe's turn slows as you zoom in (`GlobeView.renderIfNeeded`). Undo (Ctrl+Z) takes back the
 last stroke or split. Marks over the planet (`js/edit-marks.js`, placed by `GlobeView.screenAt`): a ring of the brush's
 size at the pointer, and the split's line (with its whole great circle dashed) while it is dragged.
 
