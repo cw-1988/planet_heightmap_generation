@@ -75,7 +75,7 @@ export function detailWaves(seed, vary = false, { fineWarp = FINE_WARP, rolling 
         // (the finer ones under a weak warp of their own: that one stretches the ground 2 : 1 in half the places and 9 : 1
         // in some, and every small wave under it was drawn out into a streak — brushed, swirling ground up close.
         // This one stretches it ~1.3 : 1, under 2 : 1 nearly everywhere)
-        const k = 0.3 + 1.3 * smooth(-0.5, 0.5, rough.noise3D(px * s1 / 6, py * s1 / 6, pz * s1 / 6)), dt = detailOf(b, k, det), m = rolling ? 0 : smooth(500, 2200, b);
+        const k = rolling ? 1 : 0.3 + 1.3 * smooth(-0.5, 0.5, rough.noise3D(px * s1 / 6, py * s1 / 6, pz * s1 / 6)), dt = detailOf(b, k, det), m = rolling ? 0 : smooth(500, 2200, b);
         const rEnd = Math.min(o1, ridgedTo);
         gx = px; gy = py; gz = pz;
         if (fineWarp > 0 && (o1 > broadTo ||(m > 0 && o0 < rEnd))) {
