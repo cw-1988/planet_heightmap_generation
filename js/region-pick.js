@@ -8,10 +8,17 @@ import { regionFrame, placeAt, xyOf, cropPlanet, cropBuffers } from '../v2/js/re
 import { regionWindow } from '../v2/js/region/region-view.js';
 import { valleysOf } from './region-basin.js';
 import { unitAt } from './region-bank.js';
+import { valleyGrid, gridAt } from './region-grid.js';
+
+/** The valley at a point as the map shows it (region-grid.js); before the map is built, off the cells. */
+function valleyAt(V, w, x, y, z) {
+    valleyGrid(w, V);
+    return gridAt(V, x, y, z) ?? unitAt(V, w.tMesh, w.tMesh.index.nearest(x, y, z), x, y, z);
+}
 
 /** The valleys chosen, for the planet's tint (region-overlay.js, drawn by the globe's shader): ids, the partition (unit
  *  per cell, cells per unit), the valley under the pointer (hover). */
-export const regionChosen = { ids: new Set(), unit: null, cells: null, V: null, hover: -1, world: null, size: 0, riverQ: 0, wallQ: 0 };
+export const regionChosen = { ids: new Set(), unit: null, cells: null, V: null, hover: -1, world: null, size: 0 };
 const D = Math.PI / 180, KM_MIN = 200, KM_MAX = 6000;
 // (km²; region-basin.js keeps a valley at least a dozen of the planet's cells, so its shape follows the land at any detail)
 const SIZES = [['small', 30000], ['medium', 150000], ['large', 600000]];
@@ -23,23 +30,20 @@ export function mountRegionPick(pv, hooks) {
     bar.innerHTML = '<button data-on aria-pressed="false" title="Choose valleys on the planet and open them as a region">Region</button>'
         + '<span class="region-more" hidden><span data-n></span>'
         + `<label>Valleys <select data-k="size">${SIZES.map(([k, v], i) => `<option value="${v}"${i === 1 ? ' selected' : ''}>${k}</option>`).join('')}</select></label>`
-        + '<label title="Every river the map draws is a border, weighed by its water (a great river holds like a mountain range). Raise this to ignore the thinner ones: rivers under this much water (m³/s) lie inside a valley. Double-click: back to every drawn river">Rivers <input type="range" data-k="river" min="0" max="100" step="1" value="0"><output></output></label>'
         + '<label>Border <input type="range" data-k="border" min="50" max="400" step="10" value="150"><output>150 km</output></label>'
         + '<label>Detail <select data-k="n"><option value="1024" selected>1024</option><option value="2048">2048</option></select></label>'
         + '<button data-open disabled>Open</button><button data-clear disabled>Clear</button></span>';
     document.body.append(bar);
     const $ = (s) => bar.querySelector(s), onBtn = $('[data-on]'), more = $('.region-more'), border = $('[data-k="border"]'), detail = $('[data-k="n"]'), size = $('[data-k="size"]');
-    const openBtn = $('[data-open]'), clearBtn = $('[data-clear]'), river = $('[data-k="river"]'), C = regionChosen;
-    let on = false, open = null, note = '', riverQ = 0;                    // (riverQ 0: the planet's own measure)
-    // (the slider's 0…100 on a log scale of water: 40 m³/s, the thinnest river drawn, to 40,000, only the greatest)
-    const qOf = (t) => 40 * 1000 ** (t / 100), tOf = (q) => Math.round(100 * Math.log(q / 40) / Math.log(1000));
+    const openBtn = $('[data-open]'), clearBtn = $('[data-clear]'), C = regionChosen;
+    let on = false, open = null, note = '';
 
-    /** The partition for this world, size and wall (a new planet, size or wall: the choice starts again). */
+    /** The partition for this world and size (a new planet or size: the choice starts again). */
     function valleys(w) {
         if (!w?.fin?.drain) return null;
-        if (C.world !== w || C.size !== +size.value || C.riverQ !== riverQ) {
-            const V = valleysOf(w, +size.value, riverQ);
-            Object.assign(C, { unit: V.unit, cells: V.cells, V, hover: -1, world: w, size: +size.value, riverQ, wallQ: V.riverQ });
+        if (C.world !== w || C.size !== +size.value) {
+            const V = valleysOf(w, +size.value);
+            Object.assign(C, { unit: V.unit, cells: V.cells, V, hover: -1, world: w, size: +size.value });
             C.ids.clear();
         }
         return C;
@@ -49,10 +53,6 @@ export function mountRegionPick(pv, hooks) {
         $('[data-n]').textContent = note || (!w?.fin ? 'Wait for the planet to finish' : n ? `${n} valle${n > 1 ? 'ys' : 'y'}` : 'Click valleys on the planet');
         note = '';
         border.nextElementSibling.textContent = `${border.value} km`;
-        if (V) {
-            if (!riverQ) river.value = String(tOf(V.wallQ));
-            river.nextElementSibling.textContent = `${Math.round(V.wallQ).toLocaleString('en')} m³/s${riverQ ? '' : ' (all drawn)'}`;
-        }
         const F = n && V ? frameOf(w) : null;
         openBtn.disabled = !F || !!open;
         openBtn.textContent = F ? `Open ${Math.round(F.km)} km · ${Math.round(F.cellKm * 1000)} m` : 'Open';
@@ -70,10 +70,6 @@ export function mountRegionPick(pv, hooks) {
     border.addEventListener('input', refresh);
     detail.addEventListener('change', refresh);
     size.addEventListener('change', refresh);
-    // (the label follows the drag; the valleys are cut again, ~0.1 s, once it is let go)
-    river.addEventListener('input', () => { river.nextElementSibling.textContent = `${Math.round(qOf(+river.value)).toLocaleString('en')} m³/s`; });
-    river.addEventListener('change', () => { riverQ = Math.round(qOf(+river.value)); refresh(); });
-    river.addEventListener('dblclick', () => { riverQ = 0; refresh(); });
     clearBtn.addEventListener('click', () => { C.ids.clear(); refresh(); });
     openBtn.addEventListener('click', () => build(hooks.world()));
     bar.addEventListener('pointerenter', () => { if (on) refresh(); });       // (the planet may have finished since)
@@ -85,7 +81,7 @@ export function mountRegionPick(pv, hooks) {
         const p = pv.placeUnder(e);
         if (!p) return -2;
         const lon = p[0] * 2 * Math.PI - Math.PI, lat = Math.PI / 2 - p[1] * Math.PI, x = Math.cos(lat) * Math.cos(lon), y = Math.cos(lat) * Math.sin(lon), z = Math.sin(lat);
-        return unitAt(C.V, w.tMesh, w.tMesh.index.nearest(x, y, z), x, y, z);
+        return valleyAt(C.V, w, x, y, z);
     };
     let down = null;
     addEventListener('pointermove', (e) => {
@@ -152,12 +148,12 @@ export function mountRegionPick(pv, hooks) {
  * border of one, 0 beyond. { m, on, at(i, j), beyond(i, j) } with (i, j) the region's cells.
  */
 function maskOf(w, F, borderKm) {
-    const m = F.n >> 2, on = new Uint8Array(m * m), dist = new Float32Array(m * m), ll = [0, 0], { index } = w.tMesh, cell = F.km / m;
+    const m = F.n >> 2, on = new Uint8Array(m * m), dist = new Float32Array(m * m), ll = [0, 0], cell = F.km / m;
     const { V, ids } = regionChosen;
     for (let j = 0; j < m; j++) for (let i = 0; i < m; i++) {
         placeAt(F, (i + 0.5) * cell - F.km / 2, F.km / 2 - (j + 0.5) * cell, ll);
         const la = ll[0] * D, lo = ll[1] * D, cl = Math.cos(la), x = cl * Math.cos(lo), y = cl * Math.sin(lo), z = Math.sin(la);
-        dist[j * m + i] = ids.has(unitAt(V, w.tMesh, index.nearest(x, y, z), x, y, z)) ? 0 : Infinity;
+        dist[j * m + i] = ids.has(valleyAt(V, w, x, y, z)) ? 0 : Infinity;
     }
     // (the distance to the nearest chosen place: a chamfer pass down and one back up, in cells)
     const S = Math.SQRT2;

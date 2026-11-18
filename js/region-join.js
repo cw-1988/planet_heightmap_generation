@@ -2,28 +2,27 @@
 // borders first. A border is a divide, a river, or both, and each weighs in metres of barrier:
 //   · a divide: how far it stands above the two pieces (the mean height of the cells on it less the pieces' mean
 //     heights, m), so a low saddle between two plains joins early and a ridge or a range late or never;
-//   · a river between them (one piece on each bank: region-bank.js): RIVER_M a tenfold of its water past RIVER_Q0, so a
-//     brook is a low saddle, a 100 m³/s river a 320 m ridge, and from ~225 m³/s a border never crossed (HARD_M).
-// Smaller pairs go first (SIZE_M of barrier per valley's worth of size), so the valleys come out even.
+//   · a river between them (one piece on each bank: region-bank.js): one that drains a valley's land or more (riv.edgeKm2)
+//     is a valley's edge, never crossed; a thinner one is the valley's own stream, up to STREAM_M by its share of that.
+// Smaller pairs go first (SIZE_M of barrier per valley's worth of size), so the valleys come out even. Without a ceiling
+// the weakest-first joining crossed anything once the cheap borders ran out: an edge river or a ridge of HARD_M is never
+// crossed, however small the valleys stay.
 
-import { bankAt, RIVER_Q0 } from './region-bank.js';
+import { bankAt } from './region-bank.js';
 
 const SIZE_M = 300;                                                          // (m of barrier the size of a whole valley weighs)
-const RIVER_M = 800;                                                         // (m of barrier per tenfold of a river's water)
-// (m: a border this high is never crossed, however small the valleys stay: a river from ~225 m³/s, a ridge 600 m over
-// both sides. Without it the weakest-first joining crossed anything once the cheap borders ran out. On the test planet
-// at the medium size, drawn rivers of 250–900 m³/s had a valley on both banks along 26% of their length with no ceiling,
-// 2% now (the last slivers), the greater ones never; the thinner ones lie inside a valley along a third of theirs)
-const HARD_M = 600;
+const STREAM_M = 100;                                                        // (m: a stream just short of an edge river)
+const HARD_M = 600;                                                          // (m: a ridge this high over both sides)
 
 /**
  * `unit` (a piece per cell, −1 the sea) relabelled in place to the valleys: first the slivers under `min` cells join their
  * weakest neighbour, then all pairs join weakest border first while the two are under 1.6 × `target` cells together,
- * then what is left under a quarter of `target` joins its weakest neighbour (to 2.2 × `target`), and under `min` any.
- * z: each cell's height (km), or null. riv: the rivers ({ wall, recv, main, np, qe }: region-basin.js).
+ * then what is left under a quarter of `target` joins its weakest neighbour (to 2.2 × `target`), and under `min` any
+ * but across an edge river. z: each cell's height (km), or null. riv: the rivers ({ wall, recv, main, np, qe (land
+ * drained, km²), edgeKm2 }: region-basin.js).
  */
 export function joinByBarrier(mesh, z, unit, units, riv, min, target) {
-    const { adjOffset, adjList, xyz } = mesh, n = unit.length, zc = z ?? new Float32Array(n), { wall, recv, main, np, qe } = riv;
+    const { adjOffset, adjList, xyz } = mesh, n = unit.length, zc = z ?? new Float32Array(n), { wall, recv, main, np, qe, edgeKm2 } = riv;
     const root = new Int32Array(units).map((_, i) => i), find = (u) => { while (root[u] !== u) u = root[u] = root[root[u]]; return u; };
     const size = new Int32Array(units), sumZ = new Float64Array(units), ver = new Int32Array(units), coast = new Uint8Array(units);
     const nb = new Array(units).fill(null);
@@ -46,10 +45,11 @@ export function joinByBarrier(mesh, z, unit, units, riv, min, target) {
         }
     }
     const mean = (u) => sumZ[u] / size[u];
-    // (a pair one river cell apart and otherwise open is open: a bank's corner, not a crossing)
+    // (an edge river anywhere on the border: never; a stream one cell apart and otherwise open is a bank's corner)
     const barrier = (u, v, rec) => {
+        if (rec.q >= edgeKm2) return Infinity;
         const divide = rec.open ? 1000 * (rec.h / rec.open - (mean(u) + mean(v)) / 2) : 0;
-        const river = rec.cross ? RIVER_M * Math.log10(Math.max(1, rec.q / RIVER_Q0)) : 0;
+        const river = rec.cross ? STREAM_M * rec.q / edgeKm2 : 0;
         return rec.cross >= 2 || !rec.open ? Math.max(divide, river) : divide;
     };
     const merge = (u, v) => {
@@ -109,7 +109,7 @@ export function joinByBarrier(mesh, z, unit, units, riv, min, target) {
         offer(merge(u, v));
     }
     // (the leftovers: under a quarter of a valley to their weakest neighbour; holes; the last slivers anywhere)
-    slivers(Math.max(min, target / 4), 2.2 * target, HARD_M); holes(); slivers(min, Infinity); holes();
+    slivers(Math.max(min, target / 4), 2.2 * target, HARD_M); holes(); slivers(min, Infinity, Infinity); holes();
     for (let c = 0; c < n; c++) if (unit[c] >= 0) unit[c] = find(unit[c]);
 }
 

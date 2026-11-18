@@ -1,38 +1,40 @@
 // Valleys (fork addition): the planet's land cut along its natural borders, for the region pick (region-pick.js). From
-// the finish's drainage (world.fin.drain: where each cell's water goes, the land it drains, its water, the sea and lakes,
-// each cell's height): every river the map draws (from RIVER_Q0 m³/s, or the Rivers slider's floor; a dry river past 4×
-// the stretch's land too) is cut into stretches at each confluence and every ~2√S km; each land cell belongs to the
-// stretch its water first reaches, on the bank it comes in from (the land above a river's head is its own piece). Land
-// whose water reaches the sea or a lake before any river is a piece per outlet. A piece in patches is split into one per
-// patch. The pieces then join over their weakest borders first (region-join.js): a low saddle or a brook early, a ridge,
-// a range or a great river late or never. A river cell is half on each bank (region-bank.js): its pixels go by side.
+// the finish's drainage (world.fin.drain: where each cell's water goes, the land it drains, the sea and lakes, each
+// cell's height), at the valley size T alone: a river that drains at least T is a valley's edge, never crossed (a
+// valley is the land between such rivers, one bank each); a thinner one lies inside a valley, as its own stream. The
+// rivers from S (a fifth of T, at least a dozen cells) are cut into stretches at each confluence and every ~2√S km;
+// each land cell belongs to the stretch its water first reaches, on the bank it comes in from (the land above a river's
+// head is its own piece). Land whose water reaches the sea or a lake before any river is a piece per outlet. A piece in
+// patches is split into one per patch. The pieces then join over their weakest borders first (region-join.js): a low
+// saddle or a stream inside the valley early, a ridge late, a range or an edge river never. A river cell is half on
+// each bank (region-bank.js halves): each half goes to its bank's valley unless that splits a valley in two.
 
 import { joinByBarrier } from './region-join.js';
-import { bankAt, RIVER_Q0 } from './region-bank.js';
-
-const RIVER_KM2 = 30000;                         // (the most land a stretch is measured at: the Meuse, the Elbe's upper reach)
+import { bankAt } from './region-bank.js';
+import { halves } from './region-halves.js';
+import { edgeMesh } from './region-mesh.js';
 
 /**
- * A unit per mesh cell (−1 the sea) and each unit's cells, for valley size `sizeKm2`, rivers from `riverQ` m³/s (0:
- * RIVER_Q0). With what a point's valley needs (region-bank.js unitAt): wall, recv, main, np, bankUnit, nbSide. Kept on
- * the world.
+ * A unit per mesh cell (−1 the sea) and each unit's cells, for valley size `sizeKm2`. With what a point's valley needs
+ * (region-bank.js unitAt): wall, recv, main, np, half. Kept on the world.
  */
-export function valleysOf(w, sizeKm2, riverQ = 0) {
-    const memo = (w._valleys ??= new Map()), key = `${sizeKm2}|${riverQ}`;
-    if (memo.has(key)) return memo.get(key);
-    // (the pieces at least a dozen cells: fewer and their edge is the mesh's, not the land's)
-    const mesh = w.tMesh, a = mesh.cellAreaKm2, S = Math.max(12 * a, Math.min(sizeKm2, RIVER_KM2)), drain = w.fin.drain;
-    const Q = riverQ > 0 ? riverQ : RIVER_Q0, P = pieces(mesh, drain, S, Q);
-    const riv = { wall: P.wall, recv: drain.recv, main: P.main, np: P.np, qe: P.qe };
-    joinByBarrier(mesh, drain.z ?? null, P.unit, P.units, riv, Math.max(4, Math.round(S / a / 3)), Math.round(Math.max(sizeKm2, S) / a));
-    const v = { unit: P.unit, cells: cellsOf(P.unit, P.units), sizeKm2, riverQ: Q, ...riv, ...banks(mesh, P.unit, riv) };
-    memo.set(key, v);
+export function valleysOf(w, sizeKm2) {
+    const memo = (w._valleys ??= new Map());
+    if (memo.has(sizeKm2)) return memo.get(sizeKm2);
+    // (a valley and a piece at least a dozen cells: fewer and their edge is the mesh's, not the land's)
+    // (the mesh's true neighbours only: a valley joined over a corner would be drawn in two pieces)
+    const mesh = edgeMesh(w), a = mesh.cellAreaKm2, T = Math.max(12 * a, sizeKm2), S = Math.max(12 * a, T / 5), drain = w.fin.drain;
+    const P = pieces(mesh, drain, S);
+    const riv = { wall: P.wall, recv: drain.recv, main: P.main, np: P.np, qe: P.qe, edgeKm2: T };
+    joinByBarrier(mesh, drain.z ?? null, P.unit, P.units, riv, Math.max(4, Math.round(S / a / 3)), Math.round(T / a));
+    const v = { unit: P.unit, cells: cellsOf(P.unit, P.units), sizeKm2, ...riv, half: halves(mesh, w.tMesh, P.unit, riv) };
+    memo.set(sizeKm2, v);
     return v;
 }
 
-/** The drainage pieces with walls from Q m³/s: { unit, units, wall (the rivers' cells), main, np, qe (a wall's water). */
-function pieces(mesh, drain, S, Q) {
-    const { numCells: n, xyz, edgeKm } = mesh, { recv, area, q } = drain;
+/** The drainage pieces cut by the rivers from S km²: { unit, units, wall (the rivers' cells), main, np, qe (land drained) }. */
+function pieces(mesh, drain, S) {
+    const { numCells: n, xyz, edgeKm } = mesh, { recv, area } = drain;
     // (water: the sea and the standing lakes, fresh or salt; a dry pan is land)
     const sea = drain.lake ? Uint8Array.from(drain.sea, (s, c) => s || drain.lake[c] === 1 || drain.lake[c] === 2) : drain.sea;
     // the order upstream-first (each cell after all that drain into it)
@@ -41,16 +43,16 @@ function pieces(mesh, drain, S, Q) {
     let a = 0, b = 0;
     for (let c = 0; c < n; c++) if (!up[c]) order[b++] = c;
     while (a < b) { const r = recv[order[a++]]; if (r >= 0 && --up[r] === 0) order[b++] = r; }
-    // the rivers (a dry one past 4 S km² still a valley's floor, so a desert's great basin is cut along its wadis too),
-    // their water as a border weighs it (a dry one as a wet one of its land's worth), and their stretches: a new one at
-    // a head, a confluence, or past the length cap
-    const river = (c) => !sea[c] && (q[c] >= Q || area[c] >= 4 * S), np = new Uint8Array(n), par = new Int32Array(n).fill(-1);
+    // the rivers by the land they drain, wet or dry (a desert's great basin is cut along its wadis too: a valley is its
+    // land, not its water), that land as a border weighs them, and their stretches: a new one at a head, a confluence,
+    // or past the length cap
+    const river = (c) => !sea[c] && area[c] >= S, np = new Uint8Array(n), par = new Int32Array(n).fill(-1);
     const qe = new Float32Array(n);
-    for (let c = 0; c < n; c++) if (river(c)) qe[c] = Math.max(q[c], RIVER_Q0 * area[c] / S);
+    for (let c = 0; c < n; c++) if (river(c)) qe[c] = area[c];
     for (let c = 0; c < n; c++) { const r = recv[c]; if (r >= 0 && river(c) && river(r)) { np[r] = Math.min(255, np[r] + 1); par[r] = c; } }
-    // (each river's main stem up through a confluence: the larger water, so its left and right stay apart)
+    // (each river's main stem up through a confluence: the larger land, so its left and right stay apart)
     const main = new Int32Array(n).fill(-1);
-    for (let c = 0; c < n; c++) { const r = recv[c]; if (r >= 0 && river(c) && river(r) && (main[r] < 0 || q[c] > q[main[r]])) main[r] = c; }
+    for (let c = 0; c < n; c++) { const r = recv[c]; if (r >= 0 && river(c) && river(r) && (main[r] < 0 || area[c] > area[main[r]])) main[r] = c; }
     const seg = new Int32Array(n).fill(-1), len = new Float32Array(n), lMax = 2 * Math.sqrt(S);
     let segs = 0;
     for (let k = 0; k < b; k++) {
@@ -107,32 +109,6 @@ function parts(mesh, unit, units) {
         next++;
     }
     return next;
-}
-
-/**
- * Per river cell, the valley on its left and on its right (bankUnit, 2 per cell, −1 none: the valley most of its
- * neighbours on that side are in), and each of its land neighbours' side (nbSide, per adjacency entry: 1 left, 2 right,
- * 0 not a bank). So the half of a river cell across its line is the far bank's, each bit of it the valley of the bank
- * cell nearest it (region-bank.js unitAt), and every valley that touches a river reaches its line.
- */
-function banks(mesh, unit, { wall, recv, main, np }) {
-    const { adjOffset, adjList, xyz, numCells: n } = mesh, out = new Int32Array(2 * n).fill(-1), votes = new Map();
-    const nbSide = new Uint8Array(adjList.length);
-    for (let r = 0; r < n; r++) {
-        if (!wall[r] || !np[r]) continue;
-        for (let e = adjOffset[r]; e < adjOffset[r + 1]; e++) {
-            const d = adjList[e];
-            if (!wall[d] && unit[d] >= 0) nbSide[e] = bankAt(xyz, recv, main, np, r, xyz[3 * d], xyz[3 * d + 1], xyz[3 * d + 2]);
-        }
-        for (let side = 1; side <= 2; side++) {
-            votes.clear();
-            for (let e = adjOffset[r]; e < adjOffset[r + 1]; e++) if (nbSide[e] === side) votes.set(unit[adjList[e]], (votes.get(unit[adjList[e]]) ?? 0) + 1);
-            let best = side === 1 ? unit[r] : -1, most = 0;
-            for (const [u, k] of votes) if (k > most) { most = k; best = u; }
-            out[2 * r + side - 1] = best;
-        }
-    }
-    return { bankUnit: out, nbSide };
 }
 
 /** Each unit's cells: Map(unit → Int32Array). */

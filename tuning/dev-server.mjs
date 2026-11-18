@@ -33,7 +33,19 @@ function resolveFile(urlPath) {
     return null;
 }
 
+// (dev only: POST /__shot?name=x.png writes the body to tuning/screenshots/ (git-ignored), so a page's own capture
+// reaches the image checks)
+const SHOTS = path.join(__dirname, 'screenshots');
+
 http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url.startsWith('/__shot')) {
+        const name = path.basename(new URL(req.url, 'http://x').searchParams.get('name') || 'shot.png');
+        fs.mkdirSync(SHOTS, { recursive: true });
+        const parts = [];
+        req.on('data', (d) => parts.push(d));
+        req.on('end', () => { fs.writeFileSync(path.join(SHOTS, name), Buffer.concat(parts)); res.writeHead(200); res.end(name); });
+        return;
+    }
     // a directory asked for without its trailing slash (/v2) → redirect to /v2/, as the production host does,
     // so the page's relative links resolve inside the directory
     const url = new URL(req.url, 'http://x'), dir = path.join(ROOT, decodeURIComponent(url.pathname));

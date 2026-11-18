@@ -2,8 +2,6 @@
 // river runs through its cells' centres (finish-hydro.js traces it so, and the map draws it so), so a river cell is half
 // on each bank: which side a place lies on is read off the river's line through that cell, not off the cell.
 
-export const RIVER_Q0 = 40;                      // (m³/s: the thinnest river the map draws at its default density)
-
 /**
  * Which bank of the river at cell `r` the point (px, py, pz) lies on: 1 left, 2 right (looking downstream), 0 at a head
  * (`np[r]` 0: no river comes in, the land round it is one). Round r, the line in (from `main[r]`, its main stem) and out
@@ -25,20 +23,9 @@ export function bankAt(xyz, recv, main, np, r, px, py, pz) {
 
 /**
  * The valley at a point (px, py, pz) whose nearest cell is `c` (valleysOf's `V`): a land cell's own; on a river cell,
- * the valley of the nearest land cell on the point's side of the line (so each valley along the bank reaches the river),
- * else that side's valley, else the river cell's own.
+ * its half's on the point's side of the line (region-halves.js).
  */
 export function unitAt(V, mesh, c, px, py, pz) {
-    const u = V.unit[c];
-    if (!V.wall[c]) return u;
-    const b = bankAt(mesh.xyz, V.recv, V.main, V.np, c, px, py, pz);
-    if (!b) return u;
-    const { adjOffset, adjList, xyz } = mesh;
-    let best = -1, near = -2;
-    for (let e = adjOffset[c]; e < adjOffset[c + 1]; e++) {
-        if (V.nbSide[e] !== b) continue;
-        const d = adjList[e], k = px * xyz[3 * d] + py * xyz[3 * d + 1] + pz * xyz[3 * d + 2];
-        if (k > near) { near = k; best = V.unit[d]; }
-    }
-    return best >= 0 ? best : V.bankUnit[2 * c + b - 1] >= 0 ? V.bankUnit[2 * c + b - 1] : u;
+    if (!V.wall[c]) return V.unit[c];
+    return V.half[2 * c + (bankAt(mesh.xyz, V.recv, V.main, V.np, c, px, py, pz) === 2 ? 1 : 0)];
 }
