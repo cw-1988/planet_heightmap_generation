@@ -51,10 +51,14 @@ says it was made with the old ones.
 Found a moment you like? Press **Add detail**. It sculpts that moment again, much more finely: rivers and lakes
 (permanent, flooding each year or dry for months, fed by the moment's own rain), glaciers and fjords, sand seas, its own
 climate, and the Satellite, Geology and Food views. Its **Detail** is 160K, 640K, 2.5M (the default) or 10M cells
-(about three minutes); phones go up to 640K. It takes from a few seconds to a few minutes. Meanwhile a loading screen over
-the planet names each step as it comes (shaping the surface, working out the climate, carving the rivers, carving with
-the last ice age, mapping the rocks, finding the ore deposits, painting the picture…) with how far along it is; Cancel
-stays on the timeline.
+(about three minutes); phones go up to 640K. It takes from a few seconds to a few minutes. It refines in passes, the way
+a render sharpens: at 2.5M it first shows the moment at 160K, at 10M at 160K and then 2.5M, each pass shown as soon as it
+is done and replacing the one before (160K and 640K run in one pass: a coarser pass would barely be quicker). During the first pass a loading screen over the planet names
+each step as it comes (shaping the surface, working out the climate, carving the rivers, carving with the last ice age,
+mapping the rocks, finding the ore deposits, painting the picture…); after it, the moment is on screen and the card's
+badge (Pass 2/2 · 2.5M), button and bar say which pass is running and how far along it is. Cancel stays on the timeline
+and keeps the last pass done, which exports as it is; Add detail again goes on from the next pass up. The passes cost
+some time over the chosen Detail alone (see [finish-ladder.md](finish-ladder.md)).
 
 One moment is kept in detail at a time. Adding detail to another replaces it once the new one is done, and the card
 tells you when it will.

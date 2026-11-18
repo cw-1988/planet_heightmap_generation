@@ -622,46 +622,84 @@ function terrainDrawn() {
 
 // ── the Finish step: on request, for the moment shown — kept per moment while the history is open ──
 const CANCEL_GRACE_MS = 600;
+// (Add detail refines as Cycles' viewport does — docs/finish-ladder.md: the Finish run first at coarser Details, each pass
+// shown as it is done and replacing the one before; the last is the detail chosen. A pass costs ~21.5 s whatever its
+// detail (the climate, the ice age, the geology…) plus ~15.6 s per million cells (measured, bench-ladder.mjs), so a
+// coarser Detail is a pass only where it costs at most half the pass after it: 2.5M → 160K, 2.5M; 10M → 160K, 2.5M, 10M;
+// 640K and 160K alone. A coarse pass before the last paints its picture 2048 wide (finer than its cells still): ~8 s
+// less. ?passes=1 — a developer's: the detail chosen alone, as before)
+const ONE_PASS = url.get('passes') === '1';
+const passWidth = (cells, last) => (IS_TOUCH || (!last && cells < 1e6) ? 2048 : cells >= 5e6 ? 8192 : 4096);
+const passCost = (cells, last = true) => (passWidth(cells, last) === 2048 ? 13.5 : 21.5) + 15.6 * cells / 1e6;
+/** Add detail's passes up to `final` cells, those above `done` (a pass of this moment already shown, same climate). */
+function finishPasses(final, done = 0) {
+    const out = [final];
+    if (ONE_PASS) return out;
+    const rungs = [...$('finishCells').options].map(o => Number(o.value)).filter(c => c > done && c < final).sort((a, b) => b - a);
+    // (judged at full width: the picture's saving would let 640K in before 2.5M, a later first pass than 160K's for more in all)
+    for (const c of rungs) if (passCost(c) <= 0.5 * passCost(out[0])) out.unshift(c);
+    return out;
+}
 async function finishMoment(again = null) {
-    const b = B, frame = again ?? painted;
+    const b = B, frame = again?.frame ?? painted;
     if (!b?.simMesh || !frame) return;
     // (the button cancels a finish under way — but not in its first moments: it turns into Cancel where Add detail was,
     // so a double click would otherwise start a finish and stop it at once)
     if (b.finishJob) { if (performance.now() - b.finishJob.startedAt >= CANCEL_GRACE_MS) finisher.cancel(); return; }
     setPlaying(false);
-    const cells = Number($('finishCells').value), width = IS_TOUCH ? 2048 : cells >= 5e6 ? 8192 : 4096;
+    // (the timeline held on the moment taken: in playback it has run ahead of the one drawn, and would move on from it)
+    if (!again) { playTime = frame.time; ui.time.value = playTime; dirty = true; rail(); }
+    const final = Number($('finishCells').value), key = climateKey(), had = b.finishes.get(frame);
+    // (a moment shown at a coarser pass — a ladder cancelled — goes on from the next pass up, not from the first)
+    const passes = again?.passes ?? finishPasses(final, had && had.climateKey === key ? had.cells : 0);
+    // (each pass's share of the bar: its cost)
+    const costs = passes.map((c, i) => passCost(c, i === passes.length - 1)), weights = costs.map(c => c / costs.reduce((s, x) => s + x, 0));
     const started = performance.now(), done = new Map(FINISH_STAGES);
     b.finishNote = null; b.finishOk = false;
-    b.finishJob = { frame, cells, stage: 'starting', share: 0, startedAt: performance.now() };
+    b.finishJob = { frame, cells: final, passes, pass: 0, stage: 'starting', share: 0, startedAt: performance.now() };
     loading.show('detail', { title: `Adding detail to ${frame.time.toFixed(0)} Myr`, label: 'Starting…', share: 0 });
     updateClimateUi();
     // (the terrain's fields, and the geological record for the rocks: geology/rocks.js — none from a history saved before
     // it was kept: its frames read the record as zeros, and the finish then makes no geology)
     const slim = Object.fromEntries([...FRAME_FIELDS, ...(b.noGeology ? [] : GEO_FRAME_FIELDS), ...GEOLOGY_READS].map(k => [k, frame[k]]));
     slim.plates = frame.plates.map(p => p && { quat: p.quat });
-    // (progress: the stages' shares so far, and the picture's own)
-    let before = 0;
-    const onStage = s => { if (!b.finishJob) return; before = 0; for (const [k, v] of FINISH_STAGES) { if (k === s) break; before += v; } b.finishJob.stage = s; b.finishJob.share = before; loading.update('detail', { label: `${stageWords(s)}…`, share: before }); updateClimateUi(); };
-    const onProgress = p => { if (b.finishJob) { b.finishJob.share = before + p * (done.get('picture') ?? 0.1); loading.update('detail', { share: b.finishJob.share }); updateClimateUi(); } };
+    // (progress: the passes done, then this pass's stages so far and the picture's own, each pass by its weight)
+    let before = 0, base = 0, w = weights[0], pass = 0, firstSecs = 0;
+    // (the stages' weights add up to a little over one: each pass's made to end at its own share, so the bar never steps back)
+    const whole = FINISH_STAGES.reduce((s, [, v]) => s + v, 0);
+    const share = s => { b.finishJob.share = base + w * Math.min(1, s / whole); loading.update('detail', { share: b.finishJob.share }); };
+    const onStage = s => { if (!b.finishJob) return; before = 0; for (const [k, v] of FINISH_STAGES) { if (k === s) break; before += v; } b.finishJob.stage = s; share(before); loading.update('detail', { label: `${passes.length > 1 ? `Pass ${pass + 1} of ${passes.length} · ` : ''}${stageWords(s)}…` }); updateClimateUi(); };
+    const onProgress = p => { if (b.finishJob) { share(before + p * (done.get('picture') ?? 0.1)); updateClimateUi(); } };
     try {
         const { simMesh } = b;
-        const key = climateKey();
         // (a small device: the finish's own surface workers few, the terrain's workers let go while it runs — every worker
         // holds its copies of the meshes, and a phone closes a tab at well under 2 GB — and the finishing worker let go after
         // unless its mesh takes long to build again)
         if (SMALL_DEVICE) b.player?.rest();
-        const res = await finisher.finish({ frame: slim, simMesh: { numCells: simMesh.numCells, xyz: simMesh.xyz, adjOffset: simMesh.adjOffset, adjList: simMesh.adjList }, seed: b.seed, cells, width, climateOptions: climateOptions(), poolSize: SMALL_DEVICE ? 3 : null },
-            { onStage, onProgress, keep: !SMALL_DEVICE && cells >= 2.5e6 });
-        if (B !== b) return;
-        const secs = (performance.now() - started) / 1000;
-        // (one detailed moment: this one replaces the one before, now that it is done)
-        b.finishes.clear();
-        b.finishes.set(frame, { cells, raster: res.raster, rivers: res.rivers, climate: res.climate, stats: res.stats, secs, climateKey: key });
-        b.finishOk = true;
-        b.finishNote = `Detail added in ${secs.toFixed(0)} s` + (again ? ' (after running short of memory: the moment kept in detail before was let go to make room)' : '');
-        console.info(`[evolution] finish of ${frame.time.toFixed(0)} Myr at ${cells} cells: ${secs.toFixed(1)} s, ${(finishBytes(b.finishes.get(frame)) / 2 ** 20).toFixed(0)} MB kept`, Object.fromEntries(Object.entries(res.ms).map(([k, v]) => [k, +(v / 1000).toFixed(1)])), res.stats);
-        view.finished = true;
-        if (view.layer === 'plates') setLayer('terrain');
+        for (; pass < passes.length; pass++) {
+            const cells = passes[pass], last = pass === passes.length - 1, width = passWidth(cells, last);
+            base = weights.slice(0, pass).reduce((s, x) => s + x, 0); w = weights[pass];
+            Object.assign(b.finishJob, { pass, passCells: cells, stage: 'starting' });
+            before = 0; share(0); updateClimateUi();
+            // (a pass before the last keeps the worker, and the last pass's meshes it built ahead, on a desktop)
+            const res = await finisher.finish({ frame: slim, simMesh: { numCells: simMesh.numCells, xyz: simMesh.xyz, adjOffset: simMesh.adjOffset, adjList: simMesh.adjList }, seed: b.seed, cells, width, climateOptions: climateOptions(), poolSize: SMALL_DEVICE ? 3 : null, keepCells: SMALL_DEVICE ? 0 : final },
+                { onStage, onProgress, keep: !SMALL_DEVICE && (!last || cells >= 2.5e6) });
+            if (B !== b) return;
+            const secs = (performance.now() - started) / 1000;
+            if (!pass) firstSecs = secs;
+            // (one detailed moment: each pass replaces the one before — and the moment detailed before — now that it is done)
+            b.finishes.clear();
+            b.finishes.set(frame, { cells, raster: res.raster, rivers: res.rivers, climate: res.climate, stats: res.stats, secs, climateKey: key });
+            b.finishOk = true; b.finishJob.share = base + w; dirty = true;
+            b.finishNote = `Detail added in ${secs.toFixed(0)} s` + (passes.length > 1 ? ` (${passes.map(cellsWords).join(' → ')}, the first shown at ${firstSecs.toFixed(0)} s)` : '') +
+                (again ? ' (after running short of memory: the moment kept in detail before was let go to make room)' : '');
+            console.info(`[evolution] finish of ${frame.time.toFixed(0)} Myr at ${cells} cells (pass ${pass + 1} of ${passes.length}): on screen at ${secs.toFixed(1)} s, ${(finishBytes(b.finishes.get(frame)) / 2 ** 20).toFixed(0)} MB kept`, Object.fromEntries(Object.entries(res.ms).map(([k, v]) => [k, +(v / 1000).toFixed(1)])), res.stats);
+            view.finished = true;
+            if (view.layer === 'plates') setLayer('terrain');
+            // (the first pass on screen: the loading screen goes — the passes after it sharpen the moment in view)
+            loading.hide('detail');
+            updateClimateUi();
+        }
     } catch (err) {
         // (out of memory — every worker of a page shares one browser process: the finishing worker is let go, its memory
         // with it, and the finer details are named as the likely cause)
@@ -669,13 +707,15 @@ async function finishMoment(again = null) {
         if (oom) finisher.cancel();
         // (once: the moment kept in detail let go — it holds memory — and the finish tried again in a fresh worker, the old
         // one's memory gone with it)
+        // (a ladder: from the pass that ran short — the passes before it let go with the rest)
         if (oom && !again && B === b) {
             b.finishes.clear(); b.finishJob = null; dirty = true;
             console.warn('[evolution] out of memory finishing: the detailed moment kept and the old worker let go, trying again');
-            setTimeout(() => finishMoment(frame), 300);
+            setTimeout(() => finishMoment({ frame, passes: passes.slice(pass) }), 300);
             return;
         }
-        if (B === b) b.finishNote = err.name === 'AbortError' ? 'Adding detail cancelled'
+        const kept = b.finishes.get(frame);
+        if (B === b) b.finishNote = err.name === 'AbortError' ? 'Adding detail cancelled' + (kept && pass ? ` — kept at ${cellsWords(kept.cells)}` : '')
             : oom ? 'Not enough memory for this detail — try a coarser one, or close other tabs (other World Orogen tabs can share this one’s memory)' : `Could not add detail: ${String(err.message).split('\n')[0]}`;
         if (err.name !== 'AbortError') console.error(err);
     } finally {
@@ -708,7 +748,9 @@ function updateCard() {
     const t = frame ? frame.time.toFixed(0) : '', dt = detFrame?.time.toFixed(0), pct = job ? (100 * Math.min(1, job.share)).toFixed(0) : 0;
     // the one thing to do next: the card's button and the timeline's
     let main = 'Add detail', short = main, title = 'Sculpt the moment shown again, in detail: its rivers, lakes and glaciers, its own climate, the Satellite view and its geology (seconds to a few minutes)';
-    if (job) { main = short = `Cancel · ${pct}%`; title = `Adding detail to ${job.frame.time.toFixed(0)} Myr (${stageWords(job.stage).toLowerCase()}) — click to cancel`; }
+    // (a ladder's pass: which, of how many, at what detail — docs/finish-ladder.md)
+    const passOf = job && job.passes.length > 1 ? `pass ${job.pass + 1} of ${job.passes.length}, ${cellsWords(job.passCells ?? job.passes[0])}` : null;
+    if (job) { main = short = `Cancel · ${pct}%`; title = `Adding detail to ${job.frame.time.toFixed(0)} Myr (${passOf ? `${passOf}: ` : ''}${stageWords(job.stage).toLowerCase()}) — click to cancel${passOf ? '; the passes done stay' : ''}`; }
     else if (isDet) { main = short = 'Export'; title = 'Save this detailed moment as map files: heightmaps (the sea floor too), a land mask and the colour map'; }
     else if (detFrame) title = `Add detail to ${t} Myr — it replaces the detailed ${dt} Myr once it is done (one moment is kept in detail)`;
     for (const [btn, label] of [[$('cardAction'), main], [$('timelineAction'), short]]) {
@@ -719,7 +761,8 @@ function updateCard() {
     $('finishBar').hidden = $('cardBar').hidden = !job;
     if (job) for (const bar of [$('finishBar'), $('cardBar')]) bar.firstElementChild.style.width = `${(100 * Math.min(1, job.share)).toFixed(1)}%`;
     // what is on screen: the moment, a preview or detailed
-    const badge = !frame ? null : isDet ? `Detailed · ${cellsWords(fin.cells)}` : 'Preview';
+    const refining = !!passOf && frame === job.frame;
+    const badge = !frame ? null : refining ? `Pass ${job.pass + 1}/${job.passes.length} · ${cellsWords(job.passCells ?? job.passes[0])}` : isDet ? `Detailed · ${cellsWords(fin.cells)}` : 'Preview';
     for (const el of [$('cardBadge'), $('momentBadge')]) {
         if (showIf(el, !!badge)) { el.textContent = badge; el.classList.toggle('detailed', isDet); }
     }
@@ -729,7 +772,7 @@ function updateCard() {
     $('cardTitle').textContent = frame ? `${t} Myr` : failed ? (b.opened ? 'Could not open' : 'Could not start') : opening ? 'Opening…' : 'Starting…';
     const computing = !!b?.live && !b.going;
     $('cardText').textContent = !frame ? (b?.problem ? '' : opening ? 'Opening a planet file…' : 'A new world is starting…')
-        : job ? `Adding detail to ${job.frame.time.toFixed(0)} Myr: ${stageWords(job.stage).toLowerCase()}…`
+        : job ? `Adding detail to ${job.frame.time.toFixed(0)} Myr${passOf ? ` — ${passOf}` : ''}: ${stageWords(job.stage).toLowerCase()}…` + (isDet ? ' Each pass sharpens the one shown; cancel keeps it.' : '')
         : isDet ? 'This moment, sculpted in detail. Look around — Satellite, Climate and Geology show it at its detail — then export it as map files.'
         : playing ? (computing ? 'Computing the history — scrub through any of it as it fills in. Pause on a moment you like, then add detail.' : 'Pause on a moment you like, then add detail.')
         : 'This is a preview. Add detail sculpts it again, finely: rivers and lakes, glaciers, its own climate, the Satellite view and its geology — ready to export.';
@@ -764,7 +807,7 @@ function updateCard() {
         }
     }
     // (the collapsed bottom sheet: the moment and what is going on, in a line)
-    $('sheetLine').textContent = b?.problem && !frame ? b.problem : !frame ? (b?.loading ? 'Opening a planet…' : 'Starting a world…') : `${t} Myr · ${badge}` + (job ? ` · adding detail ${pct}%` : computing ? ' · computing the history…' : b?.going ? ' · extending the history…' : replay ? ' · running the history again…' : '');
+    $('sheetLine').textContent = b?.problem && !frame ? b.problem : !frame ? (b?.loading ? 'Opening a planet…' : 'Starting a world…') : `${t} Myr · ${badge}` + (job ? ` · adding detail${passOf ? ` ${job.pass + 1}/${job.passes.length}` : ''} ${pct}%` : computing ? ' · computing the history…' : b?.going ? ' · extending the history…' : replay ? ' · running the history again…' : '');
     // Satellite and Geology come with detail: their tabs locked on previews
     const satOk = !!(frame && b?.finishes.get(frame)?.climate?.raster?.sat), geoOk = !!(frame && b?.finishes.get(frame)?.raster.geology), farmOk = !!(frame && b?.finishes.get(frame));
     document.querySelector('#mapTabs [data-layer="satellite"]').classList.toggle('locked', !satOk);

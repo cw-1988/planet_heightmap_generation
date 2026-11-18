@@ -71,7 +71,7 @@ height alone), Heightmap and Plates, globe (in V1's space: stars,
 atmosphere, sunlight glinting softly off the sea) or map (centre longitude), grid, a Hillshade toggle (off, every view flat
 colour: each cell lit as flat ground, and no glint on the sea), and V1's hover readout with the crust's age
 and setting. **Add detail** (the code's *finish*) sculpts the moment shown again, with care, at a detail of its own (160K · 640K · 2.5M · 10M
-cells; phones up to 640K; plans/V2_FINISH_PLAN.md): the surface domain-warped and roughened on high ground; the climate
+cells; phones up to 640K; plans/V2_FINISH_PLAN.md; run as a ladder of passes, a coarser Detail first wherever it costs at most half the next (2.5M: 160K first; 10M: 160K, 2.5M), each shown as it is done — `finishPasses` in `evolution-main.js`, the worker keeping the last pass's meshes by `keepCells`, docs/finish-ladder.md): the surface domain-warped and roughened on high ground; the climate
 calculated on it; the rivers carving longer with the climate's runoff (rain less evaporation), dry basins left closed —
 flat pans where inflow and evaporation balance (the carve's `sink` / `base`) — at the finish's own erosion strength
 (`erosionStrength` 0–3, 3; developer, 2026-10-15: "break up SOME of the monotony of the ridges"): the stream power's m
