@@ -12,16 +12,12 @@ and roads. In that last step the region's rivers and passes go back to the plane
   river can be a region's edge. The valley under the pointer is lightened with a white rim, and a click takes it in or
   out (the sea is refused); a drag still turns the globe. The chosen valleys are tinted magenta, each with a darker
   rim. Both show on the zoomed-in tiles and the flat map too. The globe's shader draws them (`js/region-overlay.js`,
-  `REGION_GLSL` in globe-view.js): each pixel's valley goes to the GPU once per cut (a 2048 × 1024 grid, built in
-  slices, ~0.4 s, so the first tint shows a moment after Region turns on), the chosen ones a byte each, the hover as
-  one number. A hover costs nothing extra: 16.6 ms frames while sweeping, as idle. Painted into the picture it had
-  re-sent the 2048-px planet texture each hover (28 ms frames) and repainted every zoomed-in tile.
-- **Valleys**: small (about 30,000 km²), medium (150,000) or large (600,000). A new size starts the choice again. Large
-  ones often stay smaller: a valley grows only between its rivers and ridges.
-- **Rivers** (40–40,000 m³/s, log scale): a floor, not the cut itself. It starts at "all drawn" (every river the map
-  draws at its default density, from 40 m³/s, is a border, weighed by its water; double-click returns to it). Raised,
-  the rivers under it lie inside a valley and only the ridges and greater rivers part the land. A new value starts
-  the choice again.
+  `REGION_GLSL` in globe-view.js): the valleys' map goes to the GPU once per cut, the chosen ones a byte each, the
+  hover as one number. A hover costs nothing extra: 16.6 ms frames while sweeping, as idle.
+- **Valleys**: small (about 30,000 km²), medium (150,000) or large (600,000). The size alone decides which rivers are
+  a valley's edges and which run inside one (there is no river slider: a floor set by hand cut the land along rivers
+  that had nothing to do with the valley size). A new size starts the choice again. Large ones often stay smaller: a
+  valley grows only between its rivers and ridges.
 - **Border** (50–400 km): the land around the valleys that is simulated with them, so their edges know what lies beyond
   (passes, rivers coming in, the neighbours). The box is the valleys' reach from their centre plus the border on each
   side (200–6000 km). What falls in the box past the border is still simulated but drawn greyed.
@@ -34,37 +30,42 @@ and roads. In that last step the region's rivers and passes go back to the plane
 
 ## How the valleys are cut (`js/region-basin.js`)
 
-The planet's finish sends its drainage out: each cell's receiver, the area it drains, its water (m³/s), its height,
-and whether it is sea or a lake.
+The planet's finish sends its drainage out: each cell's receiver, the land it drains, its height, and whether it is
+sea or a lake. T is the valley size (never under a dozen cells), S a fifth of it (the same floor).
 
-- **Rivers**: every river the map draws (from 40 m³/s, or the slider's floor) parts the land into pieces; a dry river
-  past 4 S of land (S the piece size: 30,000 km², less for the small size, never under a dozen cells) does too, or a
-  desert basin comes out as one piece. Lakes (fresh or salt) count as water, dry pans as land.
-- **Pieces**: a wall's stretches break at a head, a confluence, or a length over 2√S km, and each land cell joins the
-  stretch its water first reaches, on the bank it comes in from. The bank is read from the arc of neighbours round the
-  river cell between its way in (the main stem) and its way out: a straight line through the cell misreads a bend and
-  gives the inside of the bend to both banks. Land that drains to the coast or a lake first is a piece per outlet. A
-  piece that comes in patches (a bank cut by land draining past it) is split into one piece per patch.
-- **River lines**: each river's main stem is followed up through its confluences by the larger water, so its left and
-  right bank are known along its whole length.
+- **True neighbours** (`js/region-mesh.js`): the terrain mesh lists six neighbours a cell, but a quarter of those pairs
+  meet only at a corner on the map. The valleys use only the pairs whose shared Voronoi edge is at least 0.4 of their
+  distance; joined over a corner, a valley was drawn in two pieces.
+- **Rivers**: every river that drains S or more, wet or dry, parts the land into pieces (a desert's great basin is cut
+  along its wadis too). One that drains T or more is a valley's edge, never crossed; a thinner one is a stream inside a
+  valley. Lakes (fresh or salt) count as water, dry pans as land.
+- **Pieces**: a river's stretches break at a head, a confluence, or a length over 2√S km, and each land cell joins the
+  stretch its water first reaches, on the bank it comes in from. The bank is read from the arc round the river cell
+  between its way in (the main stem, followed up each confluence by the larger land) and its way out: a straight line
+  through the cell misreads a bend. Land that drains to the coast or a lake first is a piece per outlet. A piece in
+  patches is split into one piece per patch.
 - **Joining** (`js/region-join.js`): every border weighs in metres of barrier. A divide: the mean height of its cells
-  over the two pieces' mean heights. A river between them: 800 m per tenfold of its water over 40 m³/s, so a brook is a
-  low saddle, a 100 m³/s river a 320 m ridge. Slivers join their weakest neighbour first; then all pairs join weakest
-  first (plus 300 m per valley's worth of size, so the valleys come out even), never past 1.6× the size, and **never
-  over a border of 600 m or more**: a ridge 600 m over both sides, a river from ~225 m³/s. Without that ceiling the
-  weakest-first joining crossed anything once the cheap borders ran out (a quarter of the 250–900 m³/s rivers' length
-  had one valley on both banks). The leftovers under a quarter of the size join their weakest neighbour under the same
-  ceiling; a piece enclosed by one neighbour joins it; only the last tiny slivers may join over anything.
-- **Banks, per pixel** (`js/region-bank.js` `unitAt`): a river runs through its cells' centres, so a river cell is half
-  on each bank. Each pixel of a river cell takes the valley of the nearest land cell on its side of the river's line,
-  so every valley along a bank reaches the river itself (before, a river cell belonged to its left bank only and the
-  right bank's edge stopped half a cell, ~25 km, short of the drawn line). The overlay and the pick both read it.
-- **Checked** on the test planet (medium): the share of a river's length with one valley on both banks is 33% at
-  40–100 m³/s, 16% at 100–250, 2% at 250–900 (the last slivers), none above. Median valley 48,000 km² (small 33,000;
-  large barely more than medium where big rivers lie dense). No valley in two patches, no holes; 0.1–0.14 s.
-- **Limits**: rivers under ~225 m³/s may lie inside a valley where a low divide was weaker; the map draws every
-  river 0.45–1 px wide on the 2048 texture, so thick and thin are hard to tell apart; the overlay's grid is ~20 km a
-  pixel, so edges look stepped close up.
+  over the two pieces' mean heights, so a low saddle joins early and a ridge late. A stream between them: up to 100 m
+  by its share of T. An edge river: never. Slivers join their weakest neighbour first; then all pairs join weakest
+  first (plus 300 m per valley's worth of size, so the valleys come out even), never past 1.6× the size and never over
+  600 m. Leftovers under a quarter of the size join their weakest neighbour; a piece enclosed by one neighbour joins
+  it; the last slivers join anything but across an edge river.
+- **River halves** (`js/region-halves.js`): a river runs through its cells' centres, so a river cell is cut by its
+  line in two halves. Each half goes to the valley that most of the land along it is in, measured on the cells' shared
+  edges, unless the cell's own valley would come apart without it (a valley that crosses a stream may hang together
+  only through the stream's cells). So a bank's valley reaches the river itself. `js/region-bank.js` `unitAt` reads a
+  point's valley off them.
+- **The valleys' map** (`js/region-grid.js`): which valley each pixel of a 2048 × 1024 grid is in (~20 km a pixel). It
+  is the one picture of the valleys: the overlay draws it, the pointer picks from it, the region's mask is cut from it,
+  so what is shown is what is chosen. Built in slices between frames (~0.4 s the first time on a planet, then ~0.1 s a
+  size). **Every valley is one piece on it, by construction**: a cell's or a half's pixels can fall apart on a grid (a
+  Voronoi corner thinner than a pixel, a half pinched at a bend), so each valley keeps its largest patch and every
+  other patch goes to the valley it shares the longest border with, until none is left; a patch with no land round it
+  becomes a valley of its own.
+- **Checked** on the test planet with `tuning/region-check.js` (`onePiece`): small 3,721 valleys, medium 1,130, large
+  471, none in two pieces on the map or on the mesh. Before the repair, the cells alone left 62 valleys at medium in
+  two or more patches (968 px).
+- **Limits**: the overlay's grid is ~20 km a pixel, so edges look stepped close up.
 
 ## How it is built (`v2/js/region/`)
 

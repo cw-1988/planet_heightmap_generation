@@ -1,9 +1,10 @@
 // Dev tool (not shipped): crops of the region pick's valleys for image checks, drawn as the Terrain view draws the planet
-// (its colours, hillshade and lakes; the map's own rivers, at the crop's scale), each pixel's valley as the pick reads it
-// (region-bank.js unitAt). Every valley's edge a thin dark line, the chosen ones' a white one over a light tint. Posted to
+// (its colours, hillshade and lakes; the map's own rivers, at the crop's scale), each pixel's valley as the overlay
+// shows it and the pick reads it (region-grid.js). Every valley's edge a thin dark line, the chosen ones' a white one over a light tint. Posted to
 // the dev server's /__shot (tuning/screenshots/). In the page: (await import('/tuning/region-shots.js')).shot(...).
 
 import { unitAt } from '../js/region-bank.js';
+import { valleyGrid, gridAt } from '../js/region-grid.js';
 import { colorMap } from '../v2/js/evolution/export.js';
 import { drawRiversWindow } from '../v2/js/evolution/finish-view.js';
 import { heightLutOf } from '../v2/js/evolution/looks.js';
@@ -25,6 +26,7 @@ function base(world) {
  */
 export async function shot(C, ids, name, { px = 900, pad = 0.8, mark = true } = {}) {
     const { world, V } = C, mesh = world.tMesh, xyz = mesh.xyz;
+    await valleyGrid(world, V);
     let u0 = 1, u1 = 0, v0 = 1, v1 = 0;
     for (const id of ids) for (const c of V.cells.get(id)) {
         const u = (Math.atan2(xyz[3 * c + 1], xyz[3 * c]) + Math.PI) / (2 * Math.PI), v = (Math.PI / 2 - Math.asin(xyz[3 * c + 2])) / Math.PI;
@@ -45,7 +47,7 @@ export async function shot(C, ids, name, { px = 900, pad = 0.8, mark = true } = 
         const lat = Math.PI / 2 - (y0 + j + 0.5) / H * Math.PI, cl = Math.cos(lat), sl = Math.sin(lat);
         for (let i = 0; i < w; i++) {
             const lon = (x0 + i + 0.5) / W * 2 * Math.PI - Math.PI, x = cl * Math.cos(lon), y = cl * Math.sin(lon);
-            U[j * w + i] = unitAt(V, mesh, mesh.index.nearest(x, y, sl), x, y, sl);
+            U[j * w + i] = gridAt(V, x, y, sl) ?? unitAt(V, mesh, mesh.index.nearest(x, y, sl), x, y, sl);
         }
     }
     const img = ctx.getImageData(0, 0, w, h), d = img.data;
