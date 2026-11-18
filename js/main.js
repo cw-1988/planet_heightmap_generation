@@ -279,10 +279,11 @@ const tools = mountEditTools(pv, {
     busy: () => !!building,
     preview: () => { if (world.fin) { finisher.cancel(); world.fin = null; world.finishing = null; } dirty = true; },
     strokes: (list) => { building = 'brush'; worker.postMessage({ cmd: 'brush', strokes: list }); },
-    recut: (parent) => {
-        // (the same world, cut again; a parent with a Ctrl-click edit hands it to its new piece, the last in the list)
+    selected: () => pending,
+    recut: (parents) => {
+        // (the same world, cut again; a parent with a Ctrl-click edit hands it to its new piece, added at the list's end)
         const t = toggledIndices();
-        if (parent != null && world.originalPlateIsOcean.has(parent) !== world.plateIsOcean.has(parent)) t.push(world.plateSeeds.length);
+        parents.forEach((p, i) => { if (world.originalPlateIsOcean.has(p) !== world.plateIsOcean.has(p)) t.push(world.plateSeeds.length + i); });
         generate(world.seed, t, true);
     },
 });

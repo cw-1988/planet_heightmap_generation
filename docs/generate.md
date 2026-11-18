@@ -101,16 +101,19 @@ Rebuild button while edits wait.
 
 ### Edit tools (fork addition)
 
-A tool bar over the planet (`js/edit-tools.js`). While a tool is on, the left button is the tool's and right-drag turns
-the globe; Undo (Ctrl+Z) takes back the last stroke or split.
+A tool bar over the planet (`js/edit-tools.js`). While a tool is on, the left button is the tool's; Shift-drag or
+right-drag turns the globe (Shift-drag pans the map), and Ctrl-click still selects pieces. Undo (Ctrl+Z) takes back the
+last stroke or split. Marks over the planet (`js/edit-marks.js`, placed by `GlobeView.screenAt`): a ring of the brush's
+size at the pointer, and the split's line (with its whole great circle dashed) while it is dragged.
 
 - **Raise / Lower / Smooth / Flatten** (`js/terrain-brush.js`): drag to brush the ground; Size is the brush's radius in
   km, Strength the change per stamp (Raise/Lower up to 1 km at the centre; Smooth/Flatten the pull). Flatten holds the
   height where the stroke began. Strokes are kept as places on the sphere, so the worker lays them again after every
   Rebuild, Reapply or plate edit; the finish (rivers, climate) runs on the brushed ground, so a raise above sea level
   is land.
-- **Split** (`js/region-cut.js`): drag a line across a piece; the world is built again (same seed) with the piece cut
-  along that great circle into two, each Ctrl-clicked to flood or raise on its own. The cut is made on the coarse
+- **Split** (`js/region-cut.js`): Ctrl-click the pieces to cut, then drag a line across them; the world is built again
+  (same seed) with each selected piece the great circle divides cut into two, each Ctrl-clicked to flood or raise on its
+  own. Pieces not selected are never cut; one drag is one Undo. The cut is made on the coarse
   layout, so the new piece has its own outline at any Detail; its index follows the existing ones, so earlier edits hold.
 
 Strokes and splits live with the page, not in the planet code: a new world clears them, Rebuild keeps them.

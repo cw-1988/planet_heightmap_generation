@@ -765,4 +765,23 @@ void main() {
         const phi = Math.atan2(p.z, -p.x);
         return new THREE.Vector2((phi < 0 ? phi + 2 * Math.PI : phi) / (2 * Math.PI), 1 - Math.acos(Math.max(-1, Math.min(1, p.y))) / Math.PI);
     }
+    /** (Fork: the edit tools' marks) The client point of a place [u (west → east), v (north → south)] — uvAt / mapUvAt
+     *  the other way — or null where it can't be seen (the globe's far side, off the map). `map`: the map's frame. */
+    screenAt([u, v], map) {
+        if (map) {
+            let lon = (u - 0.5 - this.map.centerLon / 360) * 2 * Math.PI;
+            lon -= 2 * Math.PI * Math.round(lon / (2 * Math.PI));
+            const f = PROJ[this.map.projection].fwd(lon, (0.5 - v) * Math.PI, this.map.projOpts);
+            if (!f) return null;
+            const b = this.map.bounds, mv = this.mapView, box = this.mapBox();
+            let x = (f[0] - b[0]) / (b[1] - b[0]);
+            const y = (b[3] - f[1]) / (b[3] - b[2]);
+            if (this.map.projection === 'equirect') x += Math.ceil(mv.panX - x);      // (the copy the view shows)
+            return [box.left + box.width / 2 + (x - 0.5 - mv.panX) * box.width * mv.zoom, box.top + box.height / 2 + (y - 0.5 - mv.panY) * box.height * mv.zoom];
+        }
+        const phi = u * 2 * Math.PI, th = v * Math.PI, p = new THREE.Vector3(-Math.cos(phi) * Math.sin(th), Math.cos(th), Math.sin(phi) * Math.sin(th));
+        if (p.dot(this.camera.position.clone().sub(p)) <= 0) return null;                 // (the far side)
+        const r = this.canvas.getBoundingClientRect(), q = p.project(this.camera);
+        return [r.left + (q.x + 1) / 2 * r.width, r.top + (1 - q.y) / 2 * r.height];
+    }
 }
