@@ -138,3 +138,7 @@ sea or a lake. T is the valley size (never under a dozen cells), S a fifth of it
   would fill it.
 - **Pictures** (`region-paint.js`, `region-view.js`): hillshade from the north-west, stronger the coarser the cells;
   snow eased in where the detail runs colder than the planet's pixel; rivers drawn as wide as their water.
+- **Worn down** (`region-wear.js`): erosion and lakes as one step, shared by the region (`region-worker.js`) and its
+  zoom tiles.
+- **The window's valleys, rivers and zoom tiles**: the mask cut from the pick's own valleys' map, the rivers as shared
+  lines, finer tiles down to 64 m a cell when zoomed in: [region-view-detail.md](region-view-detail.md).

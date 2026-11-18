@@ -4,8 +4,9 @@
 // their extent with the Border round it (the land around them, simulated too, for what lies at their edges: passes,
 // rivers coming in, the neighbours); what lies in the box beyond the border shows greyed. Open builds it in a worker
 // (v2/js/region/region-worker.js) and shows it flat (region-view.js).
-import { regionFrame, placeAt, xyOf, cropPlanet, cropBuffers } from '../v2/js/region/region-frame.js';
+import { regionFrame, xyOf, cropPlanet, cropBuffers } from '../v2/js/region/region-frame.js';
 import { regionWindow } from '../v2/js/region/region-view.js';
+import { regionMask } from './region-mask.js';
 import { valleysOf } from './region-basin.js';
 import { unitAt } from './region-bank.js';
 import { valleyGrid, gridAt } from './region-grid.js';
@@ -126,15 +127,21 @@ export function mountRegionPick(pv, hooks) {
     function build(w) {
         const F = w?.fin && valleys(w) && frameOf(w);
         if (!F || open) return;
-        const mask = maskOf(w, F, +border.value), crop = cropPlanet(w.fin, F);
+        const crop = cropPlanet(w.fin, F), ids = new Set(C.ids), V = C.V, borderKm = +border.value;
         const seed = [...String(w.seed)].reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7) ^ 0x52e6;
         const worker = new Worker(new URL('../v2/js/region/region-worker.js', import.meta.url), { type: 'module' });
         const win = regionWindow(`Region · ${Math.round(F.km)} km across · ${Math.round(F.cellKm * 1000)} m a cell`, () => { worker.terminate(); open = null; refresh(); });
         open = win; refresh();
         win.stage('Cutting the region from the planet');
         worker.onmessage = ({ data }) => {
-            if (data.done) { worker.terminate(); console.info(`[region] built ${F.n}² in ${data.done.ms} ms (the planet drawn again: ${data.done.msGen} ms)`); win.show(data.done, mask); }
-            else win.stage(data.stage, data.f);
+            if (!data.done) { win.stage(data.stage, data.f); return; }
+            worker.terminate(); console.info(`[region] built ${F.n}² in ${data.done.ms} ms (the planet drawn again: ${data.done.msGen} ms)`);
+            win.show(data.done);
+            // (the parts, read off the valleys' map against the region's own coast, once its sea is known: region-mask.js)
+            const t = performance.now();
+            regionMask(data.done, (x, y, z, sea) => valleyAt(V, w, x, y, z, sea), ids, borderKm).then((m) => {
+                console.info(`[region] parts read in ${Math.round(performance.now() - t)} ms`); win.mask(m);
+            });
         };
         worker.onerror = (e) => { win.stage(`The region failed: ${e.message}`); console.error(e); };
         // (the planet's generator, drawn again at the region's detail: region-synth.js)
@@ -142,47 +149,4 @@ export function mountRegionPick(pv, hooks) {
         worker.postMessage({ frame: F, crop, seed, synth }, cropBuffers(crop));
     }
     refresh();
-}
-
-/**
- * Which part of the box each place is in, on a grid a quarter of the region's: 2 in a chosen valley, 1 within the
- * border of one, 0 beyond. { m, on, at(i, j), beyond(i, j) } with (i, j) the region's cells.
- */
-function maskOf(w, F, borderKm) {
-    const m = F.n >> 2, on = new Uint8Array(m * m), dist = new Float32Array(m * m), ll = [0, 0], cell = F.km / m;
-    const { V, ids } = regionChosen;
-    for (let j = 0; j < m; j++) for (let i = 0; i < m; i++) {
-        placeAt(F, (i + 0.5) * cell - F.km / 2, F.km / 2 - (j + 0.5) * cell, ll);
-        const la = ll[0] * D, lo = ll[1] * D, cl = Math.cos(la), x = cl * Math.cos(lo), y = cl * Math.sin(lo), z = Math.sin(la);
-        dist[j * m + i] = ids.has(valleyAt(V, w, x, y, z)) ? 0 : Infinity;
-    }
-    // (the distance to the nearest chosen place: a chamfer pass down and one back up, in cells)
-    const S = Math.SQRT2;
-    for (let pass = 0; pass < 2; pass++) {
-        const down = pass === 0;
-        for (let jj = 0; jj < m; jj++) for (let ii = 0; ii < m; ii++) {
-            const j = down ? jj : m - 1 - jj, i = down ? ii : m - 1 - ii, c = j * m + i, s = down ? -1 : 1;
-            let d = dist[c];
-            const y = j + s;
-            if (i + s >= 0 && i + s < m) d = Math.min(d, dist[c + s] + 1);
-            if (y >= 0 && y < m) {
-                d = Math.min(d, dist[y * m + i] + 1);
-                if (i - 1 >= 0) d = Math.min(d, dist[y * m + i - 1] + S);
-                if (i + 1 < m) d = Math.min(d, dist[y * m + i + 1] + S);
-            }
-            dist[c] = d;
-        }
-    }
-    for (let c = 0; c < m * m; c++) on[c] = dist[c] === 0 ? 2 : dist[c] * cell <= borderKm ? 1 : 0;
-    const k = m / F.n, ramp = 2 * F.cellKm;
-    return {
-        m, on,
-        at: (i, j) => on[Math.min(m - 1, Math.floor(j * k)) * m + Math.min(m - 1, Math.floor(i * k))],
-        /** How far past the border a cell is, eased over two cells (0 inside it, 1 beyond): the distance read smoothly. */
-        beyond(i, j) {
-            const x = Math.min(m - 1.001, Math.max(0, (i + 0.5) * k - 0.5)), y = Math.min(m - 1.001, Math.max(0, (j + 0.5) * k - 0.5)), a = Math.floor(x), b = Math.floor(y), tx = x - a, ty = y - b;
-            const c = b * m + a, d = (dist[c] * (1 - tx) + dist[c + 1] * tx) * (1 - ty) + (dist[c + m] * (1 - tx) + dist[c + m + 1] * tx) * ty;
-            return Math.min(1, Math.max(0, (d * cell - borderKm) / ramp));
-        },
-    };
 }

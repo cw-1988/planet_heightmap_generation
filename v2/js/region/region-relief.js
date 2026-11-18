@@ -8,7 +8,7 @@
 // outside its water is handed in as an inflow. Each cell also takes the planet's climate (the year's temperature, set
 // down the lapse rate for the detail, and rain) and its colour from space.
 
-import { placeAt, pixelOf, bicubic, bilinearIf, R } from './region-frame.js';
+import { placeAt, cellXY, pixelOf, bicubic, bilinearIf, R } from './region-frame.js';
 import { FastNoise } from '../core/fast-noise.js';
 import { gridAt } from './region-synth.js';
 
@@ -30,17 +30,43 @@ export function detailOf(b, k, out) {
 const NO_T = -32768;
 
 /**
+ * The detail's waves (seeded): fn(px, py, pz, b, L, o0, o1, out) at a point on the sphere (km) over ground `b` m high,
+ * octaves o0 … o1 of the ladder L ({ top: the longest wave, km; s1: the roughness noise's frequency }), each wave
+ * halving: out.d the height they add (m), out.A their summed height. A zoom tile (region-refine.js) goes on down the
+ * same ladder from where its region stopped, so its detail is the region's own, only finer.
+ */
+export function detailWaves(seed) {
+    const noise = new FastNoise(seed), warp = new FastNoise(seed + 7), rough = new FastNoise(seed + 29), det = { slope: 0, relief: 0 };
+    return (px, py, pz, b, L, o0, o1, out) => {
+        const top = L.top, s0 = 1 / top, s1 = L.s1;
+        // (warped by a third of the widest wave; each wave as tall as its length times the slope wanted, a quarter for a
+        // wave's mean slope, a little less as they add; none taller than the relief)
+        const wx = px + 0.35 * top * warp.noise3D(px * s0, py * s0, pz * s0), wy = py + 0.35 * top * warp.noise3D(py * s0 + 31.7, pz * s0, px * s0);
+        const wz = pz + 0.35 * top * warp.noise3D(pz * s0 - 17.3, px * s0, py * s0);
+        const k = 0.3 + 1.3 * smooth(-0.5, 0.5, rough.noise3D(px * s1 / 6, py * s1 / 6, pz * s1 / 6)), dt = detailOf(b, k, det), m = smooth(500, 2200, b);
+        let d = 0, A = 0, f = s0 * 2 ** o0, lam = top * 1000 / 2 ** o0;
+        for (let o = o0; o < o1; o++, f *= 2, lam /= 2) {
+            const v = noise.noise3D(wx * f, wy * f, wz * f), r = 1 - Math.abs(v), a = Math.min(dt.relief, dt.slope * lam / 5);
+            d += a * ((1 - m) * v + m * 1.6 * (r * r - 0.45)); A += a;
+        }
+        out.d = d; out.A = A;
+        return out;
+    };
+}
+
+/**
  * The ground of frame F from the planet's crop: { h (m), amp (the detail's height, m), ocean (the planet's sea there,
- * 0…1 × 255), lakeP (a planet lake), T (°C), P (mm a year), rgb (3 a cell) }. progress(f) now and then.
+ * 0…1 × 255), lakeP (a planet lake), T (°C), P (mm a year), rgb (3 a cell), waves (the detail's ladder and how far down
+ * it went: { top, s1, oct }) }. progress(f) now and then.
  */
 export function relief(F, crop, seed, progress, gen = null) {
     const N = F.n, n = N * N, Hc = crop.height, C = crop.climate;
     const h = new Float32Array(n), amp = new Float32Array(n), ocean = new Uint8Array(n), lakeP = new Uint8Array(n);
     const T = new Float32Array(n), P = new Float32Array(n), rgb = new Uint8Array(3 * n);
-    const noise = new FastNoise(seed), warp = new FastNoise(seed + 7), rough = new FastNoise(seed + 29), det = { slope: 0, relief: 0 };
     // (with the generator's detail (region-synth.js) the noise draws only the waves finer than its grid holds)
-    const pxKm = 2 * Math.PI * R / Hc.W, s1 = 1 / (2.5 * pxKm), top = gen ? Math.min(2.5 * pxKm, 3 * gen.cellKm) : 2.5 * pxKm, s0 = 1 / top;
-    const oct = Math.max(1, Math.min(11, Math.ceil(Math.log2(top / (2 * F.cellKm)))));
+    const pxKm = 2 * Math.PI * R / Hc.W, top = gen ? Math.min(2.5 * pxKm, 3 * gen.cellKm) : 2.5 * pxKm;
+    const oct = Math.max(1, Math.min(11, Math.ceil(Math.log2(top / (2 * F.cellKm))))), L = { top, s1: 1 / (2.5 * pxKm), oct };
+    const waves = detailWaves(seed), wv = { d: 0, A: 0 }, xy = [0, 0];
     const ll = [0, 0], q = [0, 0], qc = [0, 0], all = () => true, okT = C ? (k) => C.tAnnual[k] !== NO_T : all;
     const gk = gen ? gen.m / N : 0;
     // (the colours from space are black on the planet's sea: a cell its land reaches past takes the nearest land's)
@@ -49,25 +75,17 @@ export function relief(F, crop, seed, progress, gen = null) {
     for (let j = 0; j < N; j++) {
         for (let i = 0; i < N; i++) {
             const c = j * N + i;
-            placeAt(F, (i + 0.5) * F.cellKm - F.km / 2, F.km / 2 - (j + 0.5) * F.cellKm, ll);
+            cellXY(F, i, j, xy); placeAt(F, xy[0], xy[1], ll);
             pixelOf(Hc, ll[0], ll[1], q);
             const b = bicubic(Hc.heightM, Hc.w, Hc.h, q[0], q[1]);
             const oc = bilinearIf(Hc.ocean, Hc.w, Hc.h, q[0], q[1], all);
             ocean[c] = Math.round(255 * Math.min(1, oc));
             if (Hc.water && bilinearIf(Hc.water, Hc.w, Hc.h, q[0], q[1], (k) => true, 1) > 0.5 && oc < 0.5) lakeP[c] = 1;
-            // the detail: on the sphere (km), warped by a third of its widest wave
-            const cl = Math.cos(ll[0] * D), px = R * cl * Math.cos(ll[1] * D), py = R * cl * Math.sin(ll[1] * D), pz = R * Math.sin(ll[0] * D);
-            const wx = px + 0.35 * top * warp.noise3D(px * s0, py * s0, pz * s0), wy = py + 0.35 * top * warp.noise3D(py * s0 + 31.7, pz * s0, px * s0);
-            const wz = pz + 0.35 * top * warp.noise3D(pz * s0 - 17.3, px * s0, py * s0);
-            // (each wave as tall as its length times the slope wanted, a quarter for a wave's mean slope, a little less as
-            // they add; none taller than the relief)
-            const k = 0.3 + 1.3 * smooth(-0.5, 0.5, rough.noise3D(px * s1 / 6, py * s1 / 6, pz * s1 / 6)), dt = detailOf(b, k, det), m = smooth(500, 2200, b);
-            let d = 0, A = 0, f = s0, lam = top * 1000;
-            for (let o = 0; o < oct; o++, f *= 2, lam /= 2) {
-                const v = noise.noise3D(wx * f, wy * f, wz * f), r = 1 - Math.abs(v), a = Math.min(dt.relief, dt.slope * lam / 5);
-                d += a * ((1 - m) * v + m * 1.6 * (r * r - 0.45)); A += a;
-            }
-            const gd = gen ? gridAt(gen.d, gen.m, (i + 0.5) * gk, (j + 0.5) * gk) : 0;
+            // the detail: on the sphere (km)
+            const cl = Math.cos(ll[0] * D);
+            waves(R * cl * Math.cos(ll[1] * D), R * cl * Math.sin(ll[1] * D), R * Math.sin(ll[0] * D), b, L, 0, oct, wv);
+            let d = wv.d;
+            const A = wv.A, gd = gen ? gridAt(gen.d, gen.m, (i + 0.5) * gk, (j + 0.5) * gk) : 0;
             h[c] = b + d + gd; amp[c] = A + Math.abs(gd); d += gd;
             // the climate: the planet's, the detail's height set down the lapse rate
             if (C) {
@@ -81,7 +99,7 @@ export function relief(F, crop, seed, progress, gen = null) {
         if ((j & 63) === 63) progress?.(j / N);
     }
     if (C?.sat) nearestFill(rgb, bare, N);
-    return { h, amp, ocean, lakeP, T, P, rgb };
+    return { h, amp, ocean, lakeP, T, P, rgb, waves: L };
 }
 
 /** Each `bare` cell takes the colour of the nearest cell that has one (a breadth-first spread). */
@@ -102,12 +120,13 @@ function nearestFill(rgb, bare, N) {
 
 /**
  * The planet's rivers cut into `g.h` as valleys (a few metres to some tens, wider down the river, wandering by a third
- * of the planet's pixel), and each river that comes into the box from outside: [cell, m³/s] a little inside its edge.
+ * of `pxKm`, the source's pixel, unless `wanderKm` says otherwise), and each river that comes into the box from
+ * outside: [cell, m³/s] a little inside its edge. The rivers' points are x, y km in the frame's projection (a frame off
+ * its centre, ox/oy, is a zoom tile's; its rivers are the region's drawn lines, cut where they are drawn: wanderKm 0).
  */
-export function carveRivers(F, rivers, g, crop, seed) {
-    const N = F.n, half = F.km / 2, inner = half * 0.97, cut = new Float32Array(N * N), wander = new FastNoise(seed + 13);
-    const pxKm = 2 * Math.PI * R / crop.height.W, inflow = [];
-    const { start, x, y, q } = rivers, starts = [...start, x.length];
+export function carveRivers(F, rivers, g, pxKm, seed, wanderKm = 0.35 * pxKm) {
+    const N = F.n, half = F.km / 2, inner = half * 0.97, cut = new Float32Array(N * N), wander = new FastNoise(seed + 13), inflow = [];
+    const { start, q } = rivers, ox = F.ox ?? 0, oy = F.oy ?? 0, x = rivers.x.map((v) => v - ox), y = rivers.y.map((v) => v - oy), starts = [...start, x.length];
     const inside = (k) => Math.abs(x[k]) < inner && Math.abs(y[k]) < inner;
     const cellOf = (cx, cy) => {
         const i = Math.floor((cx + half) / F.cellKm), j = Math.floor((half - cy) / F.cellKm);
@@ -122,7 +141,7 @@ export function carveRivers(F, rivers, g, crop, seed) {
             const steps = Math.ceil(len / (0.5 * F.cellKm)), nx = -(y1 - y0) / len, ny = (x1 - x0) / len;
             for (let t = 0; t <= steps; t++) {
                 let cx = x0 + (x1 - x0) * t / steps, cy = y0 + (y1 - y0) * t / steps;
-                const off = 0.35 * pxKm * wander.noise3D(cx / pxKm, cy / pxKm, 0.5);
+                const off = wanderKm ? wanderKm * wander.noise3D(cx / pxKm, cy / pxKm, 0.5) : 0;
                 cx += nx * off; cy += ny * off;
                 const fi = (cx + half) / F.cellKm - 0.5, fj = (half - cy) / F.cellKm - 0.5, r = Math.ceil(rc);
                 for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++) {

@@ -8,9 +8,12 @@
 export const R = 6371;
 const D = Math.PI / 180;
 
-/** The frame: centre (lat, lon in degrees), its width `km`, `n` cells a side. */
-export function regionFrame(lat, lon, km, n) {
-    return { lat, lon, km, n, cellKm: km / n, sp: Math.sin(lat * D), cp: Math.cos(lat * D) };
+/**
+ * The frame: the projection's centre (lat, lon in degrees), its width `km`, `n` cells a side; (ox, oy) km where the
+ * box's own centre lies in the projection (0 for a region; a zoom tile is a smaller box in its region's projection).
+ */
+export function regionFrame(lat, lon, km, n, ox = 0, oy = 0) {
+    return { lat, lon, km, n, cellKm: km / n, ox, oy, sp: Math.sin(lat * D), cp: Math.cos(lat * D) };
 }
 
 /** The place (degrees) at x east, y north (km) of the frame's centre, into out [lat, lon]. */
@@ -33,22 +36,24 @@ export function xyOf(F, lat, lon, out = [0, 0]) {
     return out;
 }
 
-/** A cell's centre (column i, row j) as x, y km. */
-export const cellXY = (F, i, j, out = [0, 0]) => { out[0] = (i + 0.5) * F.cellKm - F.km / 2; out[1] = F.km / 2 - (j + 0.5) * F.cellKm; return out; };
+/** A cell's centre (column i, row j; fractional for a point within one) as x, y km in the projection. */
+export const cellXY = (F, i, j, out = [0, 0]) => { out[0] = (F.ox ?? 0) + (i + 0.5) * F.cellKm - F.km / 2; out[1] = (F.oy ?? 0) + F.km / 2 - (j + 0.5) * F.cellKm; return out; };
+/** The cell (fractional column, row; a cell's centre at +0.5) at x, y km in the projection: cellXY's inverse. */
+export const xyCell = (F, x, y, out = [0, 0]) => { out[0] = (x - (F.ox ?? 0) + F.km / 2) / F.cellKm; out[1] = ((F.oy ?? 0) + F.km / 2 - y) / F.cellKm; return out; };
 
 /** The picture's columns and rows the frame covers (with `pad` pixels round it), for a picture `W` × `H`. */
 function bounds(F, W, H, pad) {
     let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
     const q = [0, 0], S = 24;
     for (let a = 0; a <= S; a++) for (let b = 0; b <= S; b++) {
-        placeAt(F, (a / S - 0.5) * F.km, (b / S - 0.5) * F.km, q);
+        placeAt(F, (F.ox ?? 0) + (a / S - 0.5) * F.km, (F.oy ?? 0) + (b / S - 0.5) * F.km, q);
         let dl = q[1] - F.lon; dl = ((dl + 540) % 360) - 180;                       // (unwrapped about the centre)
         const px = (F.lon + dl + 180) / 360 * W, py = (90 - q[0]) / 180 * H;
         x0 = Math.min(x0, px); x1 = Math.max(x1, px); y0 = Math.min(y0, py); y1 = Math.max(y1, py);
     }
     const ya = Math.max(0, Math.floor(y0) - pad), yb = Math.min(H, Math.ceil(y1) + pad);
     // (a box over a pole: every column)
-    const polar = Math.abs(F.lat) + F.km / 2 / R / D > 89;
+    const polar = Math.abs(F.lat) + (F.km / 2 + Math.hypot(F.ox ?? 0, F.oy ?? 0)) / R / D > 89;
     let xa = Math.floor(x0) - pad, xb = Math.ceil(x1) + pad;
     if (polar || xb - xa >= W) { xa = 0; xb = W; }
     return { x0: xa, y0: ya, w: xb - xa, h: yb - ya };
@@ -93,7 +98,7 @@ export function cropPlanet(fin, F) {
             for (let i = starts[s]; i < starts[s + 1]; i++) {
                 xyOf(F, V.lat[i], V.lon[i], q);
                 pts.push(q[0], q[1], V.q[i]);
-                if (Math.abs(q[0]) < lim && Math.abs(q[1]) < lim) near = true;
+                if (Math.abs(q[0] - (F.ox ?? 0)) < lim && Math.abs(q[1] - (F.oy ?? 0)) < lim) near = true;
             }
             if (!near) continue;
             rivers.start.push(rivers.x.length);

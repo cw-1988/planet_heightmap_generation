@@ -21,7 +21,7 @@ const D = Math.PI / 180, SLICE = 32768, GEN_MAX = 512;
 function gridXyz(F, m) {
     const xyz = new Float32Array(3 * m * m), ll = [0, 0], cell = F.km / m;
     for (let j = 0; j < m; j++) for (let i = 0; i < m; i++) {
-        placeAt(F, (i + 0.5) * cell - F.km / 2, F.km / 2 - (j + 0.5) * cell, ll);
+        placeAt(F, (F.ox ?? 0) + (i + 0.5) * cell - F.km / 2, (F.oy ?? 0) + F.km / 2 - (j + 0.5) * cell, ll);
         const la = ll[0] * D, lo = ll[1] * D, cl = Math.cos(la), c = 3 * (j * m + i);
         xyz[c] = cl * Math.cos(lo); xyz[c + 1] = cl * Math.sin(lo); xyz[c + 2] = Math.sin(la);
     }
