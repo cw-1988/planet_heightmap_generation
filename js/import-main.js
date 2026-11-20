@@ -11,7 +11,7 @@ import { PlanetView } from '../v2/js/view/planet-view.js';
 import { mountLayerBar } from '../v2/js/view/layer-bar.js';
 import { FinishService } from '../v2/js/evolution/finish-view.js';
 import { terrainFin, finishedFin } from './finish-landing.js';
-import { STAGES as FINISH_STAGES } from '../v2/js/finish/finish.js';
+import { stageClock } from '../v2/js/finish/stage-clock.js';
 import { initEvolutionExport } from '../v2/js/evolution/export.js';
 import { heightLutOf } from '../v2/js/evolution/looks.js';
 import { CLIMATE_LAYERS } from '../v2/js/evolution/climate-view.js';
@@ -85,15 +85,18 @@ function received(msg) {
 const finishWidth = (n) => (IS_TOUCH ? 2048 : Math.min(8192, Math.max(2048, 2 ** Math.round(Math.log2(4 * Math.sqrt(n))))));
 async function finish(w) {
     finisher.cancel();
-    const started = performance.now(), shares = new Map(FINISH_STAGES);
+    const started = performance.now();
     w.fin = null; w.problem = null; w.finishing = { stage: 'starting', share: 0 }; updateChip(); bar.finishing('starting', 0);
-    let before = 0, quiet = false;
-    const onStage = (s) => { if (world !== w) return; before = 0; for (const [k, val] of FINISH_STAGES) { if (k === s) break; before += val; } w.finishing = { stage: s, share: before }; updateChip(); bar.finishing(s, before); };
-    const onProgress = (p) => { if (world !== w || !w.finishing) return; w.finishing.share = before + p * (shares.get('picture') ?? 0.1); updateChip(); bar.finishing('picture', w.finishing.share); };
+    let quiet = false;
+    // (how far along: the whole, and the stage under way, timed by the finishes before — finish/stage-clock.js)
+    const clock = stageClock({ page: 'import', cells: w.n, onTick: () => { if (world !== w || !w.finishing) return; w.finishing.share = clock.total; updateChip(); bar.finishing(clock.stage, clock.total, clock.task); } });
+    const onStage = (s) => { if (world !== w) return; w.finishing = { stage: s, share: w.finishing?.share ?? 0 }; clock.begin(s); };
+    const onProgress = (p) => { if (world === w) clock.progress(p); };
     try {
         // (the terrain lands first, the other layers after it: finish-landing.js)
         const onTerrain = (d) => { if (world !== w) return; w.fin = terrainFin(w.n, d); rungs.clear(); dirty = true; updateChip(); console.info(`[import] terrain finished in ${((performance.now() - started) / 1000).toFixed(1)} s`); };
         const res = await finisher.finish({ ...w.finishJob, mesh: w.meshArrays, cells: w.n, width: finishWidth(w.n), climateOptions: climateOptions(), valleyQ: view.riverQ }, { onStage, onProgress, onTerrain, onDrivers: () => { if (world === w) bar.zoomReady(); }, keep: false });
+        clock.done(res.ms);
         if (world !== w) return;
         quiet = !!pv.shows(w.fin);                                   // (the terrain shown already: the rest changes nothing on it)
         w.fin = finishedFin(w.n, res, w.fin);
@@ -103,6 +106,7 @@ async function finish(w) {
         w.problem = /allocation failed|out of memory/i.test(String(err.message)) ? 'Not enough memory to finish this heightmap — try a lower Detail' : `Could not finish this heightmap: ${String(err.message).split('\n')[0]}`;
         console.error(err);
     } finally {
+        clock.stop();
         if (world === w) { w.finishing = null; if (!quiet || rungs.live) dirty = true; if (!building) rungs.clear(); updateChip(); if (!building) bar.done(w.problem); }
     }
 }

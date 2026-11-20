@@ -56,7 +56,8 @@ climate, and the Satellite, Geology and Food views. Its **Detail** is 160K, 640K
 a render sharpens: at 2.5M it first shows the moment at 160K, at 10M at 160K and then 2.5M, each pass shown as soon as it
 is done and replacing the one before (160K and 640K run in one pass: a coarser pass would barely be quicker). During the first pass a loading screen over the planet names
 each step as it comes (shaping the surface, working out the climate, carving the rivers, carving with the last ice age,
-mapping the rocks, finding the ore deposits, painting the picture…); after it, the moment is on screen and the card's
+mapping the rocks, finding the ore deposits, painting the picture…), with how far along the whole is and the step under
+way ([finish-progress.md](finish-progress.md)); after it, the moment is on screen and the card's
 badge (Pass 2/2 · 2.5M), button and bar say which pass is running and how far along it is. Cancel stays on the timeline
 and keeps the last pass done, which exports as it is; Add detail again goes on from the next pass up. The passes cost
 some time over the chosen Detail alone (see [finish-ladder.md](finish-ladder.md)).

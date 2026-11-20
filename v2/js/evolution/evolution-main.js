@@ -24,7 +24,7 @@ import { GEOLOGY_LAYERS } from './geology-view.js';
 import { GEO_FRAME_FIELDS, GEOLOGY_READS } from '../tectonics/model/geology.js';
 import { FARMING_LAYERS } from './farming-view.js';
 import { FRAME_FIELDS } from '../terrain/terrain-pool.js';
-import { STAGES as FINISH_STAGES } from '../finish/finish.js';
+import { stageClock, pctWords } from '../finish/stage-clock.js';   // (Add detail's progress: the whole, and the stage under way)
 import { stageWords } from '../finish/stage-words.js';   // (Add detail's stages, as the loading screen and the card say them)
 import { lakesLabel } from '../finish/lake-amount.js';
 import { initEvolutionExport } from './export.js';
@@ -655,7 +655,7 @@ async function finishMoment(again = null) {
     const passes = again?.passes ?? finishPasses(final, had && had.climateKey === key ? had.cells : 0);
     // (each pass's share of the bar: its cost)
     const costs = passes.map((c, i) => passCost(c, i === passes.length - 1)), weights = costs.map(c => c / costs.reduce((s, x) => s + x, 0));
-    const started = performance.now(), done = new Map(FINISH_STAGES);
+    const started = performance.now();
     b.finishNote = null; b.finishOk = false;
     b.finishJob = { frame, cells: final, passes, pass: 0, stage: 'starting', share: 0, startedAt: performance.now() };
     loading.show('detail', { title: `Adding detail to ${frame.time.toFixed(0)} Myr`, label: 'Starting…', share: 0 });
@@ -664,13 +664,12 @@ async function finishMoment(again = null) {
     // it was kept: its frames read the record as zeros, and the finish then makes no geology)
     const slim = Object.fromEntries([...FRAME_FIELDS, ...(b.noGeology ? [] : GEO_FRAME_FIELDS), ...GEOLOGY_READS].map(k => [k, frame[k]]));
     slim.plates = frame.plates.map(p => p && { quat: p.quat });
-    // (progress: the passes done, then this pass's stages so far and the picture's own, each pass by its weight)
-    let before = 0, base = 0, w = weights[0], pass = 0, firstSecs = 0;
-    // (the stages' weights add up to a little over one: each pass's made to end at its own share, so the bar never steps back)
-    const whole = FINISH_STAGES.reduce((s, [, v]) => s + v, 0);
-    const share = s => { b.finishJob.share = base + w * Math.min(1, s / whole); loading.update('detail', { share: b.finishJob.share }); };
-    const onStage = s => { if (!b.finishJob) return; before = 0; for (const [k, v] of FINISH_STAGES) { if (k === s) break; before += v; } b.finishJob.stage = s; share(before); loading.update('detail', { label: `${passes.length > 1 ? `Pass ${pass + 1} of ${passes.length} · ` : ''}${stageWords(s)}…` }); updateClimateUi(); };
-    const onProgress = p => { if (b.finishJob) { share(before + p * (done.get('picture') ?? 0.1)); updateClimateUi(); } };
+    // (progress: the passes done, then this pass's by its clock — its stages so far and the one under way, timed by the
+    // laps of the finishes before: finish/stage-clock.js — each pass by its weight; and the stage's own share)
+    let base = 0, w = weights[0], pass = 0, firstSecs = 0, clock = null;
+    const tick = () => { if (!b.finishJob || !clock) return; Object.assign(b.finishJob, { share: base + w * clock.total, task: clock.task }); loading.update('detail', { share: b.finishJob.share, task: clock.task }); updateClimateUi(); };
+    const onStage = s => { if (!b.finishJob) return; b.finishJob.stage = s; loading.update('detail', { label: `${passes.length > 1 ? `Pass ${pass + 1} of ${passes.length} · ` : ''}${stageWords(s)}…` }); clock.begin(s); };
+    const onProgress = p => { if (b.finishJob) clock.progress(p); };
     try {
         const { simMesh } = b;
         // (a small device: the finish's own surface workers few, the terrain's workers let go while it runs — every worker
@@ -681,7 +680,7 @@ async function finishMoment(again = null) {
             const cells = passes[pass], last = pass === passes.length - 1, width = passWidth(cells, last);
             base = weights.slice(0, pass).reduce((s, x) => s + x, 0); w = weights[pass];
             Object.assign(b.finishJob, { pass, passCells: cells, stage: 'starting' });
-            before = 0; share(0); updateClimateUi();
+            clock?.stop(); clock = stageClock({ page: 'evolution', cells, onTick: tick }); tick();
             // (a pass before the last keeps the worker, and the last pass's meshes it built ahead, on a desktop)
             const res = await finisher.finish({ frame: slim, simMesh: { numCells: simMesh.numCells, xyz: simMesh.xyz, adjOffset: simMesh.adjOffset, adjList: simMesh.adjList }, seed: b.seed, cells, width, climateOptions: climateOptions(), poolSize: SMALL_DEVICE ? 3 : null, keepCells: SMALL_DEVICE ? 0 : final },
                 { onStage, onProgress, keep: !SMALL_DEVICE && (!last || cells >= 2.5e6) });
@@ -689,6 +688,7 @@ async function finishMoment(again = null) {
             const secs = (performance.now() - started) / 1000;
             if (!pass) firstSecs = secs;
             // (one detailed moment: each pass replaces the one before — and the moment detailed before — now that it is done)
+            clock.done(res.ms);
             b.finishes.clear();
             b.finishes.set(frame, { cells, raster: res.raster, rivers: res.rivers, climate: res.climate, stats: res.stats, secs, climateKey: key });
             b.finishOk = true; b.finishJob.share = base + w; dirty = true;
@@ -724,6 +724,7 @@ async function finishMoment(again = null) {
         loading.hide('detail');
         if (B === b && b.finishJob?.frame === frame) { b.finishJob = null; dirty = true; updateClimateUi(); }
     }
+        clock?.stop();
 }
 
 // ── the context card (plans/V2_EVOLUTION_UI_PLAN.md; developer, 2026-10-13: the page was "too sparse and confusing. It
@@ -751,7 +752,7 @@ function updateCard() {
     let main = 'Add detail', short = main, title = 'Sculpt the moment shown again, in detail: its rivers, lakes and glaciers, its own climate, the Satellite view and its geology (seconds to a few minutes)';
     // (a ladder's pass: which, of how many, at what detail — docs/finish-ladder.md)
     const passOf = job && job.passes.length > 1 ? `pass ${job.pass + 1} of ${job.passes.length}, ${cellsWords(job.passCells ?? job.passes[0])}` : null;
-    if (job) { main = short = `Cancel · ${pct}%`; title = `Adding detail to ${job.frame.time.toFixed(0)} Myr (${passOf ? `${passOf}: ` : ''}${stageWords(job.stage).toLowerCase()}) — click to cancel${passOf ? '; the passes done stay' : ''}`; }
+    if (job) { main = short = `Cancel · ${pct}%`; title = `Adding detail to ${job.frame.time.toFixed(0)} Myr (${passOf ? `${passOf}: ` : ''}${stageWords(job.stage).toLowerCase()}${job.task != null ? ` ${pctWords(job.task)}` : ''}; ${pct} % in all) — click to cancel${passOf ? '; the passes done stay' : ''}`; }
     else if (isDet) { main = short = 'Export'; title = 'Save this detailed moment as map files: heightmaps (the sea floor too), a land mask and the colour map'; }
     else if (detFrame) title = `Add detail to ${t} Myr — it replaces the detailed ${dt} Myr once it is done (one moment is kept in detail)`;
     for (const [btn, label] of [[$('cardAction'), main], [$('timelineAction'), short]]) {
@@ -773,7 +774,7 @@ function updateCard() {
     $('cardTitle').textContent = frame ? `${t} Myr` : failed ? (b.opened ? 'Could not open' : 'Could not start') : opening ? 'Opening…' : 'Starting…';
     const computing = !!b?.live && !b.going;
     $('cardText').textContent = !frame ? (b?.problem ? '' : opening ? 'Opening a planet file…' : 'A new world is starting…')
-        : job ? `Adding detail to ${job.frame.time.toFixed(0)} Myr${passOf ? ` — ${passOf}` : ''}: ${stageWords(job.stage).toLowerCase()}…` + (isDet ? ' Each pass sharpens the one shown; cancel keeps it.' : '')
+        : job ? `Adding detail to ${job.frame.time.toFixed(0)} Myr${passOf ? ` — ${passOf}` : ''}: ${stageWords(job.stage).toLowerCase()}…${job.task != null ? ` ${pctWords(job.task)} (${pct} % in all)` : ''}` + (isDet ? ' Each pass sharpens the one shown; cancel keeps it.' : '')
         : isDet ? 'This moment, sculpted in detail. Look around — Satellite, Climate and Geology show it at its detail — then export it as map files.'
         : playing ? (computing ? 'Computing the history — scrub through any of it as it fills in. Pause on a moment you like, then add detail.' : 'Pause on a moment you like, then add detail.')
         : 'This is a preview. Add detail sculpts it again, finely: rivers and lakes, glaciers, its own climate, the Satellite view and its geology — ready to export.';

@@ -1025,6 +1025,9 @@ body.edits-pending #hoverInfo { bottom: 112px; }
 .bp-pct { font-variant-numeric: tabular-nums; }
 .bp-track { height: 4px; border-radius: 2px; overflow: hidden; background: var(--rule); }
 .bp-fill { height: 100%; background: var(--ui-select); transform: scaleX(0); transform-origin: left; transition: transform 0.4s ease; }
+.bp-task { height: 2px; margin-top: 3px; border-radius: 1px; overflow: hidden; background: var(--rule); }
+.bp-task[hidden] { display: none; }
+.bp-task-fill { height: 100%; background: var(--muted); transform: scaleX(0); transform-origin: left; transition: transform 0.25s linear; }
 .bp-label, .bp-zoom { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bp-zoom { color: var(--muted); }
 .bp-zoom[data-ready="1"] { color: var(--ui-select); }
@@ -1054,6 +1057,12 @@ body:has(#buildProgress:not([hidden])) .legend-card { bottom: 126px; max-height:
     font: 500 13px/1.3 var(--font-ui); color: var(--muted); margin-top: 8px; text-align: center;
     max-width: min(420px, calc(100vw - 48px));
 }
+/* (a wait made of steps: the step under way's own share, thinner, under the whole's; and both as numbers) */
+.progress-task { width: 240px; height: 2px; margin-top: 4px; border-radius: 1px; overflow: hidden; background: var(--ui-white-08); }
+.progress-task[hidden] { display: none; }
+.progress-task-fill { height: 100%; background: var(--muted); transform: scaleX(0); transform-origin: left; transition: transform 0.25s linear; }
+.progress-pct { font: 500 12px/1.3 var(--font-ui); color: var(--muted); margin-top: 4px; font-variant-numeric: tabular-nums; }
+.progress-pct:empty { display: none; }
 /* (no fraction to give: a short stretch sweeping across) */
 .progress-bar-container.indeterminate .progress-bar-fill { width: 34%; transition: none; animation: barSweep 1.4s ease-in-out infinite; }
 @keyframes barSweep { from { transform: translateX(-100%); } to { transform: translateX(300%); } }

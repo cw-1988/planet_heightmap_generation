@@ -10,7 +10,8 @@ the owner, 2026-11-20, after zooming did nothing for a long time once the waterw
   ladder).
 - **Step 2 of 2 · Finishing the world**: the finish's stages, one bar for all of them, each named in plain words
   (`v2/js/finish/stage-words.js`, shared with Evolution): the surface, the climate, the rivers, the ice age, the fine
-  detail, the rocks, the farming, the picture.
+  detail, the rocks, the farming, the picture; and under the bar a thin one for the stage under way, its % after its
+  words ([finish-progress.md](finish-progress.md)).
 - **Zoom in for detail**: "waiting" until the fine detail is drawn, then "ready".
 - **Done**: shown, then the card hides after 2.5 s. A finish that failed keeps the card up with its problem.
 
