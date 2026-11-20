@@ -31,7 +31,7 @@ import { mountCityRing } from './city-ring.js';
 import { mountRegionPick, regionChosen } from './region-pick.js';
 import { regionOverlay } from './region-overlay.js';
 import { store, sliderTooltip, detailWarning, progressiveSwitch, redrawFoldedSliders, sidePanel, buildOverlay, tutorial } from './page-chrome.js';
-import { rungView } from './rung-view.js';
+import { rungView } from './rung-view.js'; import { buildProgress } from './build-progress.js';
 
 setDelaunator(Delaunator);
 
@@ -63,7 +63,7 @@ let world = null;            // the planet shown: its mesh, first picture, plate
 let dirty = true, linesDirty = false, version = 0;
 const pending = new Set();   // the pieces whose edit waits for Rebuild
 let hoveredPiece = -1;
-const finisher = new FinishService(), progressive = progressiveSwitch();   // (Progressive off: Detail N alone, no ladder)
+const finisher = new FinishService(), progressive = progressiveSwitch(), bar = buildProgress();   // (Progressive off: Detail N alone, no ladder; bar: the progress card)
 
 function viewChanged(what) {
     dirty = true;
@@ -109,7 +109,7 @@ function failed(message) {
     console.error('[generate] build failed:', message);
     building = null; overlay.active = false; holdControls(false); rungs.clear(); dirty = true;
     resetBuildButton();
-    showBuildError(describeFailure(message), message);
+    showBuildError(describeFailure(message), message); bar.failed();
 }
 function resetBuildButton() { const b = $('generate'); b.disabled = false; b.classList.remove('generating', 'stale', 'regen'); b.textContent = 'Build new world'; }
 
@@ -148,14 +148,14 @@ async function finish(w) {
     if (!w.finishJob) return;
     finisher.cancel();
     const started = performance.now(), job = w.finishJob, shares = new Map(FINISH_STAGES);
-    w.fin = null; w.problem = null; w.finishing = { stage: 'starting', share: 0 }; updateChip();
+    w.fin = null; w.problem = null; w.finishing = { stage: 'starting', share: 0 }; updateChip(); bar.finishing('starting', 0);
     let before = 0, quiet = false;
-    const onStage = (s) => { if (world !== w) return; before = 0; for (const [k, v] of FINISH_STAGES) { if (k === s) break; before += v; } w.finishing = { stage: s, share: before }; updateChip(); };
-    const onProgress = (p) => { if (world !== w || !w.finishing) return; w.finishing.share = before + p * (shares.get('picture') ?? 0.1); updateChip(); };
+    const onStage = (s) => { if (world !== w) return; before = 0; for (const [k, v] of FINISH_STAGES) { if (k === s) break; before += v; } w.finishing = { stage: s, share: before }; updateChip(); bar.finishing(s, before); };
+    const onProgress = (p) => { if (world !== w || !w.finishing) return; w.finishing.share = before + p * (shares.get('picture') ?? 0.1); updateChip(); bar.finishing('picture', w.finishing.share); };
     try {
         // (the terrain lands first, the other layers after it: finish-landing.js)
         const onTerrain = (d) => { if (world !== w) return; w.fin = terrainFin(w.n, d); rungs.clear(); dirty = true; updateChip(); console.info(`[generate] terrain finished in ${((performance.now() - started) / 1000).toFixed(1)} s`); };
-        const res = await finisher.finish({ ...job, mesh: w.meshArrays, cells: w.n, width: finishWidth(w.n), climateOptions: climateOptions(), valleyQ: view.riverQ }, { onStage, onProgress, onTerrain, keep: false });
+        const res = await finisher.finish({ ...job, mesh: w.meshArrays, cells: w.n, width: finishWidth(w.n), climateOptions: climateOptions(), valleyQ: view.riverQ }, { onStage, onProgress, onTerrain, onDrivers: () => { if (world === w) bar.zoomReady(); }, keep: false });
         if (world !== w) return;
         quiet = !!pv.shows(w.fin);                                   // (the terrain shown already: the rest changes nothing on it)
         w.fin = finishedFin(w.n, res, w.fin);
@@ -166,7 +166,7 @@ async function finish(w) {
         w.problem = /allocation failed|out of memory/i.test(String(err.message)) ? 'Not enough memory to finish this planet — try a lower Detail' : `Could not finish this planet: ${String(err.message).split('\n')[0]}`;
         console.error(err);
     } finally {
-        if (world === w) { w.finishing = null; if (!quiet || rungs.live) dirty = true; if (!building) rungs.clear(); updateChip(); }
+        if (world === w) { w.finishing = null; if (!quiet || rungs.live) dirty = true; if (!building) rungs.clear(); updateChip(); if (!building) bar.done(w.problem); }
     }
 }
 
@@ -349,7 +349,7 @@ reapplyBtn.addEventListener('click', () => {
 // ── the build overlay ──
 const overlay = buildOverlay();
 const rungs = rungView(pv, overlay, { width: finishWidth, climate: climateOptions });
-const onProgress = (pct, label) => overlay.progress(pct, label), showBuildOverlay = () => overlay.show(), hideBuildOverlay = () => overlay.hide();
+const onProgress = (pct, label) => { overlay.progress(pct, label); if (building) bar.build(pct, label); }, showBuildOverlay = () => { overlay.show(); bar.start(); }, hideBuildOverlay = () => overlay.hide();
 
 // ── Build New World, the planet code ──
 const genBtn = $('generate'), seedInput = $('seedCode'), copyBtn = $('copyBtn'), loadBtn = $('loadBtn'), seedError = $('seedError');

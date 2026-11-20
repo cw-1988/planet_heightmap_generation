@@ -21,6 +21,7 @@ import { showBuildError, describeFailure, holdControls } from './build-error.js'
 import { state } from './state.js';
 import { sliderTooltip, detailWarning, progressiveSwitch, redrawFoldedSliders, sidePanel, buildOverlay } from './page-chrome.js';
 import { rungView } from './rung-view.js';
+import { buildProgress } from './build-progress.js';
 
 setDelaunator(Delaunator);
 
@@ -44,13 +45,14 @@ const finisher = new FinishService();
 const overlay = buildOverlay(), panel = sidePanel();
 const rungs = rungView(pv, overlay, { width: n => finishWidth(n), climate: () => climateOptions() });   // (the Detail ladder's steps: js/rung-view.js)
 const progressive = progressiveSwitch();                               // (off: the chosen Detail alone, no ladder)
+const bar = buildProgress();                                           // (the build's progress, bottom right)
 
 // ── the worker ──
 let worker = null;
 function startWorker() {
     worker = new Worker(new URL('./planet-worker.js', import.meta.url), { type: 'module' });
     worker.onmessage = ({ data: msg }) => {
-        if (msg.type === 'progress') { overlay.progress(msg.pct, msg.label); return; }
+        if (msg.type === 'progress') { overlay.progress(msg.pct, msg.label); if (building) bar.build(msg.pct, msg.label); return; }
         if (msg.type === 'error') { failed(msg.message); return; }
         if (msg.type === 'rung') { if (building === 'import') rungs.show(msg); return; }
         if (msg.type === 'done' || msg.type === 'reapplyDone') received(msg);
@@ -66,7 +68,7 @@ function failed(message) {
     console.error('[import] failed:', message);
     building = null; overlay.active = false; holdControls(false); rungs.clear(); dirty = true;
     importBtn.disabled = !gray; importBtn.textContent = 'Import';
-    showBuildError(describeFailure(message, 'import this heightmap'), message);
+    showBuildError(describeFailure(message, 'import this heightmap'), message); bar.failed();
 }
 function received(msg) {
     const sh = msg.shared;
@@ -86,14 +88,14 @@ const finishWidth = (n) => (IS_TOUCH ? 2048 : Math.min(8192, Math.max(2048, 2 **
 async function finish(w) {
     finisher.cancel();
     const started = performance.now(), shares = new Map(FINISH_STAGES);
-    w.fin = null; w.problem = null; w.finishing = { stage: 'starting', share: 0 }; updateChip();
+    w.fin = null; w.problem = null; w.finishing = { stage: 'starting', share: 0 }; updateChip(); bar.finishing('starting', 0);
     let before = 0, quiet = false;
-    const onStage = (s) => { if (world !== w) return; before = 0; for (const [k, val] of FINISH_STAGES) { if (k === s) break; before += val; } w.finishing = { stage: s, share: before }; updateChip(); };
-    const onProgress = (p) => { if (world !== w || !w.finishing) return; w.finishing.share = before + p * (shares.get('picture') ?? 0.1); updateChip(); };
+    const onStage = (s) => { if (world !== w) return; before = 0; for (const [k, val] of FINISH_STAGES) { if (k === s) break; before += val; } w.finishing = { stage: s, share: before }; updateChip(); bar.finishing(s, before); };
+    const onProgress = (p) => { if (world !== w || !w.finishing) return; w.finishing.share = before + p * (shares.get('picture') ?? 0.1); updateChip(); bar.finishing('picture', w.finishing.share); };
     try {
         // (the terrain lands first, the other layers after it: finish-landing.js)
         const onTerrain = (d) => { if (world !== w) return; w.fin = terrainFin(w.n, d); rungs.clear(); dirty = true; updateChip(); console.info(`[import] terrain finished in ${((performance.now() - started) / 1000).toFixed(1)} s`); };
-        const res = await finisher.finish({ ...w.finishJob, mesh: w.meshArrays, cells: w.n, width: finishWidth(w.n), climateOptions: climateOptions(), valleyQ: view.riverQ }, { onStage, onProgress, onTerrain, keep: false });
+        const res = await finisher.finish({ ...w.finishJob, mesh: w.meshArrays, cells: w.n, width: finishWidth(w.n), climateOptions: climateOptions(), valleyQ: view.riverQ }, { onStage, onProgress, onTerrain, onDrivers: () => { if (world === w) bar.zoomReady(); }, keep: false });
         if (world !== w) return;
         quiet = !!pv.shows(w.fin);                                   // (the terrain shown already: the rest changes nothing on it)
         w.fin = finishedFin(w.n, res, w.fin);
@@ -103,7 +105,7 @@ async function finish(w) {
         w.problem = /allocation failed|out of memory/i.test(String(err.message)) ? 'Not enough memory to finish this heightmap — try a lower Detail' : `Could not finish this heightmap: ${String(err.message).split('\n')[0]}`;
         console.error(err);
     } finally {
-        if (world === w) { w.finishing = null; if (!quiet || rungs.live) dirty = true; if (!building) rungs.clear(); updateChip(); }
+        if (world === w) { w.finishing = null; if (!quiet || rungs.live) dirty = true; if (!building) rungs.clear(); updateChip(); if (!building) bar.done(w.problem); }
     }
 }
 function updateChip() {
@@ -168,7 +170,7 @@ importBtn.addEventListener('click', () => {
     building = 'import'; finisher.cancel();
     importBtn.disabled = true; importBtn.textContent = 'Importing…';
     reapplyBtn.disabled = true; reapplyBtn.classList.remove('ready');
-    overlay.show(); panel.collapse();
+    overlay.show(); bar.start(); panel.collapse();
     const g = new Uint8Array(gray);                                 // (a copy: the worker is handed it)
     worker.postMessage({ cmd: 'importHeightmap', shared: true, N: detailFromSlider(v('sN')), ...progressive(), jitter: +($('sJ')?.value ?? 0.75), grayscale: g, imageWidth: grayW, imageHeight: grayH, ...sculpt() }, [g.buffer]);
 });

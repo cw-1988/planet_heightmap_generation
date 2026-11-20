@@ -16,7 +16,8 @@
 //              (drawn on it with finish.js surfaceConfig's terrain config), and the overrides of its terrain config
 //              (`terrain`) and of the finish's (`finish`) — no terrain pool then
 // Messages out: {type: 'stage', id, stage} · {type: 'progress', id, share} (the picture) · {type: 'terrain', id, raster
-//              {w, h, heightM, ocean, water, waterLevel (the lakes' level, m)}, rivers, drain, valleyQ, lines} (with earlyTerrain: the terrain, before the other layers) · {type: 'done', id, raster:
+//              {w, h, heightM, ocean, water, waterLevel (the lakes' level, m)}, rivers, drain, valleyQ, lines} (with earlyTerrain: the terrain, before the other layers) · {type: 'drivers', id, drivers}
+//              (with earlyTerrain: the fine detail's drivers once drawn, so the terrain zooms in; 'done' then without them) · {type: 'done', id, raster:
 //              {w, h, heightM, ocean, water, geology, farming (farming/farming.js: its parts per pixel)}, rivers
 //              (finish-hydro.js), climate (the moment's own, at its detail: the
 //              grid's fields, climate-fields.js, and raster {w, h, koppen, tAnnual (°C × 100), pAnnual (mm), stats} — the land's
@@ -74,8 +75,12 @@ self.onmessage = async ({ data }) => {
                 [raster.heightM.buffer, raster.ocean.buffer, raster.water.buffer, raster.waterLevel.buffer, ...Object.values(t.drain).map(a => a.buffer), ...(lines ? [lines.buffer] : [])]);
             return terrainOnly;
         } : null;
+        // (and the fine detail's drivers once drawn — the terrain zooms in with them, not only after the rocks and farming;
+        // handed over, so 'done' comes without them: finish-view.js adds them back)
+        let driversSent = false;
+        const onDrivers = earlyTerrain ? dr => { self.postMessage({ type: 'drivers', id, drivers: dr }, DRIVER_FIELDS.map(k => dr[k].buffer)); driversSent = true; } : null;
         const out = await finishPlanet({ frame, simMesh: sim, seed, cells, pool, closePool: !!pool, climateOptions, driversWidth: driverWidth(width), onStage: stage => self.postMessage({ type: 'stage', id, stage }),
-            onTerrain, ...own, ...(terrainOnly ? { climate: stepClimate } : {}),...(data.terrain ? { cfg: terrainConfig(data.terrain) } : {}), ...(data.finish ? { F: { ...FINISH, ...data.finish } } : {}) });
+            onTerrain, onDrivers, ...own, ...(terrainOnly ? { climate: stepClimate } : {}),...(data.terrain ? { cfg: terrainConfig(data.terrain) } : {}), ...(data.finish ? { F: { ...FINISH, ...data.finish } } : {}) });
         if (out.terrainOnly) { self.postMessage({ type: 'done', id, terrainOnly: true, ms: out.ms }); return; }
         self.postMessage({ type: 'stage', id, stage: 'picture' });
         const t0 = performance.now();
@@ -86,12 +91,12 @@ self.onmessage = async ({ data }) => {
         const climate = { ...out.climate.page, raster: raster.climate };
         delete raster.climate;
         // (what the detail finer than the mesh is drawn from: kept with the picture, and saved with it)
-        raster.drivers = out.drivers;
+        if (!driversSent) raster.drivers = out.drivers;
         const rv = out.rivers, drain = out.drain;
         self.postMessage({ type: 'done', id, raster, rivers: rv, drain, climate, stats: out.stats, ms: out.ms },
             [drain.recv.buffer, drain.area.buffer, drain.sea.buffer, drain.q.buffer, drain.z.buffer, drain.lake.buffer, raster.heightM.buffer, raster.ocean.buffer, raster.water.buffer, raster.waterLevel.buffer, ...farm, ...(raster.geology ? [raster.geology.rock.buffer, ...(raster.geology.rec ? [raster.geology.rec.buffer] : []), ...(raster.geology.deposits ? [raster.geology.deposits.cells.buffer, raster.geology.deposits.data.buffer, raster.geology.deposits.land.buffer] : [])] : []), rv.start.buffer, rv.lat.buffer, rv.lon.buffer, rv.q.buffer, rv.season.buffer,
                 ...(rv.regime ? [rv.regime.buffer, rv.floodFrom.buffer, rv.floodTo.buffer, rv.farFed.buffer] : []), ...climateTransfers(climate),
-                ...DRIVER_FIELDS.map(k => raster.drivers[k].buffer)]);
+                ...(raster.drivers ? DRIVER_FIELDS.map(k => raster.drivers[k].buffer) : [])]);
     } catch (err) {
         self.postMessage({ type: 'error', id, message: err?.stack ?? String(err) });
     }

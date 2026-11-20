@@ -4,7 +4,7 @@
 // the live terrain is. The rivers drawn over it are river-draw.js's (re-exported here for the page and the exports).
 
 export { REGIME_STYLE, riverYearWords, riverPaths, drawRivers, drawRiversWindow, riverAt } from './river-draw.js';
-import { lakeMix, deepLakeRgb, nearestLake } from './lake-water.js';
+import { lakeMix, deepLakeRgb, nearestLake, lakeHere } from './lake-water.js';
 
 export class FinishService {
     constructor() { this.worker = null; this.jobs = new Map(); this.next = 1; this.prepared = 0; }
@@ -21,13 +21,14 @@ export class FinishService {
      * Finish a moment. keep: the worker stays afterwards, with the mesh it built (a 10M-cell mesh takes ~15 s; a 640K one
      * under a second — its ~0.3 GB is not worth keeping); else it goes, its memory with it. transfer: buffers of `msg`
      * handed to the worker rather than copied (Generate's surface: plans/SHARED_CORE_PLAN.md U3). onTerrain({raster,
-     * rivers, drain}): the terrain as soon as it is final, before the climate's, rocks' and farming's layers.
+     * rivers, drain}): the terrain as soon as it is final, before the climate's, rocks' and farming's layers; its
+     * raster's `drivers` (what zoomed tiles are drawn from) added a stage later, then onDrivers().
      * @returns {Promise<{raster: {w, h, heightM, ocean}, stats, ms}>} (rejects with an AbortError if cancelled)
      */
-    finish(msg, { onStage = null, onProgress = null, onTerrain = null, keep = true, transfer = [] } = {}) {
+    finish(msg, { onStage = null, onProgress = null, onTerrain = null, onDrivers = null, keep = true, transfer = [] } = {}) {
         const w = this.start(), id = this.next++;
         return new Promise((resolve, reject) => {
-            this.jobs.set(id, { resolve, reject, onStage, onProgress, onTerrain, keep });
+            this.jobs.set(id, { resolve, reject, onStage, onProgress, onTerrain, onDrivers, keep });
             w.postMessage({ type: 'finish', id, ...msg, earlyTerrain: !!onTerrain, delaunatorUrl: import.meta.resolve('delaunator') }, transfer);
         });
     }
@@ -48,8 +49,10 @@ export class FinishService {
             if (!j) return;
             if (data.type === 'stage') j.onStage?.(data.stage);
             else if (data.type === 'progress') j.onProgress?.(data.share);
-            else if (data.type === 'terrain') j.onTerrain?.(data);
-            else if (data.type === 'done') { this.jobs.delete(data.id); j.resolve(data); }
+            else if (data.type === 'terrain') { j.terrain = data; j.onTerrain?.(data); }
+            // (the fine detail's drivers, sent once drawn: the terrain shown zooms in from then on, and 'done' comes without them)
+            else if (data.type === 'drivers') { j.drivers = data.drivers; if (j.terrain) j.terrain.raster.drivers = data.drivers; j.onDrivers?.(); }
+            else if (data.type === 'done') { this.jobs.delete(data.id); if (data.raster && !data.raster.drivers) data.raster.drivers = j.drivers; j.resolve(data); }
             else { this.jobs.delete(data.id); j.reject(new Error(data.message)); }
             if ((data.type === 'done' || data.type === 'error') && !j.keep && !this.jobs.size && this.worker === w) { w.terminate(); this.worker = null; this.prepared = 0; }
         };
@@ -124,7 +127,7 @@ export function rasterAt(r, W, { lakes = false, landOnly = false } = {}) {
             if (LV) {
                 // (the shore: where the nearest lake's level meets this pixel's ground — its contour, not the pixels' edge)
                 nearestLake(r.water, LV, a, b, c, d, wa, wb, wc, wd, hit);
-                if (hit[0] && hit[1] > h[p]) { wat[p] = hit[0]; lev[p] = hit[1]; }
+                if (hit[0] && lakeHere(hit[1], h[p], hit[2])) { wat[p] = hit[0]; lev[p] = hit[1]; }
             } else if (wat) {
                 kinds[0] = kinds[1] = kinds[2] = kinds[3] = 0;
                 kinds[r.water[a]] += wa; kinds[r.water[b]] += wb; kinds[r.water[c]] += wc; kinds[r.water[d]] += wd;

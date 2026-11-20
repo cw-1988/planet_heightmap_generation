@@ -45,8 +45,8 @@ export function erosionAt(F, cfg) {
     return { m, kMul: F.erosionPivotKm2 ** (cfg.carveM - m), dissectKm: at(L.dissectKm), creepKm: at(L.creepKm), crestHardness: at(L.crestHardness) };
 }
 
-/** The stages, in order, with their rough share of the time (for the progress bar). */
-export const STAGES = [['mesh', 0.12], ['surface', 0.18], ['climate', 0.1], ['bedrock', 0.03], ['rivers', 0.2], ['sediment', 0.06], ['hillslopes', 0.05], ['ice age', 0.08], ['wind', 0.05], ['sea', 0.02], ['water', 0.05], ['detail', 0.02], ['geology', 0.03], ['final climate', 0.03], ['deposits', 0.04], ['farming', 0.02], ['picture', 0.09]];
+/** The stages, in order, with their rough share of the time (for the progress bar; the shares sum to 1). */
+export const STAGES = [['mesh', 0.1], ['surface', 0.14], ['climate', 0.09], ['bedrock', 0.03], ['rivers', 0.17], ['sediment', 0.05], ['hillslopes', 0.04], ['ice age', 0.07], ['wind', 0.04], ['sea', 0.02], ['water', 0.04], ['detail', 0.02], ['geology', 0.03], ['final climate', 0.03], ['deposits', 0.03], ['farming', 0.02], ['picture', 0.08]];
 
 /**
  * The terrain config the finish's surface is drawn with: the carving's inputs at the finish's erosion strength (its stream
@@ -64,10 +64,10 @@ export function surfaceConfig(F, cfg) {
  *   the history's drawn here — (mesh, cfg) → {heightKm, carveIn, recCell, cues} (or a promise of it), drawn with
  *   surfaceConfig's cfg (Generate: v2/js/present/world.js presentSynthesize's `surface`); no pool is needed then.
  *   onTerrain({mesh, z, ocean, lake, lakeLevel, rivers, drain}): the terrain as soon as it is final (after the water),
- *   awaited — the rest (detail, rocks, final climate, deposits, farming) changes none of it; returning true stops there
+ *   awaited — the rest (detail, rocks, final climate, deposits, farming) changes none of it; returning true stops there · onDrivers(drivers): the detail's drivers once drawn
  * @returns {Promise<{mesh: Object, z: Float32Array, ocean: Uint8Array, ms: Object, stats: Object}>}
  */
-export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, closePool = false, onStage = () => {}, F = FINISH, cfg = terrainConfig(), debug = false, climateOptions = {}, driversWidth = cells >= 1.5e6 ? 2048 : 1024, inspect = null, mesh: givenMesh = null, surface = null, onTerrain = null, climate = planetClimate }) {
+export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, closePool = false, onStage = () => {}, F = FINISH, cfg = terrainConfig(), debug = false, climateOptions = {}, driversWidth = cells >= 1.5e6 ? 2048 : 1024, inspect = null, mesh: givenMesh = null, surface = null, onTerrain = null, onDrivers = null, climate = planetClimate }) {
     const ms = {}, stats = {};
     let t0 = performance.now();
     const lap = name => { const t = performance.now(); ms[name] = t - t0; t0 = t; };
@@ -283,7 +283,7 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     // ── what the detail finer than the mesh is drawn from (finish-drivers.js; plans/V2_FINE_DETAIL_PLAN.md) ──
     onStage('detail');
     const drivers = detailDrivers({ mesh, z: C.z, ice: I.ice, iceH: I.H, iceS: I.S, erg: W.erg, wind, climGrid, warmSl, rain: pAnn, young, frame, simMesh, cfg, seed, width: driversWidth });
-    lap('detail');
+    lap('detail'); onDrivers?.(drivers);                              // (a page's zoomed tiles need no more: sent now)
 
     // ── the geology (plans/V2_GEOLOGY_PLAN.md G2): what each place is made of at the surface — the history's rock column
     // (the frame's geological record), read where the terrain read it, with the cuts and the young sediment of this

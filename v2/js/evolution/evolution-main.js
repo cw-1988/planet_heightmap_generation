@@ -25,6 +25,7 @@ import { GEO_FRAME_FIELDS, GEOLOGY_READS } from '../tectonics/model/geology.js';
 import { FARMING_LAYERS } from './farming-view.js';
 import { FRAME_FIELDS } from '../terrain/terrain-pool.js';
 import { STAGES as FINISH_STAGES } from '../finish/finish.js';
+import { stageWords } from '../finish/stage-words.js';   // (Add detail's stages, as the loading screen and the card say them)
 import { initEvolutionExport } from './export.js';
 import { createLoading } from './loading.js';
 import { savePlanet, planetBytes, openPlanet } from '../save/planet-file.js';
@@ -184,13 +185,6 @@ const setLayer = layer => pv.setLayer(layer);
 // (the loading screen, for the waits with nothing to watch: loading.js; the first world's over nothing yet)
 const loading = createLoading($('buildOverlay'));
 let firstWorld = true;
-// (Add detail's stages, as the loading screen and the card say them)
-const STAGE_WORDS = { starting: 'Starting', mesh: 'Laying out the fine mesh', surface: 'Shaping the surface', climate: 'Working out the climate',
-    bedrock: 'Reading the bedrock', rivers: 'Carving the rivers', sediment: 'Settling the sediment', hillslopes: 'Wearing down the hillslopes',
-    'ice age': 'Carving with the last ice age', wind: 'Letting the wind work the land', sea: 'Letting in the sea', water: 'Filling the rivers and lakes',
-    detail: 'Drawing the fine detail', geology: 'Mapping the rocks', 'final climate': 'Working out the climate and the land’s cover',
-    deposits: 'Finding the ore deposits', farming: 'Weighing the land for farming', picture: 'Painting the picture' };
-const stageWords = s => STAGE_WORDS[s] ?? s;
 const climate = new ClimateService();   // the climate, on request, for the moment shown (climate-view.js)
 const finisher = new FinishService();   // the Finish step, on request, for the moment shown (finish-view.js)
 // (one detailed moment per history — its pictures, rivers and climate: ~50 MB on a phone, ~190 MB at 2.5M on a desktop,

@@ -11,8 +11,19 @@ Before, a lake was flat paint: one blue over the whole basin, with a blocky edge
 - **The bed**: the finished ground under that level. It is already there, so the depth at a pixel is the level less
   the ground there.
 - **The shore**: the contour where the level stands above the ground. When the picture is enlarged (`rasterAt`,
-  `fineWindow`), a pixel takes the level of its nearest lake pixel (`nearestLake`) and is water only where its own
-  ground lies under that level. The shore follows the ground at every zoom, not the pixel grid.
+  `fineWindow`), a pixel takes the level of its nearest lake pixel (`nearestLake`), and is water only where its own
+  ground lies under that level. Past the picture's last lake pixel it must also lie deeper under it the farther out it
+  is (`lakeHere`, `shoreM`, below), so the shore follows the ground at every zoom, not the pixel grid.
+- **Why the shore needs the share** (fixed 2026-11-20, the owner's zoomed lakes with long straight, axis-aligned
+  edges): `nearestLake` looks at the four nearest picture pixels, so with "any lake neighbour" an enlarged pixel up to
+  a whole picture pixel past the lake could be water. Where the finer detail sinks the ground just under the level
+  there, the lake flooded right up to the next pixel's square edge: a staircase of straight cuts. Now `nearestLake`
+  also returns the lake pixels' share of the four weights (1 inside, falling to 0 one picture pixel out). A pixel is
+  lake only if share × (level − ground) > `shoreM` × (1 − share), with `shoreM` 15 m. Half a pixel out the ground
+  must lie 15 m under the level; a tenth of a pixel out, 135 m. The shore closes along the share's smooth contour. It
+  is the same rule in `rasterAt` (finish-view.js) and `fineWindow`'s `cropLakes` (fine-detail.js).
+  `node v2/tools/lake-shore-demo.mjs` prints a diagonal lake enlarged 8×: before, the 8-pixel square steps; now, the
+  diagonal with scallops a few pixels deep.
 - **The light** (Beer–Lambert): light crossing water fades as exp(−K·path), per colour. Seen from above, it goes down
   to the bed and back up, so the path is twice the depth: T = exp(−K·2d). The pixel is bed × T + deep × (1 − T).
   - K for clear fresh water, per m (R · G · B): 0.40 · 0.075 · 0.04. That is pure water's own absorption (about

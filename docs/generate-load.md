@@ -3,7 +3,7 @@
 What the page shows between Generate (or an image imported) and the finished world, and why: a 204,000-Detail planet
 used to sit as a black sphere for ~8 s, then show its first picture for another ~17 s before the detailed terrain landed
 with a ~440 ms freeze. Measured 2026-11-20 on the owner's Windows laptop, Generate at 204,000 Detail. Back to
-[shared.md](shared.md).
+[shared.md](shared.md). The card at the bottom right that names each step as it runs: [build-progress.md](build-progress.md).
 
 ## The steps, in order
 
