@@ -379,6 +379,8 @@ button#generate.regen:hover { filter: brightness(1.15); }
 button#generate.generating {
     background: var(--chip-track); border-color: var(--chip-track); color: var(--muted); cursor: wait;
 }
+/* (a setting changed mid-build: Rebuild drops the build under way and starts it again, js/main.js) */
+button#generate.generating.restart { background: var(--accent); border-color: var(--accent); color: var(--on-accent); cursor: pointer; }
 #reapplyBtn {
     width: 100%; min-height: var(--size-touch); padding: 0 var(--space-4); margin-top: var(--space-1);
     background: var(--surface); color: var(--ink);

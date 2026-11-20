@@ -101,8 +101,9 @@ export function sidePanel() {
     return { mobile, collapse: () => { if (mobile()) ui.classList.add('collapsed'); } };
 }
 
-/** The build overlay: shown while a planet is built, with its progress; the controls held meanwhile. */
-export function buildOverlay() {
+/** The build overlay: shown while a planet is built, with its progress; the controls held meanwhile (`keep`: those a
+ *  page leaves live, build-error.js holdControls). */
+export function buildOverlay({ keep = [] } = {}) {
     const overlay = $('buildOverlay'), fill = $('buildBarFill'), label = $('buildBarLabel');
     const o = {
         active: true,
@@ -112,13 +113,13 @@ export function buildOverlay() {
             fill.style.transition = 'none'; fill.style.transform = 'scaleX(0)'; label.textContent = '';
             fill.offsetWidth;                                         // (the bar snapped to 0 before it eases again)
             fill.style.transition = '';
-            o.active = true; overlay.classList.remove('hidden', 'over-sketch'); holdControls(true);
+            o.active = true; overlay.classList.remove('hidden', 'over-sketch'); holdControls(true, keep);
         },
         // (a first sketch of the planet shown under it: the overlay clear, only its spinner and bar over the planet)
         sketch() { overlay.classList.remove('initial'); overlay.classList.add('over-sketch'); },
-        hide() { setTimeout(() => { o.active = false; holdControls(false); overlay.classList.add('hidden'); overlay.classList.remove('initial'); setTimeout(() => overlay.classList.remove('over-sketch'), 600); }, 300); },
+        hide() { setTimeout(() => { o.active = false; holdControls(false, keep); overlay.classList.add('hidden'); overlay.classList.remove('initial'); setTimeout(() => overlay.classList.remove('over-sketch'), 600); }, 300); },
     };
-    holdControls(true);
+    holdControls(true, keep);
     return o;
 }
 

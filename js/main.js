@@ -20,7 +20,7 @@ import { heightLutOf } from '../v2/js/evolution/looks.js';
 import { CLIMATE_LAYERS } from '../v2/js/evolution/climate-view.js';
 import { GEOLOGY_LAYERS } from '../v2/js/evolution/geology-view.js';
 import { FARMING_LAYERS } from '../v2/js/evolution/farming-view.js';
-import { encodePlanetCode, decodePlanetCode } from './planet-code.js';
+import { encodePlanetCode, decodePlanetCode, SEED_MAX } from './planet-code.js';
 import { lakesLabel } from '../v2/js/finish/lake-amount.js';
 import { detailFromSlider, sliderFromDetail } from './detail-scale.js';
 import { showBuildError, describeFailure, holdControls } from './build-error.js';
@@ -99,11 +99,14 @@ function sliders() {
 const climateOptions = () => ({ greenhouseWm2: +$('sTmp').value, precipScale: Math.max(0, 1 + 0.5 * +$('sPrc').value), lakes: +$('sLk').value });   // (lakes: lake-amount.js)
 
 let building = null;         // what the worker is doing: 'generate', 'reapply', 'edit'
-function generate(seed, toggledIndices = [], keepEdits = false) {
-    building = 'generate'; finisher.cancel();
+let asked = null;            // the build under way: its seed and edits (a restart builds the same world, as the panel says now)
+function generate(seed = Math.floor(Math.random() * SEED_MAX), toggledIndices = [], keepEdits = false) {
+    // (a build under way: dropped — its worker and its steps' water — and the new one started in its place)
+    if (building === 'generate') { worker.terminate(); startWorker(); rungs.clear(); }
+    building = 'generate'; finisher.cancel(); asked = { seed, toggledIndices, keepEdits };
     if (!keepEdits) tools.reset();
     showBuildOverlay();
-    $('generate').disabled = true; $('generate').textContent = 'Building…'; $('generate').classList.add('generating');
+    $('generate').disabled = true; $('generate').textContent = 'Building…'; $('generate').classList.remove('restart'); $('generate').classList.add('generating');
     worker.postMessage({ cmd: 'generate', ...sliders(), ...progressive(), seed, toggledIndices, next: true, shared: true, cuts: tools.cuts, strokes: tools.strokes });
 }
 function failed(message) {
@@ -112,7 +115,13 @@ function failed(message) {
     resetBuildButton();
     showBuildError(describeFailure(message), message); bar.failed();
 }
-function resetBuildButton() { const b = $('generate'); b.disabled = false; b.classList.remove('generating', 'stale', 'regen'); b.textContent = 'Build new world'; }
+function resetBuildButton() { const b = $('generate'); b.disabled = false; b.classList.remove('generating', 'restart', 'stale', 'regen'); b.textContent = 'Build new world'; }
+// (the panel stays live while a world is built: a setting changed makes the button Rebuild, which drops the build under
+// way and starts it again — the same seed and edits — with the panel as it is now)
+for (const type of ['input', 'change']) $('ui').addEventListener(type, (e) => {
+    if (building !== 'generate' || e.target.id === 'seedCode') return;
+    const b = $('generate'); b.disabled = false; b.classList.add('restart'); b.textContent = 'Rebuild';
+});
 
 /** A world from the worker: its first picture shown, its finish started. */
 function received(msg) {
@@ -338,7 +347,8 @@ for (const s of ['sN', 'sP', 'sCn', 'sJ', 'sNs', 'sCsv', 'sLc', ...SCULPT, ...FI
         else if (!FINISHED.includes(s)) checkStale();
     });
     // (the climate: the finish again, with the ground it has — on release, not every step of a drag)
-    if (FINISHED.includes(s)) slider.addEventListener('change', () => { if (world) { updatePlanetCode(false); finish(world); } });
+    // (mid-build not: the world on its way reads them when its finish starts)
+    if (FINISHED.includes(s)) slider.addEventListener('change', () => { if (world && !building) { updatePlanetCode(false); finish(world); } });
 }
 redrawFoldedSliders();
 reapplyBtn.addEventListener('click', () => {
@@ -349,7 +359,7 @@ reapplyBtn.addEventListener('click', () => {
 });
 
 // ── the build overlay ──
-const overlay = buildOverlay();
+const overlay = buildOverlay({ keep: ['ui'] });                    // (the panel live mid-build: a change restarts it)
 const rungs = rungView(pv, overlay, { width: finishWidth, climate: climateOptions });
 const onProgress = (pct, label) => { overlay.progress(pct, label); if (building) bar.build(pct, label); }, showBuildOverlay = () => { overlay.show(); bar.start(); }, hideBuildOverlay = () => overlay.hide();
 
@@ -359,6 +369,7 @@ let currentCode = '';
 genBtn.addEventListener('click', () => {
     reapplyBtn.disabled = true; reapplyBtn.classList.remove('ready');
     panel.collapse();                                                // (a phone: the sheet down, the planet in view)
+    if (building === 'generate') { generate(asked.seed, asked.toggledIndices, asked.keepEdits); return; }   // (mid-build: Rebuild)
     // (Rebuild: the same seed and edits, only the resolution and noise; the plate sliders: a fresh world)
     const plateChanged = PLATE_SLIDERS.some((id) => $(id).value !== lastGenValues[id]);
     const rebuild = genBtn.classList.contains('stale') && world && !plateChanged;

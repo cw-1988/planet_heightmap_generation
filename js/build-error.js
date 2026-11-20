@@ -37,9 +37,10 @@ export function showBuildError(text, detail = '') {
     box.querySelector('.build-error-close').focus();
 }
 
-/** Hold the controls while a build runs (true), release them after (false). */
-export function holdControls(on) {
-    for (const id of HELD) document.getElementById(id)?.toggleAttribute('inert', on);
+/** Hold the controls while a build runs (true), release them after (false); `keep`: those a page leaves live (Generate's
+ *  panel: a setting changed mid-build restarts the build, js/main.js). */
+export function holdControls(on, keep = []) {
+    for (const id of HELD) if (!keep.includes(id)) document.getElementById(id)?.toggleAttribute('inert', on);
 }
 
 /** Back to the ordinary progress overlay (a new build starting). */

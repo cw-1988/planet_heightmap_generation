@@ -66,7 +66,8 @@ Roughness (in Shape your world) scales the hills, the coast's bays and the fine 
 | Lakes | -1 – 1 | 0 | How readily the land's hollows hold water, from none to a lake district (the rain stays Precipitation's): [lakes-slider.md](lakes-slider.md) |
 
 Releasing any of them finishes the planet again (the ground stays): its rivers, lakes, ice, Satellite view, rocks and
-food all follow. Lakes set is kept in the planet code (23 characters; at ±0 the code is the 22-character one as before).
+food all follow. The panel stays live during a build; a change there turns the button into Rebuild, which restarts the
+build: [mid-build-rebuild.md](mid-build-rebuild.md). Lakes set is kept in the planet code (23 characters; at ±0 the code is the 22-character one as before).
 
 ### Inspect (advanced)
 
@@ -219,7 +220,7 @@ js/
   state.js              The touch device and edit mode
   planet-code.js        Planet code encode/decode (seed + sliders + edits → base36)
   detail-scale.js       Non-linear (power-curve) Detail slider mapping
-  build-error.js        A failed build or import shown in the build overlay, with a Close button; the controls held during a build
+  build-error.js        A failed build or import shown in the build overlay, with a Close button; the controls held during a build (Generate leaves its panel live)
   view-strip.js         The view strip above the layer tabs (every page), folded behind an arrow: Globe | Map and what applies,
                         the projection picker; in the sheet on phones
   stage.js              The stage round the globe (the theme's desk, or space with Stars), the air, map colours from tokens
