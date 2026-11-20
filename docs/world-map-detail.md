@@ -64,8 +64,9 @@ showed out at sea as a 2.8 m step along a straight line. This change also applie
 
 `v2/js/finish/river-meander.js` bends each river's smoothed line (`riverParts` in river-valleys.js) to either side.
 
-- The bend is a sum of waves from 16 km down to what the river's width allows (`MEANDER.smallestK · √q`). Each wave
-  swings by `MEANDER.share` of its length and fades in with the same `fadeFor` as the ground.
+- Channel, bends, braiding and valleys follow measured laws: [river-shape-laws.md](river-shape-laws.md).
+- The bend is a sum of waves from 16 km down to the river's own bend (10.9 channel widths). Each wave swings by
+  `MEANDER.share` of its length and fades in with the same `fadeFor` as the ground.
 - Its phase is the distance along the river, so it runs on continuously whatever the flow does. A shared point gets the
   same normal from both segments, so the bent line has no gaps at its joints.
 - Each reach's waves ease to nothing at its two ends (`pinAt`, over 16 km or half the reach). Reaches meet at
@@ -74,9 +75,9 @@ showed out at sea as a 2.8 m step along a straight line. This change also applie
   bent ends meet and that the waves are still there mid-reach.
 - The page's drawn line (`v2/js/evolution/river-draw.js`, `bendSegment`) and the valley cut under it
   (`carveValleys`, `meanderAt`) bend by the same waves, so the river stays on its valley floor.
-- The valleys have gentle sides: `VALLEY.side` is 0.04 (about 2.3°). At 0.2, every river sat in a trench with a hard rim
-  up close. The wall rises from the bank at once and eases into the land at its rim.
-- Width: a river's channel is `channelKm(q)` = 0.006 · √q km, at most 3 km (40 m³/s ≈ 40 m, 1,000 ≈ 190 m). The valley
+- The valley is as deep as the picture stands above the river's own carved ground. Its sides reach the threshold
+  hillslope (35°) at the bank and ease into the land at the rim.
+- Width: a river's channel is `channelKm(q)` = 7.2 m · √q, at most 3.5 km (40 m³/s ≈ 46 m, 1,000 ≈ 228 m). The valley
   floor is that channel. The page draws a constant hairline (2 screen px × the strength's width) and, where the channel
   is wider on screen, the channel itself, in ⅛-octave steps. Before, the line grew with zoom while the floor stayed
   ~2.5 km wide, so the line never matched its bed.

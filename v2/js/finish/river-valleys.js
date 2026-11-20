@@ -5,45 +5,51 @@
 // the pixels as every other detail (fine-detail.js `fade`). The line is bent by its meanders (river-meander.js) before
 // it is cut, as the page draws it, so the valley winds with the river; its sides are gentle (VALLEY.side), no trench.
 
-import { meanderAt, meanderSwing, MEANDER_PAD_KM } from './river-meander.js';
+// By the laws (river-hydraulics.js, 2026-11-20): the channel as wide and deep as hydraulic geometry gives for its flow,
+// the valley as deep as the river's own ground lies below the picture over it (the gorges' and the land's own relief, which
+// the picture's pixels blur away), its walls at the hillslopes' threshold angle. (Before: 8 m · q^0.4 deep at most 300 m,
+// 0.4 … 1 by the slope, sides 0.04, all set by eye.)
 
+import { meanderAt, meanderSwing, MEANDER_PAD_KM } from './river-meander.js';
+import { CHANNEL, channelKm, channelDepthKm, VALLEY_LAW } from './river-hydraulics.js';
+
+export { CHANNEL, channelKm };
 const TEX_W = 2048, TEX_H = 1024;
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
-/** A river's channel (km; q the flow, m³/s): its width, widthK · √q (the hydraulic geometry's ~6 m · √q: 40 m³/s ~40 m,
- *  1,000 ~190 m, 200,000 ~2.7 km), at most widthMax. The page draws the river this wide wherever that is wider than its
- *  hairline (river-draw.js), and the valley's floor is the channel itself — so the line fills its bed at every zoom. */
-export const CHANNEL = { widthK: 0.006, widthMax: 3 };
-export const channelKm = q => Math.min(CHANNEL.widthMax, CHANNEL.widthK * Math.sqrt(Math.max(0, q)));
-/** The river's bed as drawn (km): BED channels wide — the floor and the foot of its banks, eased flat of the finer detail
- *  and filled with the river's colour (river-draw.js), so no smooth bare band shows beside a thinner line. */
+/** The river's bed as drawn (km): BED channels wide — the channel and the foot of its banks, eased flat of the finer
+ *  detail and filled with the river's colour (river-draw.js), so no smooth bare band shows beside a thinner line. A
+ *  drawing choice, not a law: the channel itself is channelKm. */
 export const BED = 2;
 export const bedKm = q => BED * channelKm(q);
 
-/** The valleys' tunables (km unless named; q the flow, m³/s). The floor's half-width is the channel's (channelKm / 2: a
- *  floor of ~1.3 km half-width for 1,000 m³/s left the drawn line a thread in a wide flat bed up close). */
-export const VALLEY = {
-    depthK: 0.008,     // the depth: depthK · q^0.4 (8 m³/s ~18 m, 1,000 ~130 m) …
-    depthMax: 0.3,     // … at most this; times 0.4 … 1 by the ground's slope (plains shallow, mountains deep)
-    side: 0.04,        // the sides' mean slope (tan, ~2.3°): how far out from the floor a valley reaches (0.2, ~11°,
-                       // drew a trench with a hard rim along every river up close)
-};
+/** The valleys (km): the floor's half-width the channel's; the walls' mean slope (tan) half the threshold reached at the
+ *  bank; depthMax only bounds the windows' margins (the deepest gorges). */
+export const VALLEY = { side: VALLEY_LAW.steepest / 2, depthMax: 3 };
 
 /**
  * One river reach's parts as drawn: its points from i0 to i1 carrying at least q0 (a reach below it ends the part; a
- * part is split where it crosses the map's edge), each [x, y, q, extra(i)] on a texture 2048 px wide, smoothed
- * (Chaikin, twice — q blended, the extra kept from the nearer point). Each part's `head`: 'reach' (the reach's first
+ * part is split where it crosses the map's edge), each [x, y, q, extra(i), s, nx, ny, h, slope, z] on a texture 2048 px
+ * wide, smoothed (Chaikin, twice — the numbers blended, the extra kept from the nearer point). Each part's `head`: 'reach' (the reach's first
  * point: a source, or a confluence), 'gap' (where the flow rises to q0) or 'edge'; its `tail` true where the flow
  * falls below q0 (the river goes on, undrawn).
  */
 export function riverParts(R, i0, i1, q0, extra = () => 0) {
-    const parts = [[]], DEG = Math.PI / 180;
-    let s = 0;
+    const parts = [[]], DEG = Math.PI / 180, n = i1 - i0, sk = new Float64Array(n), zk = new Float64Array(n);
+    // (how far along the river, km from its first point, whichever parts it falls into: the meanders' phase; and its ground,
+    // km, never rising downstream — water runs through a bump the cells left — 0 where the rivers carry none)
+    for (let k = 0, s = 0, zl = Infinity; k < n; k++) {
+        const i = i0 + k;
+        if (k) { let dl = R.lon[i] - R.lon[i - 1]; dl -= 360 * Math.round(dl / 360); s += 6371 * DEG * Math.hypot(R.lat[i] - R.lat[i - 1], dl * Math.cos(R.lat[i] * DEG)); }
+        sk[k] = s; zk[k] = zl = R.z ? Math.min(zl, R.z[i]) : 0;
+    }
+    const s = n ? sk[n - 1] : 0;
+    // (its slope, m/m: across the point's neighbours — whether it meanders, river-hydraulics.js)
+    const slopeAt = k => { const a = Math.max(0, k - 1), b = Math.min(n - 1, k + 1); return sk[b] > sk[a] ? (zk[a] - zk[b]) / (sk[b] - sk[a]) : 0; };
     for (let i = i0; i < i1; i++) {
-        // (how far along the river, km from its first point, whichever parts it falls into: the meanders' phase)
-        if (i > i0) { let dl = R.lon[i] - R.lon[i - 1]; dl -= 360 * Math.round(dl / 360); s += 6371 * DEG * Math.hypot(R.lat[i] - R.lat[i - 1], dl * Math.cos(R.lat[i] * DEG)); }
+        const k = i - i0;
         if (!(R.q[i] >= q0)) { const cur = parts[parts.length - 1]; if (cur.length) { cur.tail = true; parts.push([]); } continue; }
-        const p = [(R.lon[i] + 180) / 360 * TEX_W, (90 - R.lat[i]) / 180 * TEX_H, R.q[i], extra(i), s], cur = parts[parts.length - 1];
+        const p = [(R.lon[i] + 180) / 360 * TEX_W, (90 - R.lat[i]) / 180 * TEX_H, R.q[i], extra(i), sk[k], 0, 0, 0, slopeAt(k), zk[k]], cur = parts[parts.length - 1];
         if (cur.length && Math.abs(p[0] - cur[cur.length - 1][0]) > TEX_W / 2) { const nw = []; nw.head = 'edge'; parts.push(nw); }
         const into = parts[parts.length - 1];
         if (!into.length) into.head ??= i === i0 ? 'reach' : 'gap';
@@ -56,9 +62,8 @@ export function riverParts(R, i0, i1, q0, extra = () => 0) {
         for (let it = 0; it < 2; it++) {
             const nx = [pts[0]];
             for (let i = 0; i < pts.length - 1; i++) {
-                const a = pts[i], b = pts[i + 1];
-                nx.push([0.75 * a[0] + 0.25 * b[0], 0.75 * a[1] + 0.25 * b[1], 0.75 * a[2] + 0.25 * b[2], a[3], 0.75 * a[4] + 0.25 * b[4]],
-                    [0.25 * a[0] + 0.75 * b[0], 0.25 * a[1] + 0.75 * b[1], 0.25 * a[2] + 0.75 * b[2], b[3], 0.25 * a[4] + 0.75 * b[4]]);
+                const a = pts[i], b = pts[i + 1], mix = v => a.map((x, e) => e === 3 ? (v > 0.5 ? x : b[3]) : x * v + b[e] * (1 - v));
+                nx.push(mix(0.75), mix(0.25));
             }
             nx.push(pts[pts.length - 1]); pts = nx;
         }
@@ -77,14 +82,15 @@ export function riverParts(R, i0, i1, q0, extra = () => 0) {
 /** A segment's entries in the lines' array: x0 y0 x1 y1 (2048-wide texture), q0 q1, s0 s1 (km along), n0x n0y n1x n1y,
  *  seed, h0 h1 (the picture's height under each end, km: riverLines'; 0 for the page's), sHead sTail (km along where the
  *  drawn line truly begins and ends — its valley tapered in from there — or ∓1e9 where it goes on: riverLines'), sEnd (the
- *  reach's length, km: its meanders ease to nothing at its confluences and mouth, river-meander.js). */
-export const LINE = 18;
+ *  reach's length, km: its meanders ease to nothing at its confluences and mouth, river-meander.js), S0 S1 (its slope,
+ *  m/m: whether it meanders), z0 z1 (its own ground, km: the valley's floor). */
+export const LINE = 22;
 /** One part's segments onto `out`, LINE entries each (riverParts' points). */
 export function pushSegments(out, pts) {
     const sHead = pts.sHead ?? -1e9, sTail = pts.sTail ?? 1e9;
     for (let i = 0; i < pts.length - 1; i++) {
         const a = pts[i], b = pts[i + 1];
-        out.push(a[0], a[1], b[0], b[1], a[2], b[2], a[4], b[4], a[5], a[6], b[5], b[6], pts.seed, a[7] ?? 0, b[7] ?? 0, sHead, sTail, pts.sEnd);
+        out.push(a[0], a[1], b[0], b[1], a[2], b[2], a[4], b[4], a[5], a[6], b[5], b[6], pts.seed, a[7] ?? 0, b[7] ?? 0, sHead, sTail, pts.sEnd, a[8], b[8], a[9], b[9]);
     }
 }
 
@@ -123,10 +129,10 @@ export function riverLines(R, q0, r) {
 
 /** How the ground is levelled to the line's height, in valley reaches: a bell LEVEL.bell wide, ending at LEVEL.out. */
 const LEVEL = { bell: 1.2, out: 2.5 }, LEVEL_OUT = LEVEL.out;
-/** The lowest a carved floor goes (km above the sea), and the share of the line's height above it a valley may cut. */
-const SEA_FLOOR = 0.003, DEPTH_ROOM = 0.7;
-/** The most a valley reaches from its line (km). */
-const reachOf = q => { const f = channelKm(q) / 2, d = Math.min(VALLEY.depthMax, VALLEY.depthK * q ** 0.4); return { f, d, out: f + d / VALLEY.side }; };
+/** The lowest a carved floor goes (km above the sea). */
+const SEA_FLOOR = 0.003;
+/** A valley of flow q, d km deep: its floor's half-width, and how far it reaches from its line (km). */
+const reachOf = (q, d) => { const f = channelKm(q) / 2; return { f, d, out: f + d / VALLEY.side }; };
 
 /**
  * The segments near a window (W px wide; columns x0 − m … x0 + w + m, rows likewise, m its margin in px), shifted across
@@ -134,7 +140,7 @@ const reachOf = q => { const f = channelKm(q) / 2, d = Math.min(VALLEY.depthMax,
  */
 export function cropLines(lines, { W, x0, y0, w, h }, mPx) {
     // (out to the widest valley, and the farthest a meander moves its line — 0.3 for a latitude's narrower pixels east–west)
-    const k = W / TEX_W, pad = (mPx + (LEVEL_OUT * reachOf(2e5).out + MEANDER_PAD_KM / 0.3) / (40030 / W)) / k, out = [];
+    const k = W / TEX_W, pad = (mPx + (LEVEL_OUT * reachOf(2e5, VALLEY.depthMax).out + MEANDER_PAD_KM / 0.3) / (40030 / W)) / k, out = [];
     const ya = (y0 / k) - pad, yb = (y0 + h) / k + pad;
     for (const turn of [-1, 0, 1]) {
         const xa = x0 / k - turn * TEX_W - pad, xb = (x0 + w) / k - turn * TEX_W + pad;
@@ -150,20 +156,24 @@ export function cropLines(lines, { W, x0, y0, w, h }, mPx) {
 
 /**
  * Cuts the valleys into D (km, the detail over the enlarged picture hb) over the extended window ew × eh starting at
- * pixel (X0, Y0) of a W-wide picture: `pxKm` its pixel north–south, `cosLa` each row's, `gE`, `gN` the picture's slope,
+ * pixel (X0, Y0) of a W-wide picture: `pxKm` its pixel north–south, `cosLa` each row's,
  * `seaB` its sea (none cut), `fade(λ km)` how much of a feature the pixels hold. Each valley's floor is the deepest of the
  * valleys over it (rivers meeting), its finer detail laid flat; the land is kept above the sea.
  */
-export function carveValleys(D, lines, { hb, gE, gN, seaB, W, X0, Y0, ew, eh, pxKm, cosLa, fade }) {
+export function carveValleys(D, lines, { hb, seaB, W, X0, Y0, ew, eh, pxKm, cosLa, fade }) {
     if (!lines || !lines.length) return;
     const N = ew * eh, cut = new Float32Array(N), flat = new Float32Array(N), levS = new Float32Array(N), levN = new Float32Array(N), levW = new Float32Array(N), k = W / TEX_W, swing = meanderSwing(fade), mo = [0, 0];
     for (let s = 0; s < lines.length; s += LINE) {
         // (faded in by the flow where each pixel's nearest point is, below: by the segment's larger end, two segments meeting
         // faded unlike, and the deepest cut stepped across the valley at every point of the line — a fringe of spurs)
-        const qa = lines[s + 4], qb = lines[s + 5], big = reachOf(Math.max(qa, qb));
+        // (each end's depth: how far the river's own ground lies below the picture over it — the relief the gorges and the
+        // land around them have, which the picture's pixels blur away; none where the picture lies lower)
+        const qa = lines[s + 4], qb = lines[s + 5], ha = lines[s + 13], hb1 = lines[s + 14], Sa = lines[s + 18], Sb = lines[s + 19];
+        const da = Math.min(VALLEY.depthMax, Math.max(0, ha - lines[s + 20])), db = Math.min(VALLEY.depthMax, Math.max(0, hb1 - lines[s + 21]));
+        const big = reachOf(Math.max(qa, qb), Math.max(da, db));
         if (!(fade(2 * big.out) > 0)) continue;
         const ax = lines[s] * k - X0, ay = lines[s + 1] * k - Y0, bx = lines[s + 2] * k - X0, by = lines[s + 3] * k - Y0;
-        const sa = lines[s + 6], sb = lines[s + 7], n0x = lines[s + 8], n0y = lines[s + 9], n1x = lines[s + 10], n1y = lines[s + 11], seed = lines[s + 12], ha = lines[s + 13], hb1 = lines[s + 14];
+        const sa = lines[s + 6], sb = lines[s + 7], n0x = lines[s + 8], n0y = lines[s + 9], n1x = lines[s + 10], n1y = lines[s + 11], seed = lines[s + 12];
         const sHead = lines[s + 15], sTail = lines[s + 16], sEnd = lines[s + 17];
         // (the segment's box, out to its valley's reach and its meanders' swing: east–west in pixels of this latitude)
         const jMid = Math.min(eh - 1, Math.max(0, Math.round((ay + by) / 2))), cl = Math.max(0.05, cosLa[jMid]), reach = LEVEL_OUT * big.out + swing;
@@ -183,28 +193,27 @@ export function carveValleys(D, lines, { hb, gE, gN, seaB, W, X0, Y0, ew, eh, px
             // (the valley tapered in from where the drawn line begins, out to where it ends, none past them — read where the
             // pixel lies along the line run on past the segment's ends: the next segments' rounded ends reached back past
             // the head, a dip of 5 m 1 km upstream of the line)
-            const q = qa + t * (qb - qa), v = reachOf(q), wide = LEVEL_OUT * v.out, sOn = sa + tr * (sb - sa);
+            const q = qa + t * (qb - qa), v = reachOf(q, da + t * (db - da)), wide = LEVEL_OUT * v.out, sOn = sa + tr * (sb - sa);
             const fd = fade(2 * v.out) * smooth(0, v.out, sOn - sHead) * smooth(0, v.out, sTail - sOn);
             if (!(fd > 0) || !(over < wide) || !(Math.abs(side) - swing < wide)) continue;
             // (the distance from the bent line — the river as drawn, river-meander.js: its offset to the side there, eased by
             // how steeply it swings — a pixel read once per segment, not once per step of the bent line: a bend's every step
             // swept a box as wide as the valley, ~1,000× the pixels up close)
-            meanderAt(sa + t * (sb - sa), sEnd, q, seed, fade, mo);
+            meanderAt(sa + t * (sb - sa), sEnd, q, Sa + t * (Sb - Sa), seed, fade, mo);
             // (the valley a clean profile about the drawn line, its width the flow's: no noise on its banks or its floor. Their
             // noises ran at a frequency set by the flow, times a place ~6,371 km from the centre — the flow's least change
             // along a river turned them thousands of waves: zigzag banks, and swirls on every slope a creek crossed; and the
             // floor's wander to either side flipped at each segment's end — removed 2026-11-18)
             const dist = Math.hypot(over, Math.abs(side - mo[0]) / Math.hypot(1, mo[1]));
             if (!(dist < wide)) continue;
-            // (no deeper than the line's ground stands above the sea, softly: cut deeper, low land hit the floor held 3 m up
-            // below — a strip flat to the metre, with no grain and a hard edge, wider than the river, along every lowland river)
-            const dv = v.d * (0.4 + 0.6 * smooth(0.005, 0.08, Math.hypot(gE[p], gN[p]))), room = DEPTH_ROOM * Math.max(0, ha + t * (hb1 - ha) - SEA_FLOOR);
-            const deep = room > 0 ? dv * room / Math.hypot(dv, room) : 0;
+            // (the valley down to the river's own ground, which lies above the sea; and the channel in its floor as deep as its
+            // flow's hydraulic geometry, across its width)
+            const chan = channelDepthKm(q) * (1 - smooth(0.6 * v.f, v.f, dist));
             // (the wall rising from the bank at once, easing into the land at its rim, no hard edge: a smoothstep rose flat
             // from the bank, the floor within 1 m of its lowest ~800 m wide for a 190 m channel. The finer detail eased flat
             // across the bed alone (bedKm, which the river's colour fills), back to half at its edge: smoothed across the wall
             // (0.5–2.2 km), it read as a broad smooth bed 5–7× the drawn line; eased back past the bed, a bare rim showed)
-            const u = Math.min(1, Math.max(0, (dist - v.f) / (v.out - v.f))), inV = (1 - u) * (1 - u), c = fd * deep * inV;
+            const u = v.out > v.f ? Math.min(1, Math.max(0, (dist - v.f) / (v.out - v.f))) : 1, inV = (1 - u) * (1 - u), c = fd * (v.d * inV + chan);
             const fl = 0.8 * fd * (1 - smooth((BED - 0.5) * v.f, (BED + 0.5) * v.f, dist));
             if (c > cut[p]) cut[p] = c;
             if (fl > flat[p]) flat[p] = fl;

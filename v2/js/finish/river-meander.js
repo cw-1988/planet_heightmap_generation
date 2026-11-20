@@ -13,11 +13,21 @@
 //     shared points of two lines with waves of their own, so unpinned, each line's end swung its own way — the tributary
 //     stopped kilometres short of the trunk, and its valley with it (2026-11-20).
 
+//   · By the laws (river-hydraulics.js, 2026-11-20): the shortest wave is a bend's, 10.9 channel widths, and every wave
+//     swings 1.35 / 10.9 of its length to a side (a belt 2.7 widths across); a river on a slope above Leopold & Wolman's
+//     threshold (a braided river, a torrent) loses its own bends — the waves within a few of a bend's length — and keeps
+//     the longer ones, its valley's. (Before: waves down to 0.05 km · √q, each swinging 0.2 of its length, everywhere.)
+
+import { channelKm, MEANDER_LAW, meanderShare } from './river-hydraulics.js';
+
 const TEX_W = 2048, KM = 2 * Math.PI * 6371 / TEX_W;
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
-/** The meanders' tunables (km): the widest wave; how far a wave swings, a share of its length; the shortest, × √q (m³/s). */
-export const MEANDER = { top: 16, share: 0.2, smallestK: 0.05 };
+/** The meanders (km): the widest wave (the valley's bends), how far a wave swings (a share of its length) and the river's
+ *  own bend (perWidth channel widths: the shortest wave) — river-hydraulics.js MEANDER_LAW. */
+export const MEANDER = { top: 16, share: MEANDER_LAW.share, perWidth: MEANDER_LAW.perWidth };
+/** A river's own bend (km): the shortest wave it has. */
+const bendKm = q => MEANDER.perWidth * channelKm(q);
 /** The most a line may move (km): every wave at its widest swing. */
 export const MEANDER_PAD_KM = 2 * MEANDER.share * MEANDER.top;
 
@@ -46,14 +56,15 @@ function pinAt(s, end, out) {
 }
 const pin = [0, 0];
 /**
- * How far the river moves to its side (km) at `s` km along a reach `end` km long, carrying `q` m³/s, into out[0], and how
- * fast that changes along it (km per km) into out[1]; `fade(λ km)` as the window's pixels hold a wave.
+ * How far the river moves to its side (km) at `s` km along a reach `end` km long, carrying `q` m³/s down `slope` (m/m),
+ * into out[0], and how fast that changes along it (km per km) into out[1]; `fade(λ km)` as the window's pixels hold a wave.
  */
-export function meanderAt(s, end, q, seed, fade, out) {
-    const small = MEANDER.smallestK * Math.sqrt(Math.max(0, q));
+export function meanderAt(s, end, q, slope, seed, fade, out) {
+    const small = bendKm(q), own = meanderShare(q, slope);
     out[0] = 0; out[1] = 0;
     for (let o = 0, lam = MEANDER.top; o < 16; o++, lam /= 2) {
-        const w = fade(lam) * smooth(small, 2 * small, lam);
+        // (the river's own bends, within a few of its bend's length, only as far as its slope lets it meander)
+        const w = fade(lam) * smooth(small, 2 * small, lam) * (own + (1 - own) * smooth(3 * small, 8 * small, lam));
         if (!(w > 0)) break;
         noise1(s / lam + 0.618 * o, seed * 31 + o, nz);
         out[0] += w * MEANDER.share * lam * nz[0]; out[1] += w * MEANDER.share * nz[1];
@@ -64,7 +75,7 @@ export function meanderAt(s, end, q, seed, fade, out) {
 }
 const one = [0, 0];
 /** meanderAt's offset alone (km). */
-export const meanderOffset = (s, end, q, seed, fade) => meanderAt(s, end, q, seed, fade, one)[0];
+export const meanderOffset = (s, end, q, slope, seed, fade) => meanderAt(s, end, q, slope, seed, fade, one)[0];
 /** The most any line moves in a window of this fade (km): every wave the pixels hold at its widest swing. */
 export function meanderSwing(fade) {
     let d = 0;
@@ -74,22 +85,22 @@ export function meanderSwing(fade) {
 
 /** The step a window of `pxKm` pixels cuts a line of flow `q` into (km): ~24 to its shortest wave, no less than 1.5 px
  *  (fewer drew the meanders' bends as corners up close). */
-const stepKm = (q, pxKm) => Math.max(Math.max(MEANDER.smallestK * Math.sqrt(Math.max(0, q)), 6 * pxKm) / 24, 1.5 * pxKm);
+const stepKm = (q, pxKm) => Math.max(Math.max(bendKm(q), 6 * pxKm) / 24, 1.5 * pxKm);
 
 /**
  * One segment's bent line on the 2048-wide texture, from t0 to t1 (0 … 1 along it): emit(x, y, q) at each point after
  * t0 (and at t0 too with `withStart`). `g` the lines' array, `o` the segment's first entry (river-valleys.js LINE:
- * x0 y0 x1 y1 q0 q1 s0 s1 n0x n0y n1x n1y seed … sEnd), `pxKm` the window's pixel, `fade` its fade.
+ * x0 y0 x1 y1 q0 q1 s0 s1 n0x n0y n1x n1y seed … sEnd S0 S1 …), `pxKm` the window's pixel, `fade` its fade.
  */
 export function bendSegment(g, o, t0, t1, pxKm, fade, emit, withStart = false) {
-    const ax = g[o], ay = g[o + 1], bx = g[o + 2], by = g[o + 3], qa = g[o + 4], qb = g[o + 5], sa = g[o + 6], sb = g[o + 7], seed = g[o + 12], end = g[o + 17];
+    const ax = g[o], ay = g[o + 1], bx = g[o + 2], by = g[o + 3], qa = g[o + 4], qb = g[o + 5], sa = g[o + 6], sb = g[o + 7], seed = g[o + 12], end = g[o + 17], Sa = g[o + 18], Sb = g[o + 19];
     const cl0 = Math.max(0.05, Math.cos((0.5 - (ay + by) / 2 / (TEX_W / 2)) * Math.PI)), lenKm = Math.hypot((bx - ax) * cl0, by - ay) * KM * (t1 - t0);
     // (no wave the pixels hold — a coarse window: the segment as it is, its end alone)
     const n = !(fade(MEANDER.top) > 0) ? 1 : Math.max(1, Math.min(4096, Math.ceil(lenKm / stepKm(Math.min(qa, qb), pxKm))));
     for (let k = withStart ? 0 : 1; k <= n; k++) {
         const t = t0 + (t1 - t0) * k / n, x = ax + t * (bx - ax), y = ay + t * (by - ay), q = qa + t * (qb - qa);
         let nx = g[o + 8] + t * (g[o + 10] - g[o + 8]), ny = g[o + 9] + t * (g[o + 11] - g[o + 9]);
-        const nl = Math.hypot(nx, ny) || 1, off = meanderOffset(sa + t * (sb - sa), end, q, seed, fade) / nl;
+        const nl = Math.hypot(nx, ny) || 1, off = meanderOffset(sa + t * (sb - sa), end, q, Sa + t * (Sb - Sa), seed, fade) / nl;
         const cl = Math.max(0.05, Math.cos((0.5 - y / (TEX_W / 2)) * Math.PI));
         emit(x + nx * off / (KM * cl), y + ny * off / KM, q);
     }
