@@ -31,6 +31,7 @@ import { mountCityRing } from './city-ring.js';
 import { mountRegionPick, regionChosen } from './region-pick.js';
 import { regionOverlay } from './region-overlay.js';
 import { store, sliderTooltip, detailWarning, redrawFoldedSliders, sidePanel, buildOverlay, tutorial } from './page-chrome.js';
+import { rungView } from './rung-view.js';
 
 setDelaunator(Delaunator);
 
@@ -78,6 +79,7 @@ function startWorker() {
         if (msg.type === 'progress') { onProgress(msg.pct, msg.label); return; }
         if (msg.type === 'error') { failed(msg.message); return; }
         // (the first sketch, js/world-sketch.js: shown while the page has no world yet, the overlay drawn back to its bar)
+        if (msg.type === 'rung') { if (building === 'generate') rungs.show(msg); return; }         // (the Detail ladder's steps: js/rung-view.js)
         if (msg.type === 'sketch') { if (!world) { pv.paintLive({ T: msg, tMesh: meshFromArrays(msg.mesh) }); overlay.sketch(); } return; }
         if (msg.type === 'done' || msg.type === 'reapplyDone' || msg.type === 'editDone') received(msg);
     };
@@ -105,7 +107,7 @@ function generate(seed, toggledIndices = [], keepEdits = false) {
 }
 function failed(message) {
     console.error('[generate] build failed:', message);
-    building = null; overlay.active = false; holdControls(false);
+    building = null; overlay.active = false; holdControls(false); rungs.clear(); dirty = true;
     resetBuildButton();
     showBuildError(describeFailure(message), message);
 }
@@ -126,7 +128,7 @@ function received(msg) {
         n: sh.mesh.numCells,
     };
     if (kind === 'editDone' && old) { w.seed = old.seed; w.plateIsOcean = old.plateIsOcean; w.originalPlateIsOcean = old.originalPlateIsOcean; }
-    world = w; building = null; dirty = true; hoveredPiece = -1;
+    world = w; building = null; dirty = true; hoveredPiece = -1; rungs.clear();
     pv.forget();                                         // (the old world's finished moment let go)
     if (pv.gpu) pv.gpu.setMesh(w.tMesh);
     resetBuildButton();
@@ -195,6 +197,7 @@ function pageCells(layer, out, shade) {
     return false;
 }
 function paint() {
+    if (rungs.live) { rungs.repaint(); return; }                      // (a world being built: its step shown)
     const w = world, fin = pv.shows(w.fin);
     pv.syncClouds(fin, w.seed);
     if (fin) pv.paintFinished(fin, false, w.version);
@@ -210,7 +213,7 @@ function tick(now) {
     // (only the lines over the picture changed: those alone drawn again, when the picture shown allows it)
     if (world && !dirty && linesDirty) { linesDirty = false; if (!pv.relayLines()) dirty = true; }
     if (world && dirty) { dirty = linesDirty = false; paint(); }
-    pv.updatePatch(now, world ? pv.shows(world.fin) : null, world?.fin, world?.seed);
+    pv.updatePatch(now, world && !rungs.live ? pv.shows(world.fin) : null, world?.fin, world?.seed);
     regionShown.sync(world, regionChosen);                               // (the region pick's valleys: the shader's)
     pv.render(now);
 }
@@ -345,6 +348,7 @@ reapplyBtn.addEventListener('click', () => {
 
 // ── the build overlay ──
 const overlay = buildOverlay();
+const rungs = rungView(pv, overlay);
 const onProgress = (pct, label) => overlay.progress(pct, label), showBuildOverlay = () => overlay.show(), hideBuildOverlay = () => overlay.hide();
 
 // ── Build New World, the planet code ──

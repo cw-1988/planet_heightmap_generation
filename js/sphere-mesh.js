@@ -145,6 +145,15 @@ export class SphereMesh {
         this.adjList   = this._adjList;
     }
 
+    /** Its arrays, to send to another thread (js/mesh-worker.js), and the mesh again from them, nothing worked out anew. */
+    parts() { return { triangles: this.triangles, halfedges: this.halfedges, numRegions: this.numRegions, r_s: this._r_s, adjOffset: this._adjOffset, adjList: this._adjList, adjTriList: this._adjTriList }; }
+    static fromParts(p) {
+        const m = Object.create(SphereMesh.prototype);
+        Object.assign(m, { triangles: p.triangles, halfedges: p.halfedges, numRegions: p.numRegions, numSides: p.triangles.length, numTriangles: (p.triangles.length / 3) | 0,
+            _r_s: p.r_s, _adjOffset: p.adjOffset, _adjList: p.adjList, _adjTriList: p.adjTriList, adjOffset: p.adjOffset, adjList: p.adjList });
+        return m;
+    }
+
     _next(s)    { return (s % 3 === 2) ? s - 2 : s + 1; }
     s_begin_r(s){ return this.triangles[s]; }
     s_end_r(s)  { return this.triangles[this._next(s)]; }

@@ -1,37 +1,44 @@
-# Idea: a new planet growing finer as it builds (a maybe)
+# The Detail ladder: a new planet built coarse first, then finer step by step
 
-The owner asked, 2026-11-20, why a new planet can't start very coarse and grow more detailed, as if the Detail slider
-were slid from left to right while it builds. This is an idea, not a plan. Back to [shared.md](shared.md); the load as it
-is: [generate-load.md](generate-load.md).
+A new planet (Generate or Import) is shown at 5,000 Detail first. Then it is shown at four times as many cells each step
+(20,000, 80,000, 320,000, 1,280,000) while that is below the Detail chosen, and then at the Detail itself. Each step
+replaces the last on screen, as if the Detail slider were slid from left to right while it builds. Asked for by the owner,
+2026-11-20. Back to [shared.md](shared.md); the rest of the load: [generate-load.md](generate-load.md).
 
-## What already happens
+## How
 
-Generate already climbs in coarse-to-fine steps:
+- **Worked out once** (`js/planet-worker.js` handleGenerate): the plates, their motion, the past and the Frame, on the
+  first step's mesh. None of them depends on Detail (they live on the 40,000-cell sim mesh).
+- **Drawn per step** (`js/detail-ladder.js`): each step projects the pieces on its own mesh (`piecesOn`), then draws only
+  the ground on it (`groundOnMesh`, as Reapply draws it), with its hillshade. It is sent to the page as a `rung`
+  (`sendRung`).
+- **The last step is the planet as it always was**: the same mesh, the same ground, bit for bit. The finish (climate,
+  rocks, food) runs only on it.
+- **The meshes are built ahead** (`js/mesh-worker.js`, asked through `js/mesh-source.js`): all steps' meshes are
+  requested at once, so the next one is triangulated on its own thread while the planet worker draws the ground on the one
+  before. `SphereMesh.parts()` / `fromParts()` move a mesh between threads without working anything out again. If that
+  thread fails, each mesh is built on the planet worker, as before.
+- **On the page** (`js/rung-view.js`, used by `js/main.js` and `js/import-main.js`): the step shown is drawn in place of
+  the old world, so a Rebuild shows the new planet growing over the old one. Each step logs
+  `[build] Detail X of N shown at T s (mesh …, ground …)` to the console.
+- **Import** (`importGround`): the image's heights sampled and shaped on each step's mesh, shown the same way.
 
-1. the sketch (~1 s);
-2. the present-day world on the fixed 40,000-cell sim mesh (~5 s);
-3. the terrain at the chosen Detail (~14 s);
-4. the climate, rocks and food on it (~19 s).
+## Why each step is a new picture, not a refined one
 
-Evolution's Add detail climbs too: a pass at each smaller Detail on its list whose cost is at most half the next one's
-(`evolution-main.js` finishPasses).
+Each Detail is its own Fibonacci sphere with its own jitter; its points don't include the coarser step's, so a step
+replaces the last instead of refining it. The ground keeps its shape between steps (the same plates, past and Frame);
+the coasts and relief sharpen. A true refine-in-place would need nested meshes (such as a subdivided icosphere) under
+every finish stage, the saved files and Evolution: a change of direction.
 
-## Why it isn't a smooth slide
+## What it costs
 
-- **Each Detail is a different mesh.** Each level is its own Fibonacci sphere with its own jitter. Its points don't
-  include the coarser level's points, so a finer level can't refine a coarser one: it replaces it. Each level redoes
-  the ground, carving, rivers and picture from the start.
-- **The rivers re-route on each mesh.** Flow follows the cells, so courses and lakes shift between levels. The picture
-  would jump, not sharpen.
-- **The slow part doesn't scale with Detail.** The climate alone took 3.3 s at 12,000 points and 3.0–3.5 s at 204,000
-  (Node, 2026-11-20). In the browser pane it is ~5.5 s. Add detail's cost model is 13.5 s fixed plus 15.6 s per million
-  cells. So a coarse level saves little on the climate. It has to run once, on the final mesh.
+Measured in the app's browser pane, 2026-11-20:
 
-## What it could be
+| Detail | Steps shown at (s) | First picture of the chosen Detail |
+|---|---|---|
+| 204,000 | 5k 3.0 · 20k 3.9 · 80k 5.3 | 8.4 s (was ~4 s without the ladder) |
+| 2,560,000 | 5k 1.9 · 20k 2.7 · 80k 3.7 · 320k 7.1 · 1.28M 19.0 | 35.2 s (42.3 s before the meshes were built ahead) |
 
-- **A terrain-only rung between 40,000 and the final Detail.** For 204,000 that would be ~50,000 cells, with ground,
-  carve, rivers and picture but no climate. That gives a sharper picture some seconds before step 3. It costs that rung's
-  time on top, and its rivers jump when the final level lands.
-- **Nested meshes**, such as a subdivided icosphere, where each level keeps the last level's points. Only these would
-  allow a true refine-in-place. That means changing the mesh under every finish stage, the saved files and Evolution:
-  a change of direction.
+The steps add their own ground on top; at 2,560,000 the 1,280,000 step (~12 s) is most of it. What a step still spends
+besides its ground is projecting the pieces on its mesh (`piecesOn`), not the mesh itself. Something is on screen from
+~2 s, and it sharpens every few seconds instead of standing still.

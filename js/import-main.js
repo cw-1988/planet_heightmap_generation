@@ -20,6 +20,7 @@ import { detailFromSlider } from './detail-scale.js';
 import { showBuildError, describeFailure, holdControls } from './build-error.js';
 import { state } from './state.js';
 import { sliderTooltip, detailWarning, redrawFoldedSliders, sidePanel, buildOverlay } from './page-chrome.js';
+import { rungView } from './rung-view.js';
 
 setDelaunator(Delaunator);
 
@@ -41,6 +42,7 @@ $('info').textContent = IS_TOUCH ? 'Drag to rotate · Pinch to zoom' : 'Drag to 
 let world = null, dirty = true, version = 0, building = null;
 const finisher = new FinishService();
 const overlay = buildOverlay(), panel = sidePanel();
+const rungs = rungView(pv, overlay);                                   // (the Detail ladder's steps: js/rung-view.js)
 
 // ── the worker ──
 let worker = null;
@@ -49,6 +51,7 @@ function startWorker() {
     worker.onmessage = ({ data: msg }) => {
         if (msg.type === 'progress') { overlay.progress(msg.pct, msg.label); return; }
         if (msg.type === 'error') { failed(msg.message); return; }
+        if (msg.type === 'rung') { if (building === 'import') rungs.show(msg); return; }
         if (msg.type === 'done' || msg.type === 'reapplyDone') received(msg);
     };
     worker.onerror = (e) => { failed(e.message || 'Worker crashed'); worker.terminate(); startWorker(); };
@@ -60,14 +63,14 @@ const climateOptions = () => ({ greenhouseWm2: v('sTmp'), precipScale: Math.max(
 
 function failed(message) {
     console.error('[import] failed:', message);
-    building = null; overlay.active = false; holdControls(false);
+    building = null; overlay.active = false; holdControls(false); rungs.clear(); dirty = true;
     importBtn.disabled = !gray; importBtn.textContent = 'Import';
     showBuildError(describeFailure(message, 'import this heightmap'), message);
 }
 function received(msg) {
     const sh = msg.shared;
     world = { version: ++version, seed: msg.seed, tMesh: meshFromArrays(sh.mesh), meshArrays: sh.mesh, heightKm: sh.heightKm, shade: sh.shade, finishJob: sh.finish, fin: null, finishing: null, problem: null, n: sh.mesh.numCells };
-    building = null; dirty = true;
+    building = null; dirty = true; rungs.clear();
     pv.forget();                                         // (the old world's finished moment let go)
     importBtn.disabled = false; importBtn.textContent = 'Import';
     reapplyBtn.classList.remove('spinning');
@@ -116,6 +119,7 @@ $('climateChipBtn').addEventListener('click', () => { if (world?.problem) finish
 // ── drawing, and the hover ──
 function tick(now) {
     requestAnimationFrame(tick);
+    if (world && dirty && rungs.live) { dirty = false; rungs.repaint(); }    // (a world being built: its step shown)
     if (world && dirty) {
         dirty = false;
         const fin = pv.shows(world.fin);
@@ -123,7 +127,7 @@ function tick(now) {
         if (fin) pv.paintFinished(fin, false, world.version); else pv.paintLive({ T: { heightKm: world.heightKm, shade: world.shade }, tMesh: world.tMesh });
         pv.syncLegendCard(!!fin);
     }
-    pv.updatePatch(now, world ? pv.shows(world.fin) : null, world?.fin, world?.seed);
+    pv.updatePatch(now, world && !rungs.live ? pv.shows(world.fin) : null, world?.fin, world?.seed);
     pv.render(now);
 }
 requestAnimationFrame(tick);

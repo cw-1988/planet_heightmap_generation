@@ -5,11 +5,11 @@
 // Commands: generate, reapply (the sculpting knobs: the same Frame, the ground again), editRecompute (pieces raised or
 // sunk: the plates regrouped, the ground again), importHeightmap.
 
-import { makeRng } from './rng.js';
 import { SEED_MAX } from './planet-code.js';
-import { setDelaunator, buildSphere } from './sphere-mesh.js';
-import { generateCoarsePlates, projectCoarsePlates } from './coarse-plates.js';
-import { smoothAndReconnectPlates } from './plates.js';
+import { setDelaunator } from './sphere-mesh.js';
+import { meshesFor } from './mesh-source.js';
+import { generateCoarsePlates } from './coarse-plates.js';
+import { detailRungs, piecesOn, regionsOf, regionLandOf, groundOnMesh, sendRung } from './detail-ladder.js';
 import { warpTerrain, smoothElevation, sharpenRidges, applySoilCreep, applyDetailNoise } from './terrain-post.js';
 import { applyPlatePhysics } from './plate-physics.js';
 import { DETAIL_NOISE_DAMPEN_STRENGTH } from './terrain-config.js';
@@ -67,33 +67,35 @@ function presentPlatesFor({ coarse, P, pieceOcean, pieceVec, seed, mesh, r_xyz, 
     const base0 = reuse?.base ?? (edited ? uneditedLayout(L, original) : null);
     const plates = buildPresentPlates(L, undefined, base0 && edited ? motionsOf(base0.P) : null);
     const base = base0 ?? { P: plates, pieceLand: Uint8Array.from(L.pieceIds, id => (original.has(id) ? 0 : 1)) };
-    // each render region's sim cell (its nearest; the sim mesh's index is in Evolution's z-up frame)
-    let regionCell = reuse?.regionCell;
-    if (!regionCell) {
-        regionCell = new Int32Array(mesh.numRegions);
-        for (let r = 0; r < mesh.numRegions; r++) regionCell[r] = L.sim.index.nearest(r_xyz[3 * r + 2], r_xyz[3 * r], r_xyz[3 * r + 1]);
-    }
-    // each region's plate: its own piece's (G1c: a plate is whole pieces) — or its sim cell's, in a piece split down a narrow
-    // sea or too small to hold a sim cell
-    const pieceIndex = new Map(L.pieceIds.map((id, i) => [id, i]));
-    const regionPlate = new Int16Array(mesh.numRegions);
-    for (let r = 0; r < mesh.numRegions; r++) {
-        const i = pieceIndex.get(r_plate[r]), pp = i === undefined ? -1 : plates.piecePlate[i];
-        regionPlate[r] = pp < 0 || plates.splitPiece[i] ? plates.cellPlate[regionCell[r]] : pp;
-    }
+    const { regionCell, regionPlate } = regionsOf(L, plates, mesh, r_xyz, r_plate, reuse?.regionCell);
     return { L, P: plates, regionCell, regionPlate, r_plate, base };
 }
 /** The present-day world's ground for the pieces as edited (v2/js/present/world.js), with the uncarved surface the finish
  *  starts from. Kept on `present.world`. */
-async function presentGround(present, plateIsOcean, mesh, r_xyz, seed, knobs) {
+async function presentGround(present, plateIsOcean, mesh, r_xyz, seed, knobs, drawn = true) {
     const pieceLand = Uint8Array.from(present.L.pieceIds, id => (plateIsOcean.has(id) ? 0 : 1));
     // (G2c: each region's own piece as edited — the ground is held to the pieces' outlines at this Detail)
-    const regionLand = new Uint8Array(mesh.numRegions);
-    for (let r = 0; r < regionLand.length; r++) regionLand[r] = plateIsOcean.has(present.r_plate[r]) ? 0 : 1;
+    const regionLand = regionLandOf(present.r_plate, plateIsOcean);
     present.world = await presentWorld(present, pieceLand, mesh, r_xyz, { seed, knobs, regionLand, regionCell: present.regionCell, regionPlate: present.regionPlate, finish: finishConfigOf(knobs), unedited: present.base, pool: await poolFor(mesh, r_xyz) });
     present.knobs = knobs;
     present.world.shade = hillshade(presentTerrainMesh(mesh, r_xyz), present.world.heightKm);
-    groundDrawn(present, mesh, r_xyz);
+    if (drawn) groundDrawn(present, mesh, r_xyz);
+}
+/** The Detail ladder's steps after the first (js/detail-ladder.js: `ns`, the world's own Detail last), each mesh built
+ *  by `build` as its turn comes; each step shown, the last one's ground, regions and mask laid into `present`, as if the
+ *  world had been built on it from the start. Returns the last mesh. */
+async function climbTo(present, ns, build, plateIsOcean, seed, knobs, t0) {
+    const N = ns[ns.length - 1];
+    for (let i = 0; i < ns.length; i++) {
+        progress(40 + 55 * i / ns.length, `Detail ${ns[i].toLocaleString('en-US')}…`);
+        const tb = performance.now(), m = await build(ns[i]), tg = performance.now();
+        const g = await groundOnMesh(present, m, plateIsOcean, seed, knobs, await poolFor(m.mesh, m.r_xyz));
+        if (m.n !== N) { sendRung(m.mesh, m.r_xyz, g.heightKm, g.shade, m.n, N, t0, { mesh: tg - tb, ground: performance.now() - tg }); continue; }
+        const w = present.world;
+        Object.assign(w, { mask: g.mask, heightKm: g.heightKm, drainage: g.drainage, receivers: g.receivers, order: g.order, lava: g.lava, young: g.young, cut: g.cut, surface: g.surface, shade: g.shade, ms: { ...w.ms, ...g.ms, mesh: tg - tb } });
+        Object.assign(present, { regionCell: g.regionCell, regionPlate: g.regionPlate, r_plate: m.r_plate });
+        return m;
+    }
 }
 // ── the terrain brushes (js/terrain-brush.js): the ground as drawn kept, the strokes replayed onto it ──
 /** A ground just drawn: kept unbrushed (an undo replays from it), the strokes so far laid on it. */
@@ -196,15 +198,16 @@ async function handleGenerate(data) {
     const t0 = performance.now();
     progress(0, 'Shaping the world…');
     const seed = overrideSeed ?? Math.floor(Math.random() * SEED_MAX);
-    const { mesh, r_xyz } = buildSphere(N, jitter, makeRng(seed));
     progress(10, 'Generating coarse plates…');
     const coarseLayout = generateCoarsePlates(seed, P, numContinents, continentSizeVariety, landCoverage);
     applyCuts(data.cuts, coarseLayout);                       // (the region cuts, before the first land is read off it)
     const { coarseMesh, coarse_xyz, coarse_r_plate, coarsePlateSeeds, coarsePlateVec, coarsePlateIsOcean } = coarseLayout;
+    const coarse = { coarseMesh, coarse_xyz, coarse_r_plate, coarsePlateSeeds };
     W = null; pendingStrokes = data.strokes ?? [];
     progress(20, 'Projecting plates…');
-    const r_plate = projectCoarsePlates(mesh, r_xyz, coarseMesh, coarse_xyz, coarse_r_plate, seed, P);
-    smoothAndReconnectPlates(mesh, r_plate, coarsePlateSeeds, 3);
+    // (the Detail ladder, js/detail-ladder.js: the world first built at its coarsest step, then finer up to N)
+    const ns = [...detailRungs(N), N], meshes = meshesFor(ns, jitter, seed), build = async (n) => piecesOn(n, await meshes[ns.indexOf(n)], seed, coarse, P);
+    let { mesh, r_xyz, r_plate } = await build(ns[0]);
     const plateSeeds = coarsePlateSeeds, plateIsOcean = coarsePlateIsOcean, originalPlateIsOcean = new Set(plateIsOcean);
     // (a planet code's edits: pieces raised or sunk, by their index in the layout)
     if (toggledIndices?.length) {
@@ -216,11 +219,16 @@ async function handleGenerate(data) {
     // the pieces' motion: the physics on the unedited layout
     const pieceVec = JSON.parse(JSON.stringify(coarsePlateVec));
     applyPlatePhysics(pieceVec, plateSeeds, originalPlateIsOcean, coarse_r_plate, coarseMesh, coarse_xyz, seed);
-    const coarse = { coarseMesh, coarse_xyz, coarse_r_plate, coarsePlateSeeds };
     const present = presentPlatesFor({ coarse, P, pieceOcean: plateIsOcean, pieceVec, seed, mesh, r_xyz, r_plate, original: originalPlateIsOcean });
     present.edit = { pieceVec, coarse, P, original: originalPlateIsOcean };   // (kept for an edit: the coarse layout, the pieces' motion — G1d — and their first land)
-    progress(35, 'Raising the ground…');
-    await presentGround(present, plateIsOcean, mesh, r_xyz, seed, knobsOf(data, nMag));
+    progress(35, ns.length > 1 ? `Detail ${ns[0].toLocaleString('en-US')}…` : 'Raising the ground…');
+    const knobs = knobsOf(data, nMag);
+    await presentGround(present, plateIsOcean, mesh, r_xyz, seed, knobs, ns.length === 1);
+    if (ns.length > 1) {
+        sendRung(mesh, r_xyz, present.world.heightKm, present.world.shade, ns[0], N, t0);
+        ({ mesh, r_xyz, r_plate } = await climbTo(present, ns.slice(1), build, plateIsOcean, seed, knobs, t0));
+        groundDrawn(present, mesh, r_xyz);
+    }
     W = { mesh, r_xyz, seed, nMag, plateIsOcean: new Set(plateIsOcean), present, r_plate: new Int32Array(r_plate), strokes: pendingStrokes };
     present.r_plate = W.r_plate;
     progress(95, 'Done');
@@ -229,7 +237,7 @@ async function handleGenerate(data) {
 
 async function handleReapply(data) {
     if (!W) { self.postMessage({ type: 'error', message: 'No retained state for reapply' }); return; }
-    if (W.imported) { importGround(data, true); return; }
+    if (W.imported) return importGround(data, true);
     const t0 = performance.now();
     if (data.nMag !== undefined) W.nMag = data.nMag;
     await presentReground(W.present, W.mesh, W.r_xyz, W.seed, knobsOf(data, W.nMag));
@@ -293,12 +301,21 @@ function shapeImported(mesh, r_xyz, elev, data, seed) {
 }
 const IMPORT_SIM_CELLS = 20000;
 let importSim = null;
-function importGround(data, again = false) {
+async function importGround(data, again = false) {
     const t0 = performance.now();
     if (!again) {
         progress(0, 'Building sphere mesh…');
         const seed = data.seed ?? Math.floor(Math.random() * SEED_MAX);
-        const { mesh, r_xyz } = buildSphere(data.N, data.jitter, makeRng(seed));
+        // (the Detail ladder, js/detail-ladder.js: the image shaped on each coarser step first, each shown)
+        const ns = [...detailRungs(data.N), data.N], meshes = meshesFor(ns, data.jitter, seed);
+        for (const [i, n] of ns.slice(0, -1).entries()) {
+            progress(5, `Detail ${n.toLocaleString('en-US')}…`);
+            const s = await meshes[i], elev = sampleHeightmap(s.mesh, s.r_xyz, data.grayscale, data.imageWidth, data.imageHeight);
+            shapeImported(s.mesh, s.r_xyz, elev, data, seed);
+            const h = Float32Array.from(elev, elevToHeightKm);
+            sendRung(s.mesh, s.r_xyz, h, hillshade(presentTerrainMesh(s.mesh, s.r_xyz), h), n, data.N, t0);
+        }
+        const { mesh, r_xyz } = await meshes[ns.length - 1];
         progress(25, 'Sampling heightmap…');
         W = { mesh, r_xyz, seed, imported: sampleHeightmap(mesh, r_xyz, data.grayscale, data.imageWidth, data.imageHeight) };
     }

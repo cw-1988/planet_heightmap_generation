@@ -9,18 +9,21 @@ with a ~440 ms freeze. Measured 2026-11-20 on the owner's Windows laptop, Genera
 
 1. **The sketch** (`js/world-sketch.js`) — as soon as the plates are projected (~1 s), the planet worker sends land and
    sea: the ground rising inland and deepening offshore, with a little rolling relief, hillshaded. The page shows it
-   until the present-day world arrives, so a new planet never starts as an empty sphere. Nothing of it is kept.
-2. **The first picture** (~5.5 s, was ~8 s) — the present-day world's ground. Its surface is drawn on a pool of worker
+   until the first step of the Detail ladder arrives, so a new planet never starts as an empty sphere. Nothing of it is kept.
+2. **The Detail ladder** (from ~2–3 s) — the ground at 5,000 Detail, then ×4 each step up to the Detail chosen, each
+   shown in place of the last: [progressive-detail.md](progressive-detail.md).
+3. **The first picture** (~8.4 s at 204,000; ~4 s before the ladder) — the present-day world's ground at the Detail
+   chosen, the ladder's last step. Its surface is drawn on a pool of worker
    threads (`v2/js/terrain/terrain-pool.js`, made when the planet worker starts, on the fixed sim mesh): the same ground,
    bit for bit, as drawn on one thread (`node v2/tools/check-present-pool.mjs` checks it).
-3. **The terrain** (~13 s into the finish) — the finish (`v2/js/finish/finish.js`) knows the final heights, sea, lakes,
+4. **The terrain** (~13 s into the finish) — the finish (`v2/js/finish/finish.js`) knows the final heights, sea, lakes,
    rivers and drain once its water stage is done, ~60 % of the way through. It hands them over then (`onTerrain`); the
    finish worker draws their picture and the rivers' valley lines for the tiles, and sends them as `terrain`. The page
    shows that world (`js/finish-landing.js`: `partial`), with Satellite, Geology and Food still locked, and export and
    Open region waiting.
-4. **The finished world** (~19 s) — the climate, rocks and food. Its `done` lands on the terrain's own picture object
+5. **The finished world** (~19 s) — the climate, rocks and food. Its `done` lands on the terrain's own picture object
    and rivers, so nothing drawn from them is drawn again; with the terrain already shown, the page doesn't repaint. The
-   final picture reuses the pixels' located cells from step 3 (up to 2048 px wide: ~75 MB, ~0.6 s saved).
+   final picture reuses the pixels' located cells from step 4 (up to 2048 px wide: ~75 MB, ~0.6 s saved).
 
 Node bench (seed 2, 204,000): terrain at 7.7 s of a 12.8 s finish; the terrain's picture 0.5 s; the final picture 1.9 s
 with the stored cells, 2.5 s without. The early heights, sea, lakes, rivers and drain equal the final ones, the picture
