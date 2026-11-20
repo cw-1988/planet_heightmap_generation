@@ -269,7 +269,6 @@
     .evo-act { min-height: 44px; }
     #exportClose { min-width: 44px; min-height: 44px; top: 4px; right: 6px; }
     #ui .toggle-label { min-height: 44px; }
-    #info { display: none; }
     #hoverInfo { bottom: 176px; }
     .evo-climate-btn { min-height: 44px; }
 }

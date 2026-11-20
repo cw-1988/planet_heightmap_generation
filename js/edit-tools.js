@@ -9,6 +9,7 @@
 import { applyStroke, pointAt, arcKm } from './terrain-brush.js';
 import { mountMarks, viewKey } from './edit-marks.js';
 import { stepByWheel } from '../v2/js/view/wheel-step.js';
+import { editHeld } from './edit-key.js';
 
 const TOOLS = [['look', 'Look'], ['raise', 'Raise'], ['lower', 'Lower'], ['smooth', 'Smooth'], ['flatten', 'Flatten'], ['split', 'Split']];
 
@@ -43,7 +44,7 @@ export function mountEditTools(pv, hooks) {
     }
     bar.addEventListener('click', (e) => { const t = e.target.closest('[data-tool]'); if (t) pick(t.dataset.tool); });
     undoBtn.addEventListener('click', undo);
-    addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !e.target.closest?.('input, textarea')) { e.preventDefault(); undo(); } });
+    addEventListener('keydown', (e) => { if (editHeld(e) && e.key.toLowerCase() === 'z' && !e.target.closest?.('input, textarea')) { e.preventDefault(); undo(); } });
 
     const onPlanet = (t) => pv.ui.canvas.contains(t) || pv.ui.map.contains(t) || t === controls?.domElement;
     const marks = mountMarks(pv);
@@ -74,7 +75,7 @@ export function mountEditTools(pv, hooks) {
     // down for more. Ctrl stays the piece selection's. Shift+wheel can come as a sideways scroll: deltaX)
     addEventListener('wheel', (e) => {
         const input = e.shiftKey ? size : e.altKey ? str : null;
-        if (!input || e.ctrlKey || e.metaKey || ed.tool === 'look' || ed.tool === 'split' || !onPlanet(e.target)) return;
+        if (!input || editHeld(e) || ed.tool === 'look' || ed.tool === 'split' || !onPlanet(e.target)) return;
         e.preventDefault(); e.stopPropagation();
         stepByWheel(input, e);      // (a stroke under way keeps its own)
     }, { capture: true, passive: false });
@@ -86,7 +87,7 @@ export function mountEditTools(pv, hooks) {
     };
     addEventListener('pointerdown', (e) => {
         // (Ctrl-click still selects pieces)
-        if (ed.tool === 'look' || e.button !== 0 || e.ctrlKey || e.metaKey || !onPlanet(e.target)) return;
+        if (ed.tool === 'look' || e.button !== 0 || editHeld(e) || !onPlanet(e.target)) return;
         e.stopPropagation(); e.preventDefault();
         const w = hooks.world(), p = w && !hooks.busy() ? pv.placeUnder(e) : null;
         if (!p) return;

@@ -48,7 +48,7 @@ const SCENE = TERRAIN_SCENES.find(s => s.id === 'cycle');      // the start worl
 const $ = id => document.getElementById(id);
 const ui = { canvas: $('canvas'), map: $('mapCanvas'), cont: $('sCont'), len: $('sLen'), ending: $('ending'), sim: $('simCells'), terrain: $('terrainCells'),
     seed: $('seedCode'), build: $('generate'), status: $('buildStatus'), timeline: $('timeline'), play: $('playBtn'), time: $('timeSlider'),
-    timeLabel: $('timeLabel'), rate: $('rate'), extend: $('extendBtn'), hover: $('hoverInfo'), panel: $('ui'), stats: $('stats'), info: $('info'),
+    timeLabel: $('timeLabel'), rate: $('rate'), extend: $('extendBtn'), hover: $('hoverInfo'), panel: $('ui'), stats: $('stats'),
     railBuilt: $('railBuilt'), railShown: $('railShown'), ticks: $('timeTicks'), quality: $('quality'), world: $('worldSection'), tmp: $('sTmp'), prc: $('sPrc'), lk: $('sLk') };
 
 // ── settings ──
@@ -1096,7 +1096,6 @@ $('sidebarToggle').addEventListener('click', () => { ui.panel.classList.toggle('
     if (IS_TOUCH) {
         for (const el of overlay.querySelectorAll('[data-touch]')) el.textContent = el.dataset.touch;
         for (const s of overlay.querySelectorAll('.tutorial-step p')) s.innerHTML = s.innerHTML.replace('<strong>scroll</strong> to zoom', '<strong>pinch</strong> to zoom');
-        ui.info.textContent = '';
     }
     const seen = (() => { try { return localStorage.getItem(KEY); } catch { return '1'; } })();
     if (!seen) open();

@@ -58,7 +58,7 @@ export class PlanetView {
      *   moment still kept (its Satellite view drawn ahead only while it is); extraLines(ctx, width) and extraLinesKey(): the
      *   page's own lines over the picture
      */
-    constructor({ isTouch, gpu = true, paletteKey, onChange = () => {}, alive = () => true, extraLines = null, extraLinesKey = () => null, infoText = null, band = {}, frameHidden = () => false }) {
+    constructor({ isTouch, gpu = true, paletteKey, onChange = () => {}, alive = () => true, extraLines = null, extraLinesKey = () => null, band = {}, frameHidden = () => false }) {
         this.isTouch = isTouch;
         this.MAP_WIDTH = isTouch ? 1024 : 2048;
         this.SHARP_WIDTH = isTouch ? 0 : 4096;         // (the sharper texture, when paused (desktop; developer: "Sharper when paused"))
@@ -67,8 +67,7 @@ export class PlanetView {
         this.GPU_WIDTH = isTouch ? 2048 : 4096;
         this.SHADING = { exaggeration: 20, seaLevelKm: 0 };
         this.onChange = onChange; this.alive = alive; this.extraLines = extraLines; this.extraLinesKey = extraLinesKey; this.paletteKey = paletteKey;
-        this.ui = { canvas: $('canvas'), map: $('mapCanvas'), hover: $('hoverInfo'), info: $('info') };
-        this.infoText = infoText ?? (mode => `Drag to ${mode === 'map' ? 'move the map' : 'turn the planet'} · scroll to zoom · hover for details`);
+        this.ui = { canvas: $('canvas'), map: $('mapCanvas'), hover: $('hoverInfo') };
         this.tex = { lo: texture(this.MAP_WIDTH), sharp: null };
         // (V1's space around the globe — stars, atmosphere, its light, the sun glinting off the sea: developer: "I do like the
         // starry background and the sunlight/reflection of V1")
@@ -81,7 +80,7 @@ export class PlanetView {
         onOpenArea((left, shift) => this.globe.setOpenArea(left, shift));
         planetWidthFrom(left => this.globe.planetWidth(left));
         // (the band a flat map is fitted in, js/map-band.js: below the layer tabs and their rows, above what the page keeps
-        // under the planet — `band.below`: Evolution's timeline, Generate's hint — its frame's numerals at the sides; and
+        // under the planet — `band.below`: Evolution's timeline — its frame's numerals at the sides; and
         // the graticule frame round the globe or the map, js/graticule-frame.js, hidden while `frameHidden()`)
         this.band = createMapBand(band);
         this.graticule = createGraticuleFrame(this.ui.canvas);
@@ -141,7 +140,6 @@ export class PlanetView {
             view.mode = e.target.value;
             this.ui.map.hidden = view.mode !== 'map';             // (the map's frame: the map is drawn under it, and it takes the pointer)
             this.ui.hover.style.display = 'none';
-            if (!this.isTouch) this.ui.info.textContent = this.infoText(view.mode);
             this.showMap();
         });
         // the map view's projection (projections.js), with its own options; remembered, the same on the three pages

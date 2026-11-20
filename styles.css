@@ -821,20 +821,6 @@ body:has(#helpBtn) { --bar-help: 64px; }
     border: var(--line-hair) solid var(--rule); box-shadow: var(--shadow-card);
     white-space: nowrap; pointer-events: none;
 }
-#info {
-    position: absolute; bottom: 16px; left: calc(50% + var(--open-shift, 0px)); transform: translateX(-50%);
-    font: 500 13px/1.3 var(--font-ui); color: var(--muted); transition: color 0.4s ease;
-    pointer-events: none; text-align: center;
-    /* (one line wherever it fits: placed from the middle, it otherwise shrank to the half of the window right of it) */
-    width: max-content; max-width: calc(100vw - var(--open-left, 0px) - 32px);
-}
-#info.nudge { animation: infoNudge 2.5s ease; }
-@keyframes infoNudge {
-    0%   { color: var(--ui-faintest); }
-    15%  { color: var(--ui-body-cool); }
-    85%  { color: var(--ui-body-cool); }
-    100% { color: var(--ui-faintest); }
-}
 #hoverInfo {
     position: absolute; bottom: 76px; left: calc(50% + var(--open-shift, 0px)); transform: translateX(-50%);   /* (clear of the hint; over Rebuild while edits wait) */
     font: 400 15px/1.5 var(--font-text); color: var(--body); background: var(--surface);
@@ -1581,8 +1567,7 @@ body.terrain-tool-on #planetCanvas, body.terrain-tool-on canvas { cursor: crossh
     /* the tips: a finger's target round the 16 px "?" (their words sit above them: js/a11y.js) */
     .tip::before { content: ''; position: absolute; inset: -14px; }
 
-    /* Info bars: shift up above collapsed sheet */
-    #info { bottom: 68px; }
+    /* the hover readout: above the collapsed sheet */
     #hoverInfo { bottom: 112px; max-width: calc(100vw - 32px); font-size: 13px; }   /* (clear of the hint, two lines on a 360 px phone) */
     body.edits-pending #hoverInfo { bottom: 190px; }
 

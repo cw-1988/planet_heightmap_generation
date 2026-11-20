@@ -28,6 +28,7 @@ import { presentCrustLine } from './present-crust.js';
 import { plateColors, platesLegendHTML, INSPECT, inspectColors, drawPlateLines, platesMap } from './generate-plates.js';
 import { state } from './state.js';
 import { mountEditTools } from './edit-tools.js';
+import { editHeld, isEditKey } from './edit-key.js';
 import { mountCityRing } from './city-ring.js';
 import { mountRegionPick, regionChosen } from './region-pick.js';
 import { regionOverlay } from './region-overlay.js';
@@ -48,14 +49,11 @@ mountLayerBar({ comes: 'Comes a few seconds after the planet',
 const inspectEl = $('debugLayer');
 
 const pv = new PlanetView({ isTouch: IS_TOUCH, gpu: new URLSearchParams(location.search).get('gpu') !== '0', paletteKey: 'orogen.generate.palette',
-    band: { below: document.getElementById('info'), gap: 24 },
     onChange: viewChanged, alive: (fin) => fin === world?.fin,
     extraLines: (ctx, W, view) => drawPlateLines(ctx, W, view, world, { pending, hovered: hoveredPiece }),
-    extraLinesKey: (view) => `${world?.version ?? 0}|${view.layer === 'plates'}|${[...pending].join(',')}|${hoveredPiece}`,
-    infoText: (mode) => (IS_TOUCH ? 'Drag to rotate · Pinch to zoom · Use edit button to reshape' : `Drag to ${mode === 'map' ? 'move the map' : 'rotate'} · Scroll to zoom · Ctrl-click (⌘-click on a Mac) to reshape continents`) });
+    extraLinesKey: (view) => `${world?.version ?? 0}|${view.layer === 'plates'}|${[...pending].join(',')}|${hoveredPiece}` });
 const view = pv.view;
 const regionShown = regionOverlay(pv.globe);
-if (IS_TOUCH) $('info').textContent = 'Drag to rotate · Pinch to zoom · Use edit button to reshape';
 // (a touch screen wider than a phone — a tablet — keeps the edit button too: styles.css body.touch)
 if (IS_TOUCH) document.body.classList.add('touch');
 console.info(`[generate] painting ${pv.gpu ? `on the GPU at ${pv.GPU_WIDTH} px` : 'on the CPU'}`);
@@ -233,7 +231,7 @@ requestAnimationFrame(tick);
 const regionAt = (e) => { const p = world ? pv.placeUnder(e) : null; return p ? { p, r: pv.cellUnder(world.tMesh, p) } : null; };
 // (Ctrl or ⌘ held: the piece under the pointer lights up at once, before the pointer moves — as on the old page)
 let editKey = false, lastPointer = null;
-const editing = (e) => e.ctrlKey || e.metaKey || editKey || (IS_TOUCH && state.editMode);
+const editing = (e) => editHeld(e) || editKey || (IS_TOUCH && state.editMode);
 function readout(e) {
     lastPointer = e;
     const at = regionAt(e);
@@ -260,7 +258,7 @@ for (const el of [pv.ui.canvas, pv.ui.map]) {
     let down = null;
     el.addEventListener('pointerdown', (e) => {
         // (Ctrl-click, or Cmd-click on a Mac — where Firefox reports a Ctrl-click as a right-click; issue #19)
-        const edit = ((e.ctrlKey || e.metaKey) && (e.button === 0 || e.button === 2)) || (e.button === 0 && IS_TOUCH && state.editMode);
+        const edit = (editHeld(e) && (e.button === 0 || e.button === 2)) || (e.button === 0 && IS_TOUCH && state.editMode);
         const at = edit && !building ? regionAt(e) : null;
         down = at ? { x: e.clientX, y: e.clientY, piece: world.r_plate[at.r] } : null;
     });
@@ -273,12 +271,12 @@ for (const el of [pv.ui.canvas, pv.ui.map]) {
         pendingChanged();
         readout(e);
     });
-    el.addEventListener('contextmenu', (e) => { if (e.ctrlKey || e.metaKey) e.preventDefault(); });
+    el.addEventListener('contextmenu', (e) => { if (editHeld(e)) e.preventDefault(); });
 }
 addEventListener('keydown', (e) => {
-    if ((e.key === 'Control' || e.key === 'Meta') && !e.repeat) { editKey = true; if (lastPointer && pv.ui.hover.style.display !== 'none' && !building) readout(lastPointer); }
+    if (isEditKey(e.key) && !e.repeat) { editKey = true; if (lastPointer && pv.ui.hover.style.display !== 'none' && !building) readout(lastPointer); }
 });
-addEventListener('keyup', (e) => { if (e.key === 'Control' || e.key === 'Meta') { editKey = false; setHovered(-1); } });
+addEventListener('keyup', (e) => { if (isEditKey(e.key)) { editKey = false; setHovered(-1); } });
 addEventListener('blur', () => { editKey = false; setHovered(-1); });
 for (const el of [pv.ui.canvas, pv.ui.map]) el.addEventListener('pointerleave', () => { lastPointer = null; if (!(IS_TOUCH && state.editMode)) setHovered(-1); });
 const rebuildFab = $('rebuildFab');
@@ -503,8 +501,6 @@ tutorial({ key: 'atlas-engine-tutorial-seen', firstDone: genBtn, isTouch: IS_TOU
     for (const id of ['surveyClose', 'surveyDismiss', 'surveyLink']) $(id)?.addEventListener('click', dismiss);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) dismiss(); });
 })();
-// (the info line nudged once, after the first planet)
-genBtn.addEventListener('generate-done', () => { const el = $('info'); el.classList.add('nudge'); el.addEventListener('animationend', () => el.classList.remove('nudge'), { once: true }); }, { once: true });
 
 // ── go: the planet in the link, or a new one ──
 const hashParams = location.hash.length > 1 ? decodePlanetCode(location.hash.slice(1).trim()) : null;

@@ -10,6 +10,7 @@ import { regionMask } from './region-mask.js';
 import { valleysOf } from './region-basin.js';
 import { unitAt } from './region-bank.js';
 import { valleyGrid, gridAt } from './region-grid.js';
+import { editHeld } from './edit-key.js';
 
 /** The valley at a point as the map shows it (region-grid.js); before the map is built, off the cells. */
 function valleyAt(V, w, x, y, z, sea = null) {
@@ -92,7 +93,7 @@ export function mountRegionPick(pv, hooks) {
         const u = onPlanet(e.target) ? unitUnder(e, w) : -1;
         C.hover = Math.max(-1, u);                                          // (region-overlay.js sends it on)
     }, true);
-    addEventListener('pointerdown', (e) => { down = on && e.button === 0 && !e.ctrlKey && !e.metaKey && onPlanet(e.target) ? { x: e.clientX, y: e.clientY } : null; }, true);
+    addEventListener('pointerdown', (e) => { down = on && e.button === 0 && !editHeld(e) && onPlanet(e.target) ? { x: e.clientX, y: e.clientY } : null; }, true);
     addEventListener('pointerup', (e) => {
         if (!down) return;
         const moved = Math.hypot(e.clientX - down.x, e.clientY - down.y) >= 6, w = hooks.world();

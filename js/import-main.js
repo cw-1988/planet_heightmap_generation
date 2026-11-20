@@ -35,11 +35,8 @@ Object.assign($('canvas').style, { position: 'fixed', inset: '0', width: '100vw'
 mountLayerBar({ comes: 'Comes a few seconds after the heightmap', without: ['plates', 'geology'] });
 
 const pv = new PlanetView({ isTouch: IS_TOUCH, gpu: new URLSearchParams(location.search).get('gpu') !== '0', paletteKey: 'orogen.import.palette',
-    band: { below: document.getElementById('info'), gap: 24 },
-    onChange: () => { dirty = true; updateChip(); }, alive: (fin) => fin === world?.fin,
-    infoText: (mode) => (IS_TOUCH ? 'Drag to rotate · Pinch to zoom' : `Drag to ${mode === 'map' ? 'move the map' : 'rotate'} · Scroll to zoom`) });
+    onChange: () => { dirty = true; updateChip(); }, alive: (fin) => fin === world?.fin });
 const view = pv.view;
-$('info').textContent = IS_TOUCH ? 'Drag to rotate · Pinch to zoom' : 'Drag to rotate · Scroll to zoom';
 
 let world = null, dirty = true, version = 0, building = null;
 const finisher = new FinishService();
