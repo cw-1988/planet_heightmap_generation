@@ -415,8 +415,10 @@ function agesLegendHTML(fin, ageId, pick) {
 // large: geology/districts.js) — with where it came from, and each landmass's share of every resource: the readout names
 // the district under the pointer and its story (no marks on the map — developer, 2026-10-22: "i dont really like the
 // labels") ──
-// (the ever-present kinds have no districts: wood, building stone)
-const NO_DISTRICTS = new Set(['wood', 'clay', 'stoneLimestone', 'stoneSandstone', 'stoneGranite', 'stoneMarble', 'stoneSlate']);
+// (the ever-present, bulk and local kinds have no districts: wood, clay, building stone, sand and gravel, crushed rock —
+// silica sand, rarer and carried far, keeps them)
+const NO_DISTRICTS = new Set(['wood', 'clay', 'stoneLimestone', 'stoneSandstone', 'stoneGranite', 'stoneMarble', 'stoneSlate',
+    'stoneVolcanic', 'gravel', 'desertSand', 'crushedRock']);
 const subjectCache = new WeakMap();
 /**
  * What a view shows, as subjects that have districts: each its id, name, colour, field (per kept grid cell, 0…1

@@ -38,7 +38,7 @@ it always did, so a link shared before builds its world again), starting contine
 history length, ending, the planet's **Temperature** (−30…+30 W/m²) and **Precipitation** (±50 %) — the climate's
 options (`greenhouseWm2`: a radiative forcing in the energy balance; `precipScale`: the evaporation in the rain budget — so the ice, winds, currents and rain answer them), for the preview climate and Add detail alike; they change the climate only, so
 previews are worked out again when shown and a detailed moment says it was made with the old ones (in the link: `greenhouse=`,
-`rain=`), and **Lakes** (−1…1, Add detail only: docs/lakes-slider.md; `lakes=`) — and **Quality** (Fast 20K plates / 160K terrain · Balanced 40K / 160K · Best 80K / 640K · Custom,
+`rain=`), and **Lakes** (−1…1, Add detail only: docs/lakes-slider.md; `lakes=`) and **Small lakes** (−1…1, Add detail only: docs/small-lakes.md; `ponds=`) — and **Quality** (Fast 20K plates / 160K terrain · Balanced 40K / 160K · Best 80K / 640K · Custom,
 which shows the two resolutions), with Build this world and **Load planet…** (a planet file saved from the Export panel —
 or drop one anywhere on the page) — then the **context card**, and **Stats**. The view's
 settings sit in the **view strip** above the layer tabs, folded behind the arrow at their left (`js/view-strip.js`, shared with Generate and Import): Globe |
@@ -90,7 +90,7 @@ drains (`creepChannelKm2`: the valleys keep their floors) and a valley wider tha
 (`valleySides`). **The rocks shape the land** (plans/V2_LITHOLOGY_RELIEF_PLAN.md; `finish/finish-lithology.js`, the
 finish's `bedrock` stage, on a moment with the history's geological record): the rocks of the uncarved surface
 (`geology/rocks.js` on it), and what each does (`geology-config.js` `lithology`: hardness, how densely valleys cut it,
-bedding, ice-scoured knobs, solubility; limestone hard where dry, soft where wet — `geology/lithology.js`): hard rock left
+bedding (the mesh's cover stairs only; the fine detail's bedding steps removed 2026-11-20), ice-scoured knobs, solubility; limestone hard where dry, soft where wet — `geology/lithology.js`): hard rock left
 standing and soft worn down by how much harder each place's rock is than its region's (~80 km), as far as the history
 stripped it and the ground stands above its base level (none on a rising belt, on lava, or on a lowland plain at the
 rivers' grade; the region's mean kept: ~25 m on the whole, ±100–200 m in uplands where hard and soft meet); the carve's
@@ -203,7 +203,7 @@ monthly flows from each month's rain and snowmelt (and groundwater draining back
 its regime: permanent, permanent with a yearly flood season (the Nile's), seasonal, dry most of the year. A
 fresh lake stays where its river fills it and its sediment has not (`lakeSiltKm` × the catchment, trapped by Brune's
 curve from the inlets: a small lake on a small river, a big one on a big river, 2026-11-20 —
-[docs/basin-lakes.md](../docs/basin-lakes.md)); a lake may stand only in a glacial hollow or one of the tectonic surface
+[docs/basin-lakes.md](../docs/basin-lakes.md); which hollows may hold one: [docs/lake-origins.md](../docs/lake-origins.md)); a lake may stand only in a glacial hollow, a valley its trunk river blocks, or one of the tectonic surface
 read on the carving's mesh nearest `tectonicHollowMeshKm` across, where a range's troughs and a lowland's hummocks
 average away, and passes all its water on. A basin its river cannot fill is closed: a salt lake where it is big for its
 river (`lakeKeepKm2` × √(inflow / 1000 m³/s), `lakeHugeKm2` for a major river), else a salt pan; any other hollow is
@@ -320,6 +320,7 @@ node --max-old-space-size=16000 v2/tools/render-district-options.mjs [--moments 
 node v2/tools/shoot-lab.mjs 4 56 http://localhost:8123 scene=india   # screenshots + page smoke test (needs the server)
 node v2/tools/probe-play.mjs 8b history 40     # presses Play headlessly: frames painted, the page's long tasks (EXTRA=cells=2500000)
 node v2/tools/bench-lab.mjs 2500000           # the lab's terrain pipeline piece by piece: timings + output hashes (is a speed-up exact?)
+node v2/tools/bench-city.mjs [cells] [tex]    # the City size view at reaches 0.5–12 days: grid, haul by water, paint, hover (docs/city-size-speed.md)
 node v2/tools/check-save.mjs                  # the planet file: (a) a small history and detailed moment saved and read back bit for bit, and older
                                               # files made by hand → v2/out/; (b) every planet kept in tools/fixtures/saves/ opens, its terrain and every export map drawn
 node v2/tools/check-save.mjs --fixture        # (a) on a small planet kept as the fixture of today's versions — once per version
@@ -630,7 +631,8 @@ tools/             check scripts (+ lib/check-kit.mjs: shared frame helpers), tr
    on wet floors, salt flats in pans. Iron also in most mountain belts (veins and replacements, an arc's
    magnetite-apatite); building stone by how much of each rock there is × how easily it is got at — hill country bare,
    plains under silt, loess and red earth, a few quarry districts — and clay for brick where stone is scarce
-   (`deposits.buildingStone`); richness 0…1 kept per grid
+   (`deposits.buildingStone`); aggregates — sand and gravel, desert sand, crushed rock, silica sand — by
+   `geology/aggregates.js` ([docs/aggregates.md](../docs/aggregates.md)); richness 0…1 kept per grid
    cell (0.25° at 2.5M cells, coarser below: never finer than the mesh) and banded poor · moderate · rich.
    `guideRules`: `coalByWetBelts` (the history's coal: tectonics config `geology.coalByWetBelts`) and
    `iceStripsPlacers` are wired. The ages (`geology/ages.js`, on the page): each age's resources from the kinds of deposit it

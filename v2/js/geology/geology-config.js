@@ -122,6 +122,28 @@ export const GEOLOGY = {
             gain: 1,                // the richness × this
             clayHills: 0.5,         // clay in hill country this much of a plain's (brick where stone is scarce)
         },
+        // (aggregates.js, docs/aggregates.md: sand, gravel and crushed rock, and glass sand — bulk, worth only near where
+        // they are used: only the notable shown)
+        aggregates: {
+            floor: 0.25,            // a source under this shows nothing; above it, stretched back to 0…1
+            riverQ: [5, 150],       // a river's gravels: from a stream this big (m³/s), full by this…
+            riverBandKm: 5,         // …in its plain and terraces this far either side
+            riverRough: [0.03, 0.2],    // coarser upstream: sand to gravel as the ground roughens to this (km, as hills)…
+            riverSand: 0.5,         // …a lowland river's sand worth this much of a piedmont's gravel
+            gorgeRough: [0.5, 1],   // …and none in gorges this rough (no terraces to work)
+            outwash: 0.9,           // outwash plains and moraines beyond the old ice (strongest at its edge)
+            esker: 0.4,             // eskers and kames on the ground the ice left (poor at most: patchy)
+            beach: 0.8,             // beach sand and shingle where the coast is given sand…
+            beachBandKm: 3,         // …its beaches, spits and dunes this wide along the shore
+            ergCap: 0.3,            // desert sand never better than poor: wind-rounded grains bind badly in concrete
+            nearKm: 60,             // crushed rock where no sand or gravel lies within about this…
+            near: [0.01, 0.06],     // …(the share of the ground that is, over that reach: from the first, none by the second)
+            crushed: 0.85,          // crushed rock from hard rock (its share × access × this)
+            silicaSandstone: 0.8,   // glass sand: quartz sandstone…
+            silicaBeach: 0.7,       // …clean beach sand, sorted by the waves…
+            waveSorted: [0.3, 0.7], // …(as exposed as this: 0…1)
+            silicaErg: 0.35,        // …and dune sand, iron-stained (the reef coasts' sand is shell, not quartz: LITTORAL.reefC)
+        },
         // (D1b: the weathering and wetland deposits follow the ground — a place's height over the land within ~40 km, km)
         ground: {
             crustRelief: [-0.03, 0.04], // a weathered crust: none below the first (a valley floor), full above the second (an
@@ -185,7 +207,7 @@ export const GEOLOGY = {
                 iocg: 'craton', magmatic: 'craton', layered: 'craton', nativeCopper: 'basin', kimberlite: 'craton', greenstoneGold: 'shear', bif: 'craton', reef: 'craton',
                 bauxite: 'surface', niLaterite: 'surface', ironLaterite: 'surface', peat: 'surface', bogIron: 'surface', opal: 'surface', salt: 'surface',
                 coal: 'bed', ironstone: 'bed', bitumen: 'bed', flint: 'stone', stoneGranite: 'stone', obsidian: 'belt', ironVein: 'belt', ioa: 'belt', jade: 'shear', emerald: 'shear', pegmatite: 'belt', corundum: 'belt', lapis: 'belt', turquoise: 'belt', garnet: 'belt',
-                default: 'basin' },
+                gravel: 'surface', desertSand: 'surface', crushedRock: 'stone', silicaSand: 'stone', default: 'basin' },
             // (developer, 2026-10-31: "all of the deposits are very correlated with one another … worth trying to decouple")
             coupling: 0.2,          // how much every association's province, lineaments and lumpiness are one field (the
                                     // correlation between two associations': 1 all one, 0 each its own)
@@ -206,7 +228,9 @@ export const GEOLOGY = {
             flint: [200, 0.8], obsidian: [160, 0.35], ironVein: [160, 0.4], ioa: [200, 0.2], jade: [200, 0.2], agate: [220, 0.25],
             // (G7: gems are finds — small districts, a small share of their ground; emerald and lapis the rarest)
             pegmatite: [220, 0.14], emerald: [180, 0.05], corundum: [180, 0.08], lapis: [160, 0.06], basaltGems: [200, 0.25], amethyst: [220, 0.1],
-            opal: [240, 0.06], turquoise: [180, 0.14], garnet: [220, 0.1] },
+            opal: [240, 0.06], turquoise: [180, 0.14], garnet: [220, 0.1],
+            // (aggregates: worked near every town, but only the notable pits and quarries shown)
+            gravel: [160, 0.5], desertSand: [240, 0.25], crushedRock: [200, 0.3], silicaSand: [220, 0.25] },
         // each deposit fades with the time since it formed (its arc or its belt quiet, its basin's deepest burial) — even where
         // erosion is slow: ~60 % of Earth's Phanerozoic porphyries are gone, a half-life of ~160 Myr (research §2); shallow
         // ores go fastest, deep veins last (Myr)
@@ -222,7 +246,8 @@ export const GEOLOGY = {
             nativeCopper: 1, kimberlite: 1, greenstoneGold: 1, bif: 1, reef: 1, oil: 1.4, gas: 1.4, bitumen: 1.2, bauxite: 1.2, niLaterite: 1.2,
             ironLaterite: 1.1, supergene: 1, gossan: 0.4, placerGold: 1.4, placerTin: 2.2, placerDiamond: 1, salt: 1, ironstone: 0.75, bogIron: 1.2,
             coal: 1.3, peat: 1, wood: 1, ironVein: 1, ioa: 1,
-            pegmatite: 1, emerald: 0.7, corundum: 1, lapis: 1, basaltGems: 1, amethyst: 1, opal: 1, turquoise: 1, garnet: 1, gemPlacer: 2 },
+            pegmatite: 1, emerald: 0.7, corundum: 1, lapis: 1, basaltGems: 1, amethyst: 1, opal: 1, turquoise: 1, garnet: 1, gemPlacer: 2,
+            gravel: 1, desertSand: 1, crushedRock: 0.8, silicaSand: 0.9 },
     },
 };
 

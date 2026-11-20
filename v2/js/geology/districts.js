@@ -248,6 +248,10 @@ const STORIES = {
     turquoise: [null, () => 'copper ore weathered under a desert sky'],
     garnet: [(f, w) => !!f.oroType[w] || !!f.prevType[w], (f, w) => `grown in the schist and gneiss of ${beltWords(f, w) ?? beltWords(f, w, true) ?? 'the old crust'}`],
     gemPlacer: [null, () => 'rubies, sapphires and garnets washed down from their sources into a river\'s gravels'],
+    // (the aggregates: their own words — bulk, local; the history's record does not tell a river's gravel from a beach's)
+    desertSand: [null, () => 'dune sand of a sand sea — its grains rounded by the wind, poor for concrete: fill, and a little glass'],
+    crushedRock: [(f, w) => !!f.oroType[w] || isCraton(f, w) || isLip(f, w), (f, w) => `hard rock of ${beltWords(f, w) ?? (isLip(f, w) ? 'a flood basalt' : isCraton(f, w) ? 'the shield' : 'the old crust')}, quarried and crushed where no gravel lies near — bulk, worth hauling only a little way`],
+    silicaSand: [hasCover, (f, w) => `quartz sandstone of ${basinWords(f, w)}, or clean, wave-sorted sand on its coast — the sand for glass`],
 };
 function petroleum(f, w, source, window) {
     decodeFacies(f.facies[w], fac);

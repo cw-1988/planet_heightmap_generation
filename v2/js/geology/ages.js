@@ -64,14 +64,16 @@ export const AGES = [
         { id: 'amethyst', name: 'Amethyst', rgb: [160, 90, 210], from: [['amethyst', 1]] },
         { id: 'jade', name: 'Jade', rgb: [150, 196, 140], from: [['jade', 1]] },
         { id: 'garnet', name: 'Garnet', rgb: [128, 28, 36], from: [['garnet', 1], ['gemPlacer', 0.5]] }] },
-    { id: 'building', name: 'Building stone', words: 'stone to build with — limestone (and lime for mortar), sandstone, granite and gneiss, basalt and tuff, marble, slate — and clay for brick where stone is scarce', resources: [
+    { id: 'building', name: 'Building stone', words: 'stone to build with — limestone (and lime for mortar), sandstone, granite and gneiss, basalt and tuff, marble, slate — and clay for brick where stone is scarce; sand, gravel and crushed rock for mortar and roads, and glass sand', resources: [
         { id: 'limestone', name: 'Limestone', rgb: [130, 170, 220], from: [['stoneLimestone', 1]] },
         { id: 'sandstone', name: 'Sandstone', rgb: [222, 182, 112], from: [['stoneSandstone', 1]] },
         { id: 'granite', name: 'Granite and gneiss', rgb: [214, 120, 120], from: [['stoneGranite', 1]] },
         { id: 'volcanic', name: 'Basalt and tuff', rgb: [120, 100, 140], from: [['stoneVolcanic', 1]] },
         { id: 'marble', name: 'Marble', rgb: [240, 238, 230], from: [['stoneMarble', 1]] },
         { id: 'slate', name: 'Slate', rgb: [96, 106, 128], from: [['stoneSlate', 1]] },
-        { id: 'clay', name: 'Clay', rgb: [190, 100, 70], from: [['clay', 1]] }] },
+        { id: 'clay', name: 'Clay', rgb: [190, 100, 70], from: [['clay', 1]] },
+        // (the aggregates as one: bulk and local — docs/aggregates.md)
+        { id: 'aggregate', name: 'Sand, gravel and glass sand', rgb: [176, 156, 120], from: [['gravel', 1], ['crushedRock', 0.8], ['silicaSand', 0.8], ['desertSand', 0.5]] }] },
 ];
 
 /** A source's row in the deposits' grid ('m:' and a metal: its row after the systems). */

@@ -11,8 +11,11 @@ import { depositSediment, creepByClimate, dissect } from './finish-sediment.js';
 import { rocksBefore, differentialRelief, carveByRock, coverStairs } from './finish-lithology.js';
 import { lastIceAge } from './finish-ice.js';
 import { windWork } from './finish-wind.js';
+import { coastWork } from './finish-coast.js';
 import { detailDrivers } from './finish-drivers.js';
 import { hydrology, openStraits, fillSeaBasins, Water } from './finish-hydro.js';
+import { pondShare } from './small-lakes.js';
+import { pondRaster } from './small-lakes-draw.js';
 import { landCover, coverRgb, newCover, biasTowardClimate, coverRain, coverRainScale, newVariety, placeVariety, placeGround, fineMottle, terrainLook } from './finish-cover.js';
 import { KOPPEN_ID } from '../climate/koppen.js';
 import { terrainMesh } from '../terrain/terrain-mesh.js';
@@ -47,7 +50,7 @@ export function erosionAt(F, cfg) {
 }
 
 /** The stages, in order, with their rough share of the time (for the progress bar; the shares sum to 1). */
-export const STAGES = [['mesh', 0.1], ['surface', 0.14], ['climate', 0.09], ['bedrock', 0.03], ['rivers', 0.17], ['sediment', 0.05], ['hillslopes', 0.04], ['ice age', 0.07], ['wind', 0.04], ['sea', 0.02], ['water', 0.04], ['detail', 0.02], ['geology', 0.03], ['final climate', 0.03], ['deposits', 0.03], ['farming', 0.02], ['picture', 0.08]];
+export const STAGES = [['mesh', 0.1], ['surface', 0.14], ['climate', 0.09], ['bedrock', 0.03], ['rivers', 0.17], ['sediment', 0.05], ['hillslopes', 0.04], ['ice age', 0.07], ['wind', 0.04], ['sea', 0.02], ['coast', 0.03], ['water', 0.04], ['detail', 0.02], ['geology', 0.03], ['final climate', 0.03], ['deposits', 0.03], ['farming', 0.02], ['picture', 0.08]];
 
 /**
  * The terrain config the finish's surface is drawn with: the carving's inputs at the finish's erosion strength (its stream
@@ -119,15 +122,17 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     const { koppen, tAnnual: tAnn, pAnnual: pAnn, lat, lon } = res.cell, G = res.grid.size;
     for (let c = 0; c < n; c++) if (pAnn[c] > F.rainMaxMm) pAnn[c] = F.rainMaxMm;     // (the climate's rare wet hotspots)
     // (the warmest month at sea level, and the winds, on the climate's grid)
-    const gamma = CORE_DEFAULTS.lapseRateCPerKm, warmG = new Float32Array(G).fill(-Infinity);
+    // (and the coldest: the sea's winter warmth, which reefs and mangroves need — finish-coast.js)
+    const gamma = CORE_DEFAULTS.lapseRateCPerKm, warmG = new Float32Array(G).fill(-Infinity), coldG = new Float32Array(G).fill(Infinity);
     for (let g = 0; g < G; g++) {
         const href = res.surface.meanLandKm[g] === res.surface.meanLandKm[g] ? Math.max(0, res.surface.meanLandKm[g]) : 0;
-        for (let m = 0; m < 12; m++) { const t = res.months.T[m * G + g] + gamma * href; if (t > warmG[g]) warmG[g] = t; }
+        for (let m = 0; m < 12; m++) { const t = res.months.T[m * G + g] + gamma * href; if (t > warmG[g]) warmG[g] = t; if (t < coldG[g]) coldG[g] = t; }
     }
     const circ = res.stages.circulation, year = (a, m = -1) => { const o = new Float32Array(G); for (let g = 0; g < G; g++) { if (m >= 0) o[g] = a[m * G + g]; else { let s = 0; for (let k = 0; k < 12; k++) s += a[k * G + g]; o[g] = s / 12; } } return o; };
     const wind = { year: [year(circ.u), year(circ.v)], jan: [year(circ.u, 0), year(circ.v, 0)], jul: [year(circ.u, 6), year(circ.v, 6)] };
     const climGrid = { w: res.grid.w, h: res.grid.h }, warmSl = new Float32Array(n);
-    for (let c = 0; c < n; c++) warmSl[c] = bilinear(climGrid, warmG, lat[c], lon[c]);
+    const coldSl = new Float32Array(n);
+    for (let c = 0; c < n; c++) { warmSl[c] = bilinear(climGrid, warmG, lat[c], lon[c]); coldSl[c] = bilinear(climGrid, coldG, lat[c], lon[c]); }
     // (the months each place's rain passes a share of its evaporation, or it freezes — the rivers' seasons)
     const wetG = new Float32Array(G), wetMonths = new Float32Array(n);
     for (let g = 0; g < G; g++) {
@@ -240,7 +245,8 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     if (geo) for (let c = 0; c < n; c++) geo.cut[c] = Math.min(255, Math.max(0, Math.round((before[c] - C.z[c]) / geo.cutStepKm)));
     let zPre = geo ? C.z.slice() : null;
     report(0.1);
-    stats.deltas = depositSediment(mesh, before, C, B.sink, cellKm2, F).deltas;
+    const Sd = depositSediment(mesh, before, C, B.sink, cellKm2, F), mouths = Sd.mouths;   // (the mouths' load: the coast's sand)
+    stats.deltas = Sd.deltas;
     report(0.9);
     if (geo) for (let c = 0; c < n; c++) geo.alluv[c] = Math.min(255, Math.max(0, Math.round((C.z[c] - zPre[c]) / geo.alluvStepKm)));
     zPre = null;
@@ -251,7 +257,8 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     if (rocks0) { hardC = new Uint8Array(n); for (let c = 0; c < n; c++) hardC[c] = Math.max(basalt[c], Math.round(255 * F.lithCreep * rocks0.hard[c])); }
     creepByClimate(mesh, C.z, pAnn, tAnn, { ...F, creepKm: E.creepKm }, C.area, hardC);
     hardC = null;
-    rocks0 = null;                                                    // (~120 MB at 10M cells)
+    const hardKeep = rocks0?.hard ?? null;                            // (the coast's: soft rock worn back gives sand)
+    rocks0 = null;                                                  // (~120 MB at 10M cells)
     lap('hillslopes');
 
     // ── F3: the last ice age ──
@@ -281,6 +288,12 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     forgetMesh(mesh); forgetEdgeKm(mesh);                             // (the carve's and the distances' caches for this mesh)
     lap('sea');
 
+    // ── the sea's work on its coasts: waves, tides, the sand they move (finish-coast.js; docs/coast-processes.md) ──
+    onStage('coast');
+    const Co = coastWork({ mesh, z: C.z, ocean, lat, lon, wind, climGrid, tAnn, coldSl, hard: hardKeep, mouths, deltaShare: F.deltaShare, grid, seed }, F);
+    stats.coast = Co.stats;
+    lap('coast');
+
     // ── R1: rivers and lakes, by the climate ──
     onStage('water');
     const ice = new Uint8Array(n);
@@ -295,14 +308,17 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     Object.assign(stats, { water: Hy.stats });
     // (the sea again, after the rivers' gorges)
     ocean = oceanMask(mesh, C.z);
+    // (the lakes too small for the mesh: each cell's share of them, small-lakes.js)
+    const ponds = pondShare({ mesh, z: C.z, ocean, lake: Hy.lake, ice, glaciated: I.ice, iceH: I.H, tAnn, pAnn, q: Hy.q, cellKm2 }, F), pond = { share: ponds.share, seed };
+    stats.ponds = ponds.stats;
     lap('water');
     // (the terrain is final from here — its heights, sea, lakes and rivers: the stages below change none of them — so a
     // page can show it now, while the climate's, the rocks' and the farming's layers follow)
-    if (await onTerrain?.({ mesh, z: C.z, ocean, lake: Hy.lake, lakeLevel: Hy.lakeLevel, rivers: Hy.rivers, drain: drainOf(Hy, ocean, C.z) }) === true) return { mesh, z: C.z, ocean, ms, stats, terrainOnly: true };   // (true: the terrain was all that was asked)
+    if (await onTerrain?.({ mesh, z: C.z, ocean, lake: Hy.lake, lakeLevel: Hy.lakeLevel, pond, rivers: Hy.rivers, drain: drainOf(Hy, ocean, C.z) }) === true) return { mesh, z: C.z, ocean, ms, stats, terrainOnly: true };   // (true: the terrain was all that was asked)
 
     // ── what the detail finer than the mesh is drawn from (finish-drivers.js; plans/V2_FINE_DETAIL_PLAN.md) ──
     onStage('detail');
-    const drivers = detailDrivers({ mesh, z: C.z, ice: I.ice, iceH: I.H, iceS: I.S, erg: W.erg, wind, climGrid, warmSl, rain: pAnn, young, frame, simMesh, cfg, seed, width: driversWidth });
+    const drivers = detailDrivers({ mesh, z: C.z, ice: I.ice, iceH: I.H, iceS: I.S, erg: W.erg, wind, climGrid, warmSl, rain: pAnn, young, frame, simMesh, cfg, seed, width: driversWidth, coast: Co });
     lap('detail'); onDrivers?.(drivers);                              // (a page's zoomed tiles need no more: sent now)
 
     // ── the geology (plans/V2_GEOLOGY_PLAN.md G2): what each place is made of at the surface — the history's rock column
@@ -386,7 +402,8 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     if (geo) {
         onStage('deposits');
         const depIn = { mesh, z: C.z, ocean, frame, simMesh, seed, rock: Rk.rock, rec: Rk.rec, on: { grid, lat, lon },
-            local: { glaciated: I.ice, till: I.till, lake: Hy.lake, q: Hy.q, recv: Hy.recv, order: Hy.order, biome: cover, clim, ice, colS: Rk.colS, colT: Rk.colT, colArch: Rk.colArch } };
+            local: { glaciated: I.ice, till: I.till, lake: Hy.lake, q: Hy.q, recv: Hy.recv, order: Hy.order, biome: cover, clim, ice, colS: Rk.colS, colT: Rk.colT, colArch: Rk.colArch,
+                erg: W.erg, coastSand: Co.sand, coastWave: Co.wave, coastWinter: Co.winter } };
         inspect?.('deposits', depIn);                                 // (the tools' look at the deposits' inputs: render-deposits.mjs)
         const Dp = depositFields(depIn);
         geology.deposits = Dp;
@@ -406,7 +423,7 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     const flow = new Float32Array(n);
     for (let c = 0; c < n; c++) flow[c] = Math.log10(Math.max(1, Hy.area[c]));
     // (drain: where each cell's water goes, the land it drains (km²), its water (m³/s), height (km) and lake, for the region pick's valleys — js/region-basin.js)
-    return { mesh, z: C.z, ocean, lake: Hy.lake, lakeLevel: Hy.lakeLevel, rivers: Hy.rivers, drain: drainOf(Hy, ocean, C.z), drivers, ms, stats, geology, farming,
+    return { mesh, z: C.z, ocean, lake: Hy.lake, lakeLevel: Hy.lakeLevel, pond, rivers: Hy.rivers, drain: drainOf(Hy, ocean, C.z), drivers, ms, stats, geology, farming,
         climate: { page: pageC, cell: { koppen: cellsClimate.koppen, tAnnual: cellsClimate.tAnnual, pAnnual: cellsClimate.pAnnual, sat, cover, stats: cellStats.stats, mottleSeed: ((seed | 0) * 0x2f71 + 0x6d) >>> 0,
             flow, young, rivers: Hy.rivers, ripSat, families: famGrid.done() } },
         layers: debug ? { ice: I.ice, sink: B.sink, erg: W.erg, loess: W.loess, basalt, koppen, before, rain: pAnn, lat, lon, q: Hy.q, terminal: Hy.terminal } : null };
@@ -558,12 +575,14 @@ export function oceanMask(mesh, z, seaSeedKm2 = FINISH.seaSeedKm2, deepKm = FINI
  * east), 16-bit metres, and the ocean (1) — for the page to paint and shade, and to export. Heights blended over the
  * mesh triangle under each pixel; `onRow` reports progress.
  */
-export function finishRaster(mesh, z, ocean, w, onRow = null, lake = null, lakeLevel = null, climate = null, geology = null, farming = null, located = null) {
+export function finishRaster(mesh, z, ocean, w, onRow = null, lake = null, lakeLevel = null, climate = null, geology = null, farming = null, located = null, pond = null) {
     const h = w >> 1;
     // (located: each pixel's three cells and weights — an empty {} is filled, a filled one read instead of locating again:
     // the terrain's early picture and the finished one share them)
     const got = located?.c ? located : null, keep = located && !got ? Object.assign(located, { c: new Int32Array(3 * w * h), w: new Float64Array(3 * w * h) }) : null;
     const heightM = new Int16Array(w * h), sea = new Uint8Array(w * h), water = new Uint8Array(w * h), waterLevel = lake ? new Int16Array(w * h) : null, c3 = [0, 0, 0], w3 = [0, 0, 0];
+    // (the small lakes' share per pixel, small-lakes.js: pond {share (per cell), seed})
+    const pondPx = pond && lake ? new Uint8Array(w * h) : null;
     // (the climate's picture: at most as wide as the page's sharpest texture — every f-th pixel of the heights' — the
     // land's Köppen class (its weightiest land cell's), °C × 100 and mm a year (its land cells' weighted mean); the sea
     // −32768 °C, 0 mm. With the land's cover: its colours from space (the year, January, July: its land cells' weighted
@@ -598,10 +617,14 @@ export function finishRaster(mesh, z, ocean, w, onRow = null, lake = null, lakeL
             }
             const v =w3[0] * z[c3[0]] + w3[1] * z[c3[1]] + w3[2] * z[c3[2]];
             heightM[i] = Math.max(-32000, Math.min(32000, Math.round(v * 1000)));
-            const near = w3[0] >= w3[1] && w3[0] >= w3[2] ? c3[0] : w3[1] >= w3[2] ? c3[1] : c3[2];
-            sea[i] = ocean[near];
+            // (the sea: below sea level where one of the pixel's cells is the ocean's — its coast the heights' 0 m contour, not
+            // the nearest cell's edge: a coastal cell's block went out to sea as flat land wherever the floor fell steeply
+            // beside it, the owner, 2026-11-20: "why is this transition from land towards sea/lake still so bad?"; a hollow
+            // the ocean cannot reach has no ocean cell, so it stays land)
+            sea[i] = v < 0 && ((w3[0] > 0 && ocean[c3[0]]) || (w3[1] > 0 && ocean[c3[1]]) || (w3[2] > 0 && ocean[c3[2]])) ? 1 : 0;
             // (a lake: under its level, where one of the pixel's cells is lake — its shore as crisp as the heights; its level (m) kept, the depth over its bed: lake-water.js)
             if (lake) for (let j = 0; j < 3; j++) { const c = c3[j]; if (lake[c] && w3[j] > 0.2 && v < lakeLevel[c]) { water[i] = lake[c]; waterLevel[i] = Math.round(lakeLevel[c] * 1000); break; } }
+            if (pondPx && !sea[i]) pondPx[i] = Math.round(w3[0] * pond.share[c3[0]] + w3[1] * pond.share[c3[1]] + w3[2] * pond.share[c3[2]]);
             if (cw && !sea[i] && px % f === 0 && py % f === 0) {
                 let ws = 0, t = 0, p = 0, best = -1, bw = 0;
                 for (let j = 0; j < 3; j++) {
@@ -681,9 +704,10 @@ export function finishRaster(mesh, z, ocean, w, onRow = null, lake = null, lakeL
         }
         if (onRow && (py & 63) === 0) onRow(py / h);
     }
+    if (pondPx) pondRaster({ w, h, heightM, sea, water, waterLevel, share: pondPx }, pond.seed);
     // (the terrain on the satellite picture: rock where steep, slopes and valleys in dry country — from the heights)
     if (sat) terrainLook({ w: cw, h: ch, sat: { year: sat[0], jan: sat[1], jul: sat[2] }, cover: cov, tAnnual: tA, pAnnual: pA, koppen: kop, flow: flowPx, young: youngPx, noise: mottle, rivers: climate.rivers, water: lake ? water : null, ripSat: ripPx ? { year: ripPx[0], jan: ripPx[1], jul: ripPx[2] } : null }, heightM, w);
-    return { w, h, heightM, ocean: sea, water, waterLevel, geology: rockPx ? { w: cw, h: ch, rock: rockPx, rec: recPx, deposits: geology.deposits ?? null } : null,
+    return { w, h, heightM, ocean: sea, water, waterLevel, pond: pondPx ? { w, h, share: pondPx, seed: pond.seed } : null, geology: rockPx ? { w: cw, h: ch, rock: rockPx, rec: recPx, deposits: geology.deposits ?? null } : null,
         farming: farmPx ? { w: cw, h: ch, ...farmPx, kind: farmKind, ...(cropPx ? { crops: cropPx } : {}) } : null, climate: cw ? { w: cw, h: ch, koppen: kop, tAnnual: tA, pAnnual: pA, ...(statPx ? { stats: statPx } : {}), ...(climate.families ? { families: climate.families } : {}), ...(sat ? { sat: { year: sat[0], jan: sat[1], jul: sat[2] }, cover: cov } : {}) } : null };
 }
 

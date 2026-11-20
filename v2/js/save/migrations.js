@@ -44,19 +44,25 @@ const FRAME_STEPS = {};
  * The steps from each older finish version to the next: FINISH_STEPS[v](moment) takes a detailed moment of version v and
  * returns it as v + 1 means it (or null: it cannot be). A version with no step: its moments are detailed again.
  */
+/**
+ * A step for kinds of deposit added at the end of DEPOSITS: `add` empty rows after the kinds before, ahead of the `metals`
+ * metals' rows (and empty shares for them) — so an older moment's deposits read on as they were. Every such addition uses it.
+ */
+const depositRowsAdded = (add, metals) => moment => {
+    const Dp = moment?.raster?.geology?.deposits;
+    if (!Dp?.data || !Dp.rows) return moment;
+    const OLD = Dp.rows - metals, K = Dp.data.length / Dp.rows, rows = Dp.rows + add, data = new Uint8Array(rows * K);
+    data.set(Dp.data.subarray(0, OLD * K), 0);
+    data.set(Dp.data.subarray(OLD * K), (OLD + add) * K);
+    const shares = Dp.shares ? new Float32Array(3 * (OLD + add)) : Dp.shares;
+    if (shares) shares.set(Dp.shares.subarray(0, 3 * OLD));
+    return { ...moment, raster: { ...moment.raster, geology: { ...moment.raster.geology, deposits: { ...Dp, data, rows, shares } } } };
+};
 const FINISH_STEPS = {
-    // 1 → 2: three kinds of deposit added after the 53 before (iron veins, magnetite-apatite, basalt and tuff), before the
-    // 15 metals' rows — empty rows for them, so an older moment's deposits read on as they were
-    1: moment => {
-        const Dp = moment?.raster?.geology?.deposits;
-        if (!Dp?.data || !Dp.rows) return moment;
-        const MET = 15, OLD = Dp.rows - MET, ADD = 3, K = Dp.data.length / Dp.rows, rows = Dp.rows + ADD, data = new Uint8Array(rows * K);
-        data.set(Dp.data.subarray(0, OLD * K), 0);
-        data.set(Dp.data.subarray(OLD * K), (OLD + ADD) * K);
-        const shares = Dp.shares ? new Float32Array(3 * (OLD + ADD)) : Dp.shares;
-        if (shares) shares.set(Dp.shares.subarray(0, 3 * OLD));
-        return { ...moment, raster: { ...moment.raster, geology: { ...moment.raster.geology, deposits: { ...Dp, data, rows, shares } } } };
-    },
+    // 1 → 2: iron veins, magnetite-apatite, basalt and tuff after the 53 kinds before, ahead of the 15 metals
+    1: depositRowsAdded(3, 15),
+    // 2 → 3: the aggregates — sand and gravel, desert sand, crushed rock, silica sand (geology/aggregates.js)
+    2: depositRowsAdded(4, 15),
 };
 
 /** Whether a detailed moment of this finish version can be read today (else it is left in the file). */

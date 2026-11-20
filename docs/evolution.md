@@ -29,6 +29,7 @@ building) holds its settings, with **Build this world** and **Load planet…**:
 | Temperature | −30 – +30 W/m² | 0 | Warms or cools the whole planet, through the climate's physics |
 | Precipitation | ±50 % | 0 | Speeds up or slows down the water cycle |
 | Lakes | None – Lake district (−1 – 1) | ±0 | How readily hollows hold water on a detailed moment: [lakes-slider.md](lakes-slider.md) |
+| Small lakes | None – Lake district (−1 – 1) | ±0 | The lakes too small for the mesh, on a detailed moment: [small-lakes.md](small-lakes.md) |
 | Quality | Fast · Balanced · Best · Custom | Balanced | How finely the history is simulated and drawn while you watch. Fast: 20K plate cells, terrain 160K. Balanced: 40K, 160K. Best: 80K, 640K. Custom: Plates (20K–160K cells) and Terrain detail (160K–2.5M) |
 
 Temperature and Precipitation change the climate only: previews are worked out again when shown, and a detailed moment
@@ -104,6 +105,7 @@ On a detailed moment, Geology shows what the history left in the rock.
   basins, gathered on fold crests and arches; coal in forelands, rifts and coastal plains; laterite and bauxite capping
   old uplands, peat and bog iron on wet floors, salt in dry pans; placers down the rivers; building stone rich in hill
   country. They sit in districts shaped as real ones are, each poor, moderate or rich.
+  Sand, gravel, crushed rock and silica sand: [aggregates.md](aggregates.md).
 - **Ages**: what a people of the Stone, Copper, Bronze, Iron and Industrial Ages could reach (the surface and rich ore
   first; deeper and poorer ore as technology grows), plus fuel, gems (diamonds, rubies and sapphires, emeralds,
   aquamarine and tourmaline, opal, turquoise, lapis, amethyst, jade, garnet) and building stone. Copper grows age by age,
@@ -127,13 +129,13 @@ land allows, not what its people must do.
 - **People**: how many the land could feed before industry, each place by its way of life: poor ground farmed in long
   fallows, so a rainforest feeds a few a km², and gatherers a tenth to a few a km². Fish from a rich shore, lake or
   river comes on top for every way of life.
-- **City size** (`v2/js/evolution/city-view.js`, `city-haul.js`): the biggest town a place could hold, a ceiling for
+- **City size** (on its own tab, Civilizations, next to Food; `v2/js/evolution/city-view.js`, `city-haul.js`): the biggest town a place could hold, a ceiling for
   one city taking all of it — the land's surplus (15 % of the People it could feed: farmers eat the rest) within the
   Reach. The Reach is a haul's cost in days by cart (0.5–12, 25 km a day; the slider under the tabs, or Shift+wheel
   over the planet). Water is cheaper: a km by river costs a fifth of a cart's, by lake a tenth, by sea a twentieth, so
   the count is the larger of the land by cart alone and what boats bring (cart to the water, boat, cart from the
   fields, the legs added up). It is a heat map on a log scale from the richest place down ten-thousandfold. A ring of
-  the reach by cart follows the pointer on the Generate page (`js/city-ring.js`).
+  the reach by cart follows the pointer on the Generate page (`js/city-ring.js`). Its speed: [city-size-speed.md](city-size-speed.md).
 - **Soil** and **Growing season** show what lies behind it.
 
 ## Export

@@ -26,6 +26,7 @@ import { Biome } from '../finish/finish-cover.js';
 import { Rock, ROCK_COUNT, simRocks, hash01, bedTops, B_GRANITE, NB } from './rocks.js';
 import { GEOLOGY } from './geology-config.js';
 import { DistrictShapes } from './district-shapes.js';
+import { aggregates } from './aggregates.js';
 import { report } from '../core/progress.js';
 
 const R = 6371;
@@ -101,6 +102,11 @@ export const DEPOSITS = [
     { id: 'ironVein', name: 'Iron veins and replacements', yields: 'iron (hematite, siderite, magnetite)', group: 'metal', rgb: [186, 70, 50], words: 'a mountain belt\'s hot fluids through its limestone and slate — the Erzberg, Bilbao, Elba: most belts some' },
     { id: 'ioa', name: 'Magnetite-apatite', yields: 'iron, phosphate', group: 'metal', rgb: [150, 60, 80], words: 'magnetite bodies along a volcanic arc\'s front — Kiruna, Chile\'s iron belt' },
     { id: 'stoneVolcanic', name: 'Basalt and tuff', yields: 'basalt, andesite, tuff', group: 'building', rgb: [120, 100, 140], words: 'the dark stone of lava fields and the soft tuff of volcanoes' },
+    // ── aggregates (aggregates.js, docs/aggregates.md): bulk, worth only near where they are used — kept after the D4 kinds ──
+    { id: 'gravel', name: 'Sand and gravel', yields: 'sand and gravel for concrete, mortar and roads', group: 'building', rgb: [176, 156, 120], words: 'river gravels and terraces, outwash and eskers of the old ice, and beaches — bulk, worth working only near where it is used' },
+    { id: 'desertSand', name: 'Desert sand', yields: 'sand for fill', group: 'building', rgb: [228, 200, 140], words: 'a sand sea\'s dunes — wind-rounded grains that bind badly: poor for concrete' },
+    { id: 'crushedRock', name: 'Crushed rock', yields: 'crushed stone for concrete, roads and railway ballast', group: 'building', rgb: [128, 130, 140], words: 'hard rock quarried and crushed where no sand or gravel lies near — bulk, worth working only near where it is used' },
+    { id: 'silicaSand', name: 'Silica sand', yields: 'glass sand, foundry sand', group: 'building', rgb: [240, 232, 206], words: 'quartz sandstone and clean, well-sorted beach and dune sand — the sand for glass' },
 ];
 export const DEPOSIT_INDEX = Object.fromEntries(DEPOSITS.map((d, i) => [d.id, i]));
 
@@ -355,7 +361,8 @@ export function districtSystems(G = GEOLOGY) {
  * @param {Object} o  { mesh, z, ocean, frame, simMesh, seed, rock (rocks.js, per cell), rec (each cell's record cell),
  *   on ({grid, lat, lon}), local: { glaciated (0/1), till (0…255), lake (Water kinds), q (m³/s), recv, order (the
  *   rivers' receivers and their order, upstream last), biome (per cell, Biome in its low five bits), clim ({baux, ni, ironLat, evap, peat,
- *   semi}: the climate's tests, 0…255 per cell), ice (under ice now, 0/1) } }
+ *   semi}: the climate's tests, 0…255 per cell), ice (under ice now, 0/1), erg, coastSand, coastWave, coastWinter (the
+ *   aggregates': aggregates.js) } }
  * @returns {{step: number, w: number, h: number, cells: Int32Array, data: Uint8Array, rows: number, shares: Float32Array,
  *   metalShares: Float32Array}} data: rows × K bytes (row-major, K = cells.length), richness × 255 — the systems
  *   (DEPOSITS), then the metals (METALS); shares, metalShares: the land's share poor / moderate / rich of each
@@ -389,6 +396,7 @@ export function depositFields({ mesh, z, ocean, frame, simMesh, seed, rock, rec,
     for (let c = 0; c < n; c++) z2[c] = z[c] * z[c];
     const [zMean, zSq] = coarse.blurMany([coarse.average(lat, lon, z, onLand), coarse.average(lat, lon, z2, onLand)], 50), rough = new Float32Array(coarse.size);
     for (let q = 0; q < coarse.size; q++) rough[q] = zMean[q] === zMean[q] ? Math.sqrt(Math.max(0, zSq[q] - zMean[q] * zMean[q])) : NaN;
+    const agg = aggregates({ ...local, mesh, ocean, lat, lon, coarse, rough, ids: { gravel: D.gravel, desertSand: D.desertSand, crushedRock: D.crushedRock, silicaSand: D.silicaSand } }, G);
     // ── districts: each system's permissive ground broken into districts — clusters of clusters, drawn out along the
     // grain, gathered on lineaments, bent and lobed (district-shapes.js), each its share of the ground ──
     const nz = new FastNoise(((seed | 0) * 0x6c8b + 0x3d) >>> 0), SH = Dp.shapes;
@@ -599,6 +607,7 @@ export function depositFields({ mesh, z, ocean, frame, simMesh, seed, rock, rec,
         write(c, D.stoneMarble, stone(mar * Math.min(1, 1.5 * (rs[J4 + Rock.GNEISS] + rs[J4 + Rock.SLATE]) + 0.3 * rs[J4 + Rock.LIMESTONE])));
         write(c, D.stoneSlate, stone(rs[J4 + Rock.SLATE]));
         write(c, D.clay, Math.min(1, (1.1 * young + 0.6 * rs[J4 + Rock.SHALE]) * (BS.clayHills + (1 - BS.clayHills) * (1 - hills))));
+        agg?.(c, rs, J4, access, ci, cw, wd);
     }
     // ── placers: gold, tin and diamonds carried down the rivers from where they lie bared, fading with distance; laid
     // where a river runs gentle. Ice strips them (guideRules.iceStripsPlacers): poor under the old ice, moderate at its

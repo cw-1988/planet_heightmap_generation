@@ -1,8 +1,8 @@
 // The layer bar over the planet — one for every page that shows a finished planet (plans/SHARED_CORE_PLAN.md U2; its
 // design: plans/VIEW_UI_PLAN.md): the view strip (globe or map, projection, grid, colours, hillshade, clouds, rivers and
-// lakes), the layer tabs (Terrain · Satellite · Climate · Geology · Food · Heightmap · Plates), each group's own row (the
-// climate's maps and More…, the season; the geology's views and their pickers — the deposits, the age and its resource;
-// the food's views), the chip over the planet, the phone's one list, and the legend's card. Its markup is made here, once,
+// lakes), the layer tabs (Terrain · Satellite · Climate · Geology · Food · Civilizations · Heightmap · Plates), each group's
+// own row (the climate's maps and More…, the season; the geology's views and their pickers — the deposits, the age and its
+// resource; the food's views; the civilizations' views and City size's reach), the chip over the planet, the phone's one list, and the legend's card. Its markup is made here, once,
 // for each page; the deposits' and the ages' menus from their lists (geology/deposits.js, geology/ages.js), so a new kind
 // shows on every page. The page says what differs: how its detailed layers come, and the Plates tab's title.
 
@@ -12,15 +12,25 @@ import { CLIMATE_LAYERS, SEASONAL_LAYERS, FINISHED_ONLY_LAYERS } from '../evolut
 import { GEOLOGY_LAYERS } from '../evolution/geology-view.js';
 import { FARMING_LAYERS, farmOptions } from '../evolution/farming-view.js';
 import { CITY_REACH, reachText } from '../evolution/city-view.js';
+import { saveLayer, loadLayer, restoreLayer } from './layer-memory.js';
+import { REGIME_STYLE } from '../evolution/river-draw.js';
+import { beachSlidersHTML } from './beach-controls.js';
+// (the By regime tip: one line per colour, its name in that colour — js/tip-text.js)
+const REGIME_TIP = ['permanent', "permanent with a yearly flood season (the Nile's, from rains far upstream; a snowmelt flood)",
+    'seasonal, dry some months', 'dry most of the year'];
 
 /** Every climate layer but Satellite, which comes with detail: the main five as tabs, the rest under More. */
 export const CLIMATE_SUB = new Set([...CLIMATE_LAYERS].filter(l => !FINISHED_ONLY_LAYERS.has(l)));
+/** The Civilizations tab's views (the owner, 2026-11-20: City size moved there from Food) — drawn from the food's
+ *  pictures, so still farming layers to the painter; the Food tab's are the rest. */
+export const CIV_LAYERS = new Set(['farmCity']);
+const FOOD_TAB = new Set([...FARMING_LAYERS].filter(l => !CIV_LAYERS.has(l)));
 
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 const opt = (value, label, selected = false) => `<option value="${value}"${selected ? ' selected' : ''}>${esc(label)}</option>`;
 const CLIMATE_MORE = [['Atmosphere', [['pressure', 'Pressure']]], ['Ocean', [['upwelling', 'Upwelling'], ['ice', 'Ice']]],
     ['Land', [['tempRange', 'Temperature range'], ['rainShadow', 'Rain shadow'], ['aridity', 'Aridity'], ['growing', 'Growing season'], ['rainSeason', 'Rain seasonality']]]];
-const DEPOSIT_KINDS = [['metal', 'from the history'], ['mineral', 'climate and rivers'], ['fuel', 'fuel'], ['stone', 'stone'], ['gem', 'gems'], ['building', 'building stone']];
+const DEPOSIT_KINDS = [['metal', 'from the history'], ['mineral', 'climate and rivers'], ['fuel', 'fuel'], ['stone', 'stone'], ['gem', 'gems'], ['building', 'building stone, sand and gravel']];
 
 /** The Deposits view's menu: everything, each metal or fuel, each kind of deposit by how it formed — from their lists. */
 function depositOptions() {
@@ -79,14 +89,19 @@ export function mountLayerBar({ comes = 'Comes with Add detail', platesTip = '',
             </select></span>
             <label class="toggle-label" title="Shade the planet by its relief, lit from the north-west. Off, every view is flat colour, the mountains shown by their colours alone and no sun glinting on the sea (a texture to light in a 3D program; the export has its own Hillshade switch)"><input type="checkbox" id="chkShade" checked><span class="toggle-track"><span class="toggle-thumb"></span></span>Hillshade</label>
             <label class="toggle-label" title="Clouds over the planet, from its climate — more where it rains, fewer under the dry highs — drifting slowly with the winds. On the Satellite view; the export has a Clouds layer and Satellite with clouds"><input type="checkbox" id="chkClouds" checked><span class="toggle-track"><span class="toggle-thumb"></span></span>Clouds</label>
+            <span class="vs-item" id="beachGroup">${beachSlidersHTML()}
+            </span>
             <span class="vs-item" id="waterGroup">
                 <label class="toggle-label"><input type="checkbox" id="chkWater" checked><span class="toggle-track"><span class="toggle-thumb"></span></span>Rivers &amp; lakes</label>
-                <label class="toggle-label" id="regimeRow" title="Colour the rivers by their year — each month's rain and snowmelt, run down the rivers: blue, permanent; violet, permanent with a yearly flood season (the Nile's, from rains far upstream; a snowmelt flood); cyan, seasonal — dry some months; brown, dry most of the year. Hover a river for its flood months"><input type="checkbox" id="chkRegime"><span class="toggle-track"><span class="toggle-thumb"></span></span>By regime</label>
                 <span class="vs-item" id="riverDensityGroup" title="Which rivers are drawn, by how much water they carry: Few — 150 m³/s and more; Normal — 40 m³/s; Many — 8 m³/s. The bigger a river, the stronger its line; seasonal rivers are dashed, and those dry most of the year dotted"><select id="riverDensity">
                 <option value="150">Few</option>
                 <option value="40" selected>Normal</option>
                 <option value="8">Many</option>
                 </select></span>
+                <label class="vs-item" id="riverWidthGroup" title="How thick the rivers' lines are drawn: ×1 as made, down to ×0.1 hairlines, up to ×2. Zoomed in, a river wider than its line is drawn as wide as its bed, whatever this says">River width <input type="range" id="riverWidth" min="0.1" max="2" value="1" step="0.1" aria-label="River width"><span class="v" id="vRiverWidth">×1</span></label>
+                <label class="toggle-label" id="regimeRow"><input type="checkbox" id="chkRegime"><span class="toggle-track"><span class="toggle-thumb"></span></span>By regime <span class="tip" data-tip="Colour the rivers by their year — each month's rain and snowmelt, run down the rivers:
+${REGIME_STYLE.map((s, k) => `{${s.rgb}}${['Blue', 'Violet', 'Cyan', 'Brown'][k]}: ${REGIME_TIP[k]}`).join('\n')}
+Hover a river for its flood months">?</span></label>
             </span>
         </div>
         <div class="layer-row">
@@ -97,6 +112,7 @@ export function mountLayerBar({ comes = 'Comes with Add detail', platesTip = '',
                 <button class="map-tab" data-layer="climate" title="The moment's climate: Köppen zones, temperature, rain, winds and currents — and under More, pressure, upwelling, ice, aridity and more">Climate</button>
                 <button class="map-tab" data-layer="geology" title="What the history left in the rock: its rocks, its ore, fuel and mineral deposits and what each technological age could reach. ${esc(comes)}">Geology</button>
                 <button class="map-tab" data-layer="farming" title="What the land could feed, and how its people would live: farmland — soil × ground × growing season, by rain alone or with water brought by flood farming and canals, terraces and raised fields — each place's staple food, whether its people would farm, herd or gather, and how many it could feed. ${esc(comes)}. In beta">Food</button>
+                <button class="map-tab" data-layer="civ" title="Where people could settle and how big their cities could grow: City size — the people the land within a reach could feed. ${esc(comes)}. In beta">Civilizations</button>
                 <button class="map-tab" data-layer="heightmap">Heightmap</button>
                 <button class="map-tab" data-layer="plates"${platesTip ? ` title="${esc(platesTip)}"` : ''}>Plates</button>
             </div>
@@ -126,9 +142,12 @@ export function mountLayerBar({ comes = 'Comes with Add detail', platesTip = '',
                 <button class="map-tab" data-layer="farmStaple" title="What each place would live on most — paddy grains, cool-season grains, warm-season grains, roots and tubers, livestock, fish or wild foods — paler where it feeds less well, striped where a second does nearly as well. The legend's chips show one alone">Staple food</button>
                 <button class="map-tab" data-layer="farmLife" title="How each place's people would live — farming, herding or gathering (hunting, fishing and gathering: gatherers keep to their way unless farming or herding would feed ten times as many) — striped where a second does nearly as well. The legend's chips show how many each could feed, alone">Lifestyle</button>
                 <button class="map-tab" data-layer="farmPeople" title="How many people the land could feed, pre-industrial, with the farming techniques chosen, each place by its way of life — a tenth to a few a km² where gatherers live, a few on herders' pasture and in the rainforests (their poor ground farmed in long fallows), over a hundred a km² on the richest river plains">People</button>
-                <button class="map-tab" data-layer="farmCity" title="How big a city each place could feed: the people the land within the reach could feed, summed — set the reach with its slider or Shift+scroll over the planet">City size</button>
                 <button class="map-tab" data-layer="farmSoil" title="How fertile the ground is: river silt and loess richest, then volcanic ash; black earth under grassland, leached red earth in the wet tropics, acid podzol under boreal forest">Soil</button>
                 <button class="map-tab" data-layer="farmSeason" title="The months crops grow: warm enough and wet enough — by rain alone, or watered">Growing season</button>
+                <span class="evo-beta">Beta</span>
+            </div>
+            <div class="map-tabs" id="civTabs" hidden>
+                <button class="map-tab" data-layer="farmCity" title="How big a city each place could feed: the people the land within the reach could feed, summed — set the reach with its slider or Shift+scroll over the planet">City size</button>
                 <span class="evo-beta">Beta</span>
             </div>
             <label id="cityReach" class="city-reach" title="The City size view's reach: how many days by cart its food may cost to bring — far further by river, lake or sea, as cheaper; Shift+scroll over the planet sets it too" hidden>Reach
@@ -147,7 +166,8 @@ export function mountLayerBar({ comes = 'Comes with Add detail', platesTip = '',
         <option value="plates">Plates</option>
         <optgroup label="Climate">${[['koppen', 'Köppen'], ['temperature', 'Temperature'], ['rain', 'Rain'], ['wind', 'Wind'], ['currents', 'Currents']].map(([v, l]) => opt(v, l)).join('')}</optgroup>
         <optgroup id="mobileGeology" label="Geology">${[['geoRocks', 'Rocks'], ['geoDeposits', 'Deposits'], ['geoAges', 'Ages']].map(([v, l]) => opt(v, l)).join('')}</optgroup>
-        <optgroup id="mobileFarming" label="Food">${[['farmLand', 'Farmland'], ['farmStaple', 'Staple food'], ['farmLife', 'Lifestyle'], ['farmPeople', 'People'], ['farmCity', 'City size'], ['farmSoil', 'Soil'], ['farmSeason', 'Growing season']].map(([v, l]) => opt(v, l)).join('')}</optgroup>
+        <optgroup id="mobileFarming" label="Food">${[['farmLand', 'Farmland'], ['farmStaple', 'Staple food'], ['farmLife', 'Lifestyle'], ['farmPeople', 'People'], ['farmSoil', 'Soil'], ['farmSeason', 'Growing season']].map(([v, l]) => opt(v, l)).join('')}</optgroup>
+        <optgroup id="mobileCiv" label="Civilizations">${opt('farmCity', 'City size')}</optgroup>
         <optgroup label="Climate: more">${CLIMATE_MORE.flatMap(([, list]) => list).map(([v, l]) => opt(v, l)).join('')}</optgroup>`;
     $('legendCard').innerHTML = '<div id="climateLegend" class="viz-legend"></div><div id="regimeLegend" class="evo-koppen evo-regime-legend" hidden></div>';
     // (the tabs say which is shown: aria-pressed, kept by LayerBar.setLayer)
@@ -157,7 +177,8 @@ export function mountLayerBar({ comes = 'Comes with Add detail', platesTip = '',
         document.querySelector(`#mapTabs [data-layer="${id}"]`)?.remove();
         $('mobileViewSwitch').querySelector(`option[value="${id}"]`)?.remove();
         if (id === 'geology') $('mobileGeology')?.remove();
-        if (id === 'farming') $('mobileFarming')?.remove();
+        // (the Civilizations views stand on the food's: a page without Food has none of them)
+        if (id === 'farming') { $('mobileFarming')?.remove(); $('mobileCiv')?.remove(); document.querySelector('#mapTabs [data-layer="civ"]')?.remove(); }
     }
 }
 
@@ -170,9 +191,12 @@ export function mountLayerBar({ comes = 'Comes with Add detail', platesTip = '',
 export class LayerBar {
     constructor(view, { onLayer = () => {}, onPick = () => {} } = {}) {
         const $ = this.$ = id => document.getElementById(id);
+        // (every pick remembered for the next load: view/layer-memory.js)
+        const picked = onPick; this.stored = loadLayer();
+        onPick = () => { saveLayer(this); picked(); };
         this.view = view; this.onLayer = onLayer; this.onPick = onPick;
-        this.last = { climate: 'koppen', geology: 'geoRocks', farming: 'farmLand' };
-        for (const b of document.querySelectorAll('#mapTabs .map-tab, #climateTabs .map-tab, #geologyTabs .map-tab, #farmingTabs .map-tab')) b.addEventListener('click', () => this.setLayer(b.dataset.layer));
+        this.last = { climate: 'koppen', geology: 'geoRocks', farming: 'farmLand', civ: 'farmCity' };
+        for (const b of document.querySelectorAll('#mapTabs .map-tab, #climateTabs .map-tab, #geologyTabs .map-tab, #farmingTabs .map-tab, #civTabs .map-tab')) b.addEventListener('click', () => this.setLayer(b.dataset.layer));
         $('mobileViewSwitch').addEventListener('change', e => this.setLayer(e.target.value));
         $('climateMore').addEventListener('change', e => { if (e.target.value) this.setLayer(e.target.value); });
         $('season').addEventListener('change', e => { view.season = e.target.value; onPick(); });
@@ -202,37 +226,47 @@ export class LayerBar {
         sel.value = this.view.ageRes;
     }
 
-    /** Show a layer ('climate', 'geology' and 'farming': the group's view last shown): the tabs lit, the rows and pickers. */
+    /** Which group's tab (a key of `last`) a view belongs to, or null. */
+    groupOf(layer) {
+        return CLIMATE_SUB.has(layer) ? 'climate' : GEOLOGY_LAYERS.has(layer) ? 'geology' : FOOD_TAB.has(layer) ? 'farming' : CIV_LAYERS.has(layer) ? 'civ' : null;
+    }
+
+    /** Show a layer ('climate', 'geology', 'farming' and 'civ': the group's view last shown): the tabs lit, the rows and
+     *  pickers. */
     setLayer(layer) {
         const $ = this.$, last = this.last;
-        if (layer === 'climate') layer = last.climate;
-        if (layer === 'geology') layer = last.geology;
-        if (layer === 'farming') layer = last.farming;
+        if (Object.hasOwn(last, layer)) layer = last[layer];
         if (CLIMATE_SUB.has(layer)) last.climate = layer;
-        const geo = GEOLOGY_LAYERS.has(layer), farm = FARMING_LAYERS.has(layer);
+        const geo = GEOLOGY_LAYERS.has(layer), farm = FOOD_TAB.has(layer), civ = CIV_LAYERS.has(layer);
         if (geo) last.geology = layer;
         if (farm) last.farming = layer;
+        if (civ) last.civ = layer;
         this.view.layer = layer;
         const press = (b, on) => { b.classList.toggle('active', on); b.setAttribute('aria-pressed', String(on)); };
-        for (const b of document.querySelectorAll('#mapTabs .map-tab')) press(b, b.dataset.layer === layer || (b.dataset.layer === 'climate' && CLIMATE_SUB.has(layer)) || (b.dataset.layer === 'geology' && geo) || (b.dataset.layer === 'farming' && farm));
-        for (const b of document.querySelectorAll('#climateTabs .map-tab, #geologyTabs .map-tab, #farmingTabs .map-tab')) press(b, b.dataset.layer === layer);
+        for (const b of document.querySelectorAll('#mapTabs .map-tab')) press(b, b.dataset.layer === layer || (b.dataset.layer === 'climate' && CLIMATE_SUB.has(layer)) || (b.dataset.layer === 'geology' && geo) || (b.dataset.layer === 'farming' && farm) || (b.dataset.layer === 'civ' && civ));
+        for (const b of document.querySelectorAll('#climateTabs .map-tab, #geologyTabs .map-tab, #farmingTabs .map-tab, #civTabs .map-tab')) press(b, b.dataset.layer === layer);
         const more = $('climateMore'), inMore = !!more.querySelector(`option[value="${layer}"]`);
         more.value = inMore ? layer : ''; more.classList.toggle('active', inMore);
         $('mobileViewSwitch').value = layer;
         this.showRows(layer);
+        saveLayer(this);
         this.onLayer(layer);
     }
 
+    /** The layer and picks last left (view/layer-memory.js), shown as their tab would: called once the page is wired. */
+    restore() { const s = this.stored; this.stored = null; restoreLayer(this, s); }
+
     /** The rows under the tabs for a layer (setLayer's; again when a page adds its own row after the layer was set). */
     showRows(layer) {
-        const $ = this.$, geo = GEOLOGY_LAYERS.has(layer), farm = FARMING_LAYERS.has(layer);
+        const $ = this.$, geo = GEOLOGY_LAYERS.has(layer), farm = FOOD_TAB.has(layer), civ = CIV_LAYERS.has(layer);
         // (a page's own row for a layer — Generate's edit tools under Terrain: an element in #subBar with data-for-layer)
         const own = [...document.querySelectorAll('#subBar [data-for-layer]')];
         for (const r of own) r.hidden = r.dataset.forLayer !== layer;
-        $('subBar').hidden = !CLIMATE_SUB.has(layer) && !SEASONAL_LAYERS.has(layer) && !geo && !farm && own.every(r => r.hidden);
+        $('subBar').hidden = !CLIMATE_SUB.has(layer) && !SEASONAL_LAYERS.has(layer) && !geo && !farm && !civ && own.every(r => r.hidden);
         $('climateTabs').hidden = $('climateMore').hidden = !CLIMATE_SUB.has(layer);
         $('geologyTabs').hidden = !geo;
         $('farmingTabs').hidden = !farm;
+        $('civTabs').hidden = !civ;
         $('season').hidden = !SEASONAL_LAYERS.has(layer);
         $('depositPick').hidden = layer !== 'geoDeposits';
         $('agePick').hidden = $('ageRes').hidden = layer !== 'geoAges';

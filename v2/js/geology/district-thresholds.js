@@ -2,7 +2,7 @@
 // v2/tools/calibrate-districts.mjs from geology-config.js (deposits.district, deposits.shapes); district-shapes.js uses them
 // while the settings' key matches, and calibrates afresh when it does not. Do not edit by hand.
 export const DISTRICT_THRESHOLDS = {
-    key: 'bda409ed-6590',
+    key: '92879b0c-6977',
     thresholds: [
         [1.4587132930755615, 1.7867460250854492, 3.481179714202881],   // porphyry
         [1.5795248746871948, 1.936379313468933, 3.9093921184539795],   // epithermal
@@ -60,5 +60,9 @@ export const DISTRICT_THRESHOLDS = {
         [0.9273838400840759, 1.3314391374588013, 2.892268657684326],   // ironVein
         [1.424999713897705, 1.7882299423217773, 3.519975423812866],   // ioa
         [1.1962519884109497, 1.4797604084014893, 2.872750759124756],   // stoneVolcanic
+        [0.7961274981498718, 1.0823335647583008, 2.066547155380249],   // gravel
+        [1.1311720609664917, 1.3598257303237915, 2.4772844314575195],   // desertSand
+        [1.0629316568374634, 1.2783010005950928, 2.370100498199463],   // crushedRock
+        [1.1400917768478394, 1.353403925895691, 2.4198367595672607],   // silicaSand
     ],
 };
