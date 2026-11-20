@@ -14,9 +14,18 @@ Import's build card ([build-progress.md](build-progress.md)).
 
 ## Where the step's share comes from
 
-The finish worker says only when a stage begins, and how far the picture is (its rows). No other stage reports its own
-progress, and threading a report through each (the carve's rounds, the hydrology, the climate) would reach into every
-stage's module. So the stages are timed:
+Each stage reports how far it is from inside (`v2/js/core/progress.js`): the worker sets one sink for its run, a stage
+gives its parts their ranges (`part`) and its loops say how far through theirs they are (`report`); with no sink (Node,
+the page, the pool's workers) the calls do nothing. The worker sends at most every 100 ms or 2 %.
+
+- **surface**: the pool's slices as they come back. **climate**: the coupling rounds, rain, the months, then the
+  runoff. **bedrock**: its rock pass, then the relief. **rivers**: each carve level's rounds, by cells × rounds, and
+  inside a round its receivers, beds and the history's rivers. **ice age**, **wind**, **sea**, **sediment**: their
+  phases. **water**: the flood (by its cells), receivers, hollows, cuts, the discharge (by its cells), rivers, their
+  year. **detail**: its rows. **geology**, **deposits**: their cells. **final climate**: its land cells. **farming**:
+  its phases. **picture**: its rows.
+
+Between two reports, and for a stage that reports nothing, the time fills in:
 
 - Each finish's laps (`finish.js` `ms`, per stage) are kept in this browser (`localStorage` `orogen.finishLaps`, per
   page and detail, the latest 12). The next finish reads each stage's share of the whole off them, and the stage's own
@@ -24,8 +33,7 @@ stage's module. So the stages are timed:
 - No laps at this detail: the nearest detail's, scaled by the cells.
 - No laps at all (a first finish): the stages' weights (`finish.js` STAGES), timed by this finish's pace over the stages
   done. The first stage then has no step %.
-- The picture's reported rows win over the clock. A stage the laps never saw (the rocks, on a history without its
-  record before) shows no step %.
+- A reported share wins over the clock.
 - A guess stops at 99 % until the next stage begins; the whole never steps back.
 
 With laps kept, the whole's bar moves by time too, not in steps at each stage's start.
@@ -34,4 +42,5 @@ With laps kept, the whole's bar moves by time too, not in steps at each stage's 
 
 Node, with fake laps (2026-11-20): a first finish gave no step % for the mesh, then 50 % for a surface half its paced
 time; a second at twice the cells read the first's laps doubled (rivers 5 s of 10 s: 50 %, the whole 65 %), stopped at
-99 % on an overrun, and took the picture's 80 % as reported. Not yet looked at in a browser.
+99 % on an overrun, and took the picture's 80 % as reported. The reports (2026-11-20): nested parts in Node rise
+0 → 1 without stepping back, and do nothing with no sink. Not yet looked at in a browser.

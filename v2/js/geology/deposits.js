@@ -26,6 +26,7 @@ import { Biome } from '../finish/finish-cover.js';
 import { Rock, ROCK_COUNT, simRocks, hash01, bedTops, B_GRANITE, NB } from './rocks.js';
 import { GEOLOGY } from './geology-config.js';
 import { DistrictShapes } from './district-shapes.js';
+import { report } from '../core/progress.js';
 
 const R = 6371;
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -400,6 +401,7 @@ export function depositFields({ mesh, z, ocean, frame, simMesh, seed, rock, rec,
     const step = [Dp.gridDeg, 0.5, 1, 2].find(d => d >= Dp.gridDeg && d * 111 >= 1.25 * mesh.edgeKm) ?? 2;
     const shapes = new DistrictShapes(seed, districtSystems(G), SH, step);
     const out = new LatLonGrid(step), gi = new Int32Array(out.size).fill(-1), list = [], cellG = new Int32Array(n).fill(-1);
+    report(0.2);
     for (let c = 0; c < n; c++) {
         if (!kept(c)) continue;
         const k = out.index(lat[c], lon[c]);
@@ -433,6 +435,7 @@ export function depositFields({ mesh, z, ocean, frame, simMesh, seed, rock, rec,
     // (a value of the record's that may be negative — a shield's axis — or missing: 0)
     const gs = f => { const v = coarse.atCorners(f, ci, cw); return v === v ? v : 0; };
     for (let c = 0; c < n; c++) {
+        if ((c & 0xffff) === 0) report(0.25 + 0.65 * c / n);
         if (cellG[c] < 0) continue;
         const x = xyz[3 * c], y = xyz[3 * c + 1], zz = xyz[3 * c + 2], la = lat[c], lo = lon[c];
         C = c; X = x; Y = y; Z = zz;

@@ -18,6 +18,7 @@ import { MinHeap } from '../core/min-heap.js';
 import { flatKey } from '../terrain/carve.js';
 import { siltLake, lakeInlets } from './lake-silt.js';
 import { hollowFates } from './lake-fates.js';
+import { report } from '../core/progress.js';
 
 const SEC_PER_YEAR = 3.156e7, R = 6371;
 /** The distance (km) between two neighbouring cells (the chord: the same to well under a metre at a cell's size). */
@@ -147,8 +148,9 @@ export function hydrology(ctx, F) {
     // where ctx.wander, the meander, is low — not a ruler's line: developer, 2026-10-27, "slightly too straight now")
     const flatKm = new Float32Array(n), W = ctx.wander && F.riverWanderKm > 0 ? F.riverWanderKm : 0;
     const under = (x, from) => W && z[x] <= from ? z[x] - W * (1 - Math.max(-1, Math.min(1, ctx.wander(x)))) : z[x];   // (from: the level it is reached from)
+    let land = 0;                                                       // (the flood's cells: its share done, core/progress.js)
     for (let c = 0; c < n; c++) {
-        if (!ocean[c]) continue;
+        if (!ocean[c]) { land++; continue; }
         rank[c] = -2;
         for (let k = adjOffset[c]; k < adjOffset[c + 1]; k++) { const nb = adjList[k]; if (!ocean[nb] && parent[nb] === -1) { parent[nb] = c; fill[nb] = Math.max(0, z[nb]); heap.push(fill[nb], nb); } }
     }
@@ -156,6 +158,7 @@ export function hydrology(ctx, F) {
         const c = heap.pop();
         if (rank[c] !== -1) continue;
         rank[c] = count; order[count++] = c;
+        if ((count & 0xffff) === 0) report(0.3 * count / land);
         for (let k = adjOffset[c]; k < adjOffset[c + 1]; k++) {
             const nb = adjList[k];
             if (rank[nb] !== -1 || ocean[nb]) continue;
@@ -164,6 +167,7 @@ export function hydrology(ctx, F) {
         }
     }
     // ── receivers: the steepest way down the filled surface to a cell reached before (or the sea); on a flat, the flood's way ──
+    report(0.3);
     const recv = new Int32Array(n).fill(-1), stepKm = new Float32Array(n);
     for (let i = 0; i < count; i++) {
         const c = order[i];
@@ -264,6 +268,7 @@ export function hydrology(ctx, F) {
         return level;
     };
     // ── hollows: connected cells under their spill level, one spill level each (one lake, if it were full) ──
+    report(0.4);
     const hollow = new Int32Array(n).fill(-1), hollows = [], laterCuts = [];
     for (let i = 0; i < count; i++) {
         const s = order[i];
@@ -332,11 +337,14 @@ export function hydrology(ctx, F) {
     };
     // (the finishing's hollows cut through once every hollow is found — a cell cut below the flood's surface mid-search
     // read as a hollow of its own: spurious lakes the size of plains — each drained whole, its pockets too)
+    report(0.5);
     for (const id of laterCuts) { const h = hollows[id]; cut(h.deepCell, h.floor); cutPockets(h, id, h.outlet); }
+    report(0.6);
     const lakeDeficit = c => Math.max(0, F.lakeEvapShare * pet[c] - Math.max(0, rain[c]));     // (mm/yr off open water)
     let toSea = 0, toBasins = 0, lost = 0, total = 0;
     for (let i = count - 1; i >= 0; i--) {
         const c = order[i], h = hollow[c] >= 0 ? hollows[hollow[c]] : null;
+        if ((i & 0xffff) === 0) report(0.6 + 0.2 * (count - i) / count);
         const r0 = own(c);
         total += r0;
         q[c] += r0; qw[c] += r0 * (wetMonths[c] ?? 12); area[c] += cellKm2;
@@ -535,6 +543,7 @@ export function hydrology(ctx, F) {
     }
 
     // ── the rivers: reaches carrying at least riverMinM3s, not on lakes, not on ice caps ──
+    report(0.85);
     const on = c => rank[c] >= 0 && q[c] >= F.riverMinM3s && !lakeKind[c] && !(ctx.ice && ctx.ice[c]);
     const upCount = new Uint8Array(n);
     for (let i = 0; i < count; i++) { const c = order[i]; if (on(c) && recv[c] >= 0 && on(recv[c])) upCount[recv[c]] = Math.min(255, upCount[recv[c]] + 1); }
@@ -581,6 +590,7 @@ export function hydrology(ctx, F) {
         reaches++;
     }
     // ── each river's year (ctx.months: the monthly shares of each place's runoff, on the climate's grid) ──
+    report(0.92);
     const regimes = ctx.months ? riverYears(ctx, F, { n, count, order, hollow, hollows, recv, rank, lakeKind, stepKm, own, cells: Int32Array.from(L.cell) }) : null;
     let lakes = 0, salt = 0, pans = 0, lakeKm2 = 0;
     const byOrigin = { glacialFresh: 0, tectonicFresh: 0, salt: 0, pan: 0 }, sizes = [];

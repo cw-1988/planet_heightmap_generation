@@ -15,7 +15,8 @@
 //              adjList} (its own mesh, finished on instead of a terrain mesh), surface {heightKm, carveIn, recCell, cues}
 //              (drawn on it with finish.js surfaceConfig's terrain config), and the overrides of its terrain config
 //              (`terrain`) and of the finish's (`finish`) — no terrain pool then. climateOptions.lakes: the Lakes slider (lake-amount.js)
-// Messages out: {type: 'stage', id, stage} · {type: 'progress', id, share} (the picture) · {type: 'terrain', id, raster
+// Messages out: {type: 'stage', id, stage} · {type: 'progress', id, share} (the stage under way's own share of itself,
+//              from inside it: finish.js onProgress, and the picture's rows) · {type: 'terrain', id, raster
 //              {w, h, heightM, ocean, water, waterLevel (the lakes' level, m)}, rivers, drain, valleyQ, lines} (with earlyTerrain: the terrain, before the other layers) · {type: 'drivers', id, drivers}
 //              (with earlyTerrain: the fine detail's drivers once drawn, so the terrain zooms in; 'done' then without them) · {type: 'done', id, raster:
 //              {w, h, heightM, ocean, water, geology, farming (farming/farming.js: its parts per pixel)}, rivers
@@ -36,6 +37,7 @@ import { setDelaunator } from '../../../js/sphere-mesh.js';
 import { riverLines } from './river-valleys.js';
 import { stepClimate } from './step-climate.js';
 import { lakeOverrides } from './lake-amount.js';
+import { reportTo } from '../core/progress.js';
 
 let sim = null, simCells = 0, delaunatorSet = false;
 const LOCATED_WIDTH = 2048;                                          // (2048 × 1024 pixels' cells: ~75 MB while the finish runs)
@@ -80,7 +82,14 @@ self.onmessage = async ({ data }) => {
         // handed over, so 'done' comes without them: finish-view.js adds them back)
         let driversSent = false;
         const onDrivers = earlyTerrain ? dr => { self.postMessage({ type: 'drivers', id, drivers: dr }, DRIVER_FIELDS.map(k => dr[k].buffer)); driversSent = true; } : null;
-        const out = await finishPlanet({ frame, simMesh: sim, seed, cells, pool, closePool: !!pool, climateOptions, driversWidth: driverWidth(width), onStage: stage => self.postMessage({ type: 'stage', id, stage }),
+        // (each stage's own progress, as it reports it — core/progress.js — at most every 100 ms or 2 %)
+        let sentAt = 0, sentShare = -1;
+        const onProgress = share => {
+            const now = performance.now();
+            if (share < sentShare || share - sentShare >= 0.02 || now - sentAt >= 100) { self.postMessage({ type: 'progress', id, share }); sentAt = now; sentShare = share; }
+        };
+        const out = await finishPlanet({ frame, simMesh: sim, seed, cells, pool, closePool: !!pool, climateOptions, driversWidth: driverWidth(width), onProgress,
+            onStage: stage => { sentShare = -1; self.postMessage({ type: 'stage', id, stage }); },
             onTerrain, onDrivers, ...own, ...(terrainOnly ? { climate: stepClimate } : {}),...(data.terrain ? { cfg: terrainConfig(data.terrain) } : {}), F: { ...FINISH, ...lakeOverrides(climateOptions.lakes), ...(data.finish ?? {}) } });   // (the page's Lakes: lake-amount.js)
         if (out.terrainOnly) { self.postMessage({ type: 'done', id, terrainOnly: true, ms: out.ms }); return; }
         self.postMessage({ type: 'stage', id, stage: 'picture' });
@@ -100,5 +109,5 @@ self.onmessage = async ({ data }) => {
                 ...(raster.drivers ? DRIVER_FIELDS.map(k => raster.drivers[k].buffer) : [])]);
     } catch (err) {
         self.postMessage({ type: 'error', id, message: err?.stack ?? String(err) });
-    }
+    } finally { reportTo(null); }
 };

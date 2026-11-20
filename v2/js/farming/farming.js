@@ -18,6 +18,7 @@ import { FINISH, COVER } from '../finish/finish-config.js';
 import { Rock } from '../geology/rocks.js';
 import { spreadKm } from '../core/min-heap.js';
 import { LatLonGrid } from '../finish/finish-grid.js';
+import { report } from '../core/progress.js';
 
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const S = (r, x) => smooth(r[0], r[1], x);
@@ -353,8 +354,11 @@ function slopes(mesh, z, ocean, K) {
 export function farmCells({ mesh, z, ocean, q, lat, lon, lake = null, lakeLevel = null, rock = null, youngKind = null, young = null, climate }, K = FARMING) {
     const n = mesh.numCells, soil = new Uint8Array(n), kind = new Uint8Array(n), wetland = new Uint8Array(n), fc = climate;
     const slope = slopes(mesh, z, ocean, K);
+    report(0.15);
     const flood = waterReach(mesh, z, ocean, q, K.floodQ, K.floodKm, K.floodHandKm);
+    report(0.35);
     const canal = waterReach(mesh, z, ocean, q, K.canalQ, K.canalKm, K.canalHandKm, lake, lakeLevel, K.lakeKm);
+    report(0.55);
     const renew = K.leachRenew, base = new Float32Array(n), YOUNG = new Set([SoilKind.PLAIN, SoilKind.LOESS, SoilKind.TILL, SoilKind.ERG]);
     // what each formed from, and how much of it leaching leaves (less where floods, ash or a rising range renew it)
     for (let c = 0; c < n; c++) {
@@ -372,6 +376,7 @@ export function farmCells({ mesh, z, ocean, q, lat, lon, lake = null, lakeLevel 
     // the rock map's patchwork, read cell by cell, drew a leopard's spots; the young sediment's plains and loess stay crisp)
     const grid = new LatLonGrid(0.5), isBed = c => !ocean[c] && !YOUNG.has(kind[c] & 15);
     const region = grid.blur(grid.average(lat, lon, base, isBed), K.soilRegionKm);
+    report(0.75);
     for (let c = 0; c < n; c++) {
         if (ocean[c]) continue;
         let b = base[c];

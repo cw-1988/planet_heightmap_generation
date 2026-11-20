@@ -29,6 +29,7 @@ import { locate } from '../core/mesh-locate.js';
 import { classifyRocks } from '../geology/rocks.js';
 import { softFamilies, softFamilyGrid } from '../climate/koppen-soft.js';
 import { depositFields, climateTests, climateTestArrays, DEPOSITS, METALS } from '../geology/deposits.js';
+import { reportTo, part, report } from '../core/progress.js';
 import { newFarmClimate, addFarmClimate, farmCells, encHarvests, decHarvests, hasHarvests } from '../farming/farming.js';
 
 const DEPOSIT_IDS = DEPOSITS.map(d => d.id);
@@ -65,10 +66,13 @@ export function surfaceConfig(F, cfg) {
  *   surfaceConfig's cfg (Generate: v2/js/present/world.js presentSynthesize's `surface`); no pool is needed then.
  *   onTerrain({mesh, z, ocean, lake, lakeLevel, rivers, drain}): the terrain as soon as it is final (after the water),
  *   awaited — the rest (detail, rocks, final climate, deposits, farming) changes none of it; returning true stops there · onDrivers(drivers): the detail's drivers once drawn
+ *   · onProgress(share): the stage under way's own progress (0 … 1), reported from inside it (core/progress.js; the sink
+ *   is this thread's: its caller clears it with reportTo(null) when the finish ends)
  * @returns {Promise<{mesh: Object, z: Float32Array, ocean: Uint8Array, ms: Object, stats: Object}>}
  */
-export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, closePool = false, onStage = () => {}, F = FINISH, cfg = terrainConfig(), debug = false, climateOptions = {}, driversWidth = cells >= 1.5e6 ? 2048 : 1024, inspect = null, mesh: givenMesh = null, surface = null, onTerrain = null, onDrivers = null, climate = planetClimate }) {
-    const ms = {}, stats = {};
+export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, closePool = false, onStage = () => {}, F = FINISH, cfg = terrainConfig(), debug = false, climateOptions = {}, driversWidth = cells >= 1.5e6 ? 2048 : 1024, inspect = null, mesh: givenMesh = null, surface = null, onTerrain = null, onDrivers = null, climate = planetClimate, onProgress = null }) {
+    const ms = {}, stats = {}, said = onStage;
+    onStage = s => { said(s); reportTo(onProgress); };                // (each stage's reports from 0, over all of it)
     let t0 = performance.now();
     const lap = name => { const t = performance.now(); ms[name] = t - t0; t0 = t; };
     onStage('mesh');
@@ -83,6 +87,7 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     let warped = surface ? null : { numCells: n, xyz: warpPositions(mesh, seed, F), edgeKm: mesh.edgeKm };
     // (the carving's inputs at the finish's erosion strength: its stream power's k, its crests' hardness)
     const E = erosionAt(F, cfg), fade = lam => smooth(cfg.minWavesPerCell, cfg.fullWavesPerCell, lam / mesh.edgeKm);
+    const surfDone = part(0, 0.9);                                    // (the pool's slices, as they come back: terrain-pool.js)
     const surfJob = surface ? Promise.resolve(surface(mesh, surfaceConfig(F, cfg)))
         : pool.synthesize(frame, warped, { cfg: surfaceConfig(F, cfg), seed, records: false, carveInputs: true, recCells: !!frame.coverKm });
     // (while the workers draw the surface, this thread builds ahead what needs only the mesh — the carving's ladder of
@@ -93,6 +98,7 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     let meanderV = null;
     if (n <= PREP_CELLS) { prepareCarve(ladder, broad ? [[broad, mesh]] : []); meanderV = meanderValues(mesh, seed, F, fade); }
     let surf = await surfJob;
+    surfDone();
     if (closePool) pool?.terminate();                                 // (its workers' memory back before the heavy stages)
     if (warped) pool?.forget?.(warped);
     let carveIn = surf.carveIn;
@@ -107,7 +113,9 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     // ── the climate, on this surface ──
     onStage('climate');
     // (climateOptions: the page's Greenhouse and Precipitation — greenhouseWm2, precipScale)
+    const climDone = part(0, 0.85);
     let res = climate({ xyz: mesh.xyz, elevKm: z, axes: 'z-up' }, climateOptions);
+    climDone();
     const { koppen, tAnnual: tAnn, pAnnual: pAnn, lat, lon } = res.cell, G = res.grid.size;
     for (let c = 0; c < n; c++) if (pAnn[c] > F.rainMaxMm) pAnn[c] = F.rainMaxMm;     // (the climate's rare wet hotspots)
     // (the warmest month at sea level, and the winds, on the climate's grid)
@@ -140,6 +148,7 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     for (let c = 0; c < n; c++) if (!(pAnn[c] === pAnn[c])) { pAnn[c] = bilinear(climGrid, pG, lat[c], lon[c]); tAnn[c] = bilinear(climGrid, tG, lat[c], lon[c]) - gamma * Math.max(0, z[c]); }
     // (each place's runoff shared over the months — rain, snow kept until it melts, less a share of each month's
     // evaporation; a share, where it is humid, through the ground, which drains back slowly — and each month's dryness)
+    report(0.95);
     const monthly = runoffMonths(res.months, G, F);
     // (kept for the finished moment's own climate, at the end: the page's grid fields, and the grid's climate to finish
     // each cell again on the finished surface)
@@ -154,7 +163,9 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     let rocks0 = null, lithoDz = null;
     if (frame?.coverKm && recCell) {
         onStage('bedrock');
+        const rocksDone = part(0, 0.5);                               // (its rock pass: geology/rocks.js classifyRocks)
         rocks0 = rocksBefore({ mesh, z, frame, simMesh, seed, cfg, recCell, cues, lat, lon, rain: pAnn, temp: tAnn, grid });
+        rocksDone();
         lithoDz = differentialRelief(mesh, z, rocks0, { frame, recCell, lat, lon, hold: carveIn.hold, lip: carveIn.lip }, F);
         carveByRock(carveIn, rocks0, F);
         let sum = 0, land = 0;
@@ -202,7 +213,9 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
         hold[c] *= 1 - (1 - wetHold) * smooth(meanW, 2 * meanW, carveIn.rain[c]) * steep;
     }
     const settings = carveSettings({ ...cfg, carveM: E.m, carveTimeMyr: F.carveTimeMyr, carveRounds: F.carveRounds, carveValleySides: F.valleySides ?? 0 });
+    const carveDone = part(0.08, 0.88);                               // (its levels' rounds: carve.js carveTerrain)
     const C = carveTerrain(ladder, { ...carveIn, hold, z, sink: B.sink, base: B.base }, settings);
+    carveDone();
     // (where flood basalt still caps the ground after the carving — its pile not cut through — for the satellite view)
     const basalt = new Uint8Array(n), lip0 = carveIn.lip;
     for (let c = 0; c < n; c++) if (carveIn.lip[c] > 0) basalt[c] = Math.round(255 * carveIn.lip[c] * smooth(0, 0.05, C.z[c] - carveIn.lipBase[c]));
@@ -215,6 +228,7 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     let soft = null;
     if (rocks0) { soft = new Float32Array(n); const [s0, s1] = F.lithDissect; for (let c = 0; c < n; c++) soft[c] = rocks0.rock[c] ? s0 + (s1 - s0) * rocks0.hard[c] : 1; }
     dissect(mesh, C.z, C, cellKm2, { ...F, dissectKm: E.dissectKm }, soft);
+    report(0.95);
     if (rocks0) coverStairs(C.z, before, C, rocks0, pAnn, lip0, F, seed);
     lap('rivers');
 
@@ -225,7 +239,9 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     const geo = frame?.coverKm ? { cut: new Uint8Array(n), cutStepKm: 0.02, alluv: new Uint8Array(n), alluvStepKm: 0.002 } : null;
     if (geo) for (let c = 0; c < n; c++) geo.cut[c] = Math.min(255, Math.max(0, Math.round((before[c] - C.z[c]) / geo.cutStepKm)));
     let zPre = geo ? C.z.slice() : null;
+    report(0.1);
     stats.deltas = depositSediment(mesh, before, C, B.sink, cellKm2, F).deltas;
+    report(0.9);
     if (geo) for (let c = 0; c < n; c++) geo.alluv[c] = Math.min(255, Math.max(0, Math.round((C.z[c] - zPre[c]) / geo.alluvStepKm)));
     zPre = null;
     lap('sediment');
@@ -254,11 +270,13 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     // ── the sea: water below sea level that the open ocean reaches (fjords, sunk basins); hollows it cannot reach stay land ──
     onStage('sea');
     let ocean = oceanMask(mesh, C.z);
+    report(0.3);
     // (an inland sea the ocean all but reaches — behind a low, short barrier — is opened into it; one left closed is a
     // remnant of the sea in a basin, for the hydrology: finish-hydro.js)
     const straits = openStraits(mesh, C.z, ocean, F);
     stats.straits = straits;
     if (straits.opened) ocean = oceanMask(mesh, C.z);
+    report(0.6);
     const seaBasin = fillSeaBasins(mesh, C.z, ocean, F);
     forgetMesh(mesh); forgetEdgeKm(mesh);                             // (the carve's and the distances' caches for this mesh)
     lap('sea');
@@ -271,7 +289,9 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     const months = { at: (c, m0, M, share, arid) => { corners(climGrid, lat[c], lon[c], bi, bw); for (let j = 0; j < M; j++) { share[j] = at(monthly.share[m0 + j], c); arid[j] = at(monthly.arid[m0 + j], c); } } };
     // (across a flat, the rivers wander as the carving's did: the same meander, read where the water needs it)
     const wander = meanderV ? c => meanderV[c] : meanderAt(mesh, seed, F, fade);
+    const hydroDone = part(0, 0.9);                                   // (its phases: finish-hydro.js hydrology)
     const Hy = hydrology({ mesh, z: C.z, ocean, runoff, pet, rain: pAnn, wetMonths, ice, glaciated: I.ice, tectonic: B.tectonic, seaBasin, fillHollows: true, lat, lon, months, wander, debug }, F);
+    hydroDone();
     Object.assign(stats, { water: Hy.stats });
     // (the sea again, after the rivers' gorges)
     ocean = oceanMask(mesh, C.z);
@@ -328,7 +348,10 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     const farmC = newFarmClimate(n);
     // (and the climate as shares, for the Satellite view's transitions — climate/koppen-soft.js: a few places a 0.35° cell)
     const famGrid = softFamilyGrid(1024), famBuf = new Float64Array(10);
+    report(0.02);
+    let nextReport = 0;                                               // (land cells only, in order: a report each 32K cells)
     const cellsClimate = cellClimate(gridClimate, mesh.xyz, C.z, land, {}, (c, T12, P12) => {
+        if (c >= nextReport) { report(0.02 + 0.9 * c / n); nextReport = c + 0x8000; }
         cellStats.add(c, T12, P12);
         { const g = famGrid.wants(lat[c], lon[c]); if (g >= 0) famGrid.add(g, softFamilies(T12, P12, famBuf)); }
         let T = T12;

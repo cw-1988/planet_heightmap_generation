@@ -29,6 +29,7 @@ import { FastNoise } from '../core/fast-noise.js';
 import { spreadKm } from '../core/min-heap.js';
 import { LatLonGrid } from '../finish/finish-grid.js';
 import { GEOLOGY } from './geology-config.js';
+import { report } from '../core/progress.js';
 
 const R = 6371, DEG = 180 / Math.PI;
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -331,7 +332,9 @@ export function classifyRocks({ mesh, z, ocean, frame, simMesh, seed, cfg, recCe
         const q = p => sample[Math.max(0, Math.min(sample.length - 1, Math.round(p * (sample.length - 1))))] ?? 0;
         plainLo = Math.max(G.alluviumKm[0], q(1 - G.plainsShare - 0.03)); plainHi = Math.max(plainLo + 1e-4, G.alluviumKm[0] * 2, q(1 - G.plainsShare + 0.03));
     }
+    report(0.2);
     for (let c = 0; c < n; c++) {
+        if ((c & 0xffff) === 0) report(0.2 + 0.7 * c / n);
         if (ocean[c]) continue;
         land++;
         const w = rec[c];
@@ -442,6 +445,7 @@ export function classifyRocks({ mesh, z, ocean, frame, simMesh, seed, cfg, recCe
         if (best === Rock.ALLUVIUM) { const by = young === yA ? 0 : young === yE ? 1 : young === yL ? 2 : 3; youngBy[by]++; youngKind[c] = by + 1; }
     }
     // (a cell alone among others of one kind takes theirs — a speck on a map is noise, at any detail)
+    report(0.9);
     for (let pass = 0; pass < G.despeckle; pass++) despeckle(mesh, rock, ocean, shares);
     if (land) { for (let k = 0; k < ROCK_COUNT; k++) shares[k] /= land; for (let k = 0; k < 4; k++) youngBy[k] /= land; }
     return { rock, rec, shares, youngBy, youngKind, colS, colT, colArch };

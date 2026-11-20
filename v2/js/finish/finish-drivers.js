@@ -6,6 +6,7 @@
 
 import { CoastKind, deriveRecords, kindType, kindSide } from '../terrain/records.js';
 import { OrogenyType, BeltSide } from '../tectonics/model/crust.js';
+import { report } from '../core/progress.js';
 
 const R = 6371, D2R = Math.PI / 180, TAU = 2 * Math.PI;
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -46,7 +47,9 @@ export function detailDrivers(o) {
     const rec = o.frame ? deriveRecords(o.frame, simMesh, o.cfg, o.seed) : null, L0 = rec?.belts[0];
     const [warmC, coldC] = o.cfg.drownColdC ?? [19, 13];
     const near = new Int32Array(P);
+    report(0.1);
     for (let y = 0; y < H; y++) {
+        if ((y & 31) === 0) report(0.1 + 0.7 * y / H);
         const la = (90 - (y + 0.5) * 180 / H) * D2R, cl = Math.cos(la), sl = Math.sin(la);
         for (let x = 0; x < W; x++) {
             const lo = ((x + 0.5) * 360 / W - 180) * D2R, cosL = Math.cos(lo), sinL = Math.sin(lo), px = cl * cosL, py = cl * sinL, pz = sl, p = y * W + x;
@@ -106,6 +109,7 @@ export function detailDrivers(o) {
         }
     }
     // how rugged: the relief over the pixel and its eight neighbours (~±1.5 pixels: ~20 km at 2048 wide)
+    report(0.8);
     const zz = new Float32Array(P);
     for (let p = 0; p < P; p++) zz[p] = z[near[p]];
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
@@ -117,6 +121,7 @@ export function detailDrivers(o) {
         out.rugged[y * W + x] = byte(Math.max(0, Math.max(0, hi) - Math.max(0, lo)) / 2);
     }
     // (regional fields: softened over a pixel, so the detail fades in and out rather than stepping)
+    report(0.9);
     for (const k of ['ice', 'scour', 'cold', 'active', 'fold', 'erg', 'young', 'rugged', 'wet']) blur3(out[k], W, H);
     return out;
 }

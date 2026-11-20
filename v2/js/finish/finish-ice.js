@@ -8,6 +8,7 @@
 
 import { spreadKm } from '../core/min-heap.js';
 import { FastNoise } from '../core/fast-noise.js';
+import { report } from '../core/progress.js';
 
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const R = 6371, LAPSE = 6.5;
@@ -34,6 +35,7 @@ export function lastIceAge(ctx, F) {
         snow[c] = P;
         if (z[c] > -F.iceSeaDropKm && P > 80 && tS[c] < elaTemp(P)) acc[c] = 1;
     }
+    report(0.1);
     // ── snowfields, and how far past its snowline each one's ice flows (by its size) ──
     const comp = new Int32Array(n).fill(-1), sizes = [];
     for (let s = 0; s < n; s++) {
@@ -57,6 +59,7 @@ export function lastIceAge(ctx, F) {
     let iceCells = 0;
     for (let c = 0; c < n; c++) iceCells += ice[c];
     if (!iceCells) return { ice, margin: new Uint8Array(n), till: null, iceKm2: 0, sheets: 0, H: null, S: null };
+    report(0.3);
     // ── thickness from the distance to the margin; the surface over the bed smoothed ──
     const toEdge = new Float32Array(n).fill(Infinity);
     for (let c = 0; c < n; c++) if (ice[c]) for (let k = adjOffset[c]; k < adjOffset[c + 1]; k++) if (!ice[adjList[k]]) { toEdge[c] = 0.5 * edgeKm; break; }
@@ -68,6 +71,7 @@ export function lastIceAge(ctx, F) {
         const bed = grid.at(bedG, lat[c], ctx.lon[c]);
         S[c] = Math.max(z[c] + 0.05, (bed === bed ? Math.max(bed, -F.iceSeaDropKm) : z[c]) + H[c]);
     }
+    report(0.45);
     // ── the ice's flow, steered by the bed (the land's valleys) with a little of its surface's pull; its flux, the
     // snowfield area upstream ──
     const route = new Float32Array(n), iceList = [];
@@ -81,6 +85,7 @@ export function lastIceAge(ctx, F) {
         down[c] = best;
         if (best >= 0) flux[best] += flux[c];
     }
+    report(0.6);
     // ── troughs: along the ice's paths, deeper and wider with its flux, U-shaped across (a coarse cell holding more
     // than a trough drops by the share of it the trough takes) ──
     const cut = new Float32Array(n), [f1, f2] = F.troughFluxKm2, lf1 = Math.log(f1), lf2 = Math.log(f2);
@@ -104,6 +109,7 @@ export function lastIceAge(ctx, F) {
     }
     // ── scour under the sheets: hollows in the bed where the ice was thick (where the mesh can show them) ──
     const noise = new FastNoise((ctx.seed | 0) * 97 + 31), sf = R / F.scourScaleKm, show = smooth(2, 3.2, F.scourScaleKm / edgeKm);
+    report(0.8);
     // ── then the ice melts: troughs and hollows cut, moraines and outwash at its farthest reach, the land still sunk ──
     const load = new Float32Array(n);
     for (let c = 0; c < n; c++) {

@@ -8,6 +8,7 @@
 
 import { preparePlan, carveLadder, carveSettings, carveInputs, surfaceParts } from './synthesize.js';
 import { terrainMeshAsync } from './terrain-mesh.js';
+import { report } from '../core/progress.js';
 
 const IS_NODE = typeof window === 'undefined' && typeof process !== 'undefined' && !!process.versions?.node;
 const CHUNKS_PER_WORKER = 8;          // more chunks than workers, dealt round-robin: land and sea even out between workers
@@ -241,7 +242,7 @@ export class TerrainPool {
 
         let counts = null;
         const finished = new Promise((resolve, reject) => {
-            let done = 0;
+            let done = 0, slices = 0;
             this.pending.set(jobId, msg => {
                 if (msg.type === 'error') { this.pending.delete(jobId); reject(new Error(`terrain worker: ${msg.message}`)); return; }
                 if (msg.type === 'done') { counts ??= msg; if (++done === W) { this.pending.delete(jobId); resolve(); } return; }
@@ -251,6 +252,7 @@ export class TerrainPool {
                 if (carveIn) for (const k of Object.keys(carveIn)) carveIn[k].set(msg.carve[k], c.from);
                 if (recCell) { recCell.set(msg.rec, c.from); cues.set(msg.cue, 3 * c.from); }
                 if (msg.cells) { sampler.cells.set(msg.cells, 3 * c.from); sampler.weights.set(msg.weights, 3 * c.from); }
+                report(++slices / mesh.chunks.length);                // (a finish's surface: core/progress.js)
             });
         });
         this.workers.forEach((w, wi) => w.post({ type: 'job', jobId, frame: wi === 0 ? slim : null, cfg, seed, edgeKm: tMesh.edgeKm, parts: wantParts, carve: wantCarve, recCells: wantRec, samplerKey,

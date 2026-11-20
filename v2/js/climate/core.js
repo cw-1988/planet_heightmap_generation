@@ -20,6 +20,7 @@ import { LatLonGrid } from './grid.js';
 import { interpolationMatrix, PRECIP_TRANSFORMS } from './seasons.js';
 import { classifyCell } from './koppen.js';
 import { FastNoise } from '../core/fast-noise.js';
+import { report } from '../core/progress.js';
 
 /** Default settings. Units in the names. */
 export const CORE_DEFAULTS = Object.freeze({
@@ -91,6 +92,7 @@ export function computeClimate(input, options = {}) {
                 circulation = o.stages.circulation(sctx, temperature);
                 winds = circulation;
                 if (o.stages.ocean) ocean = o.stages.ocean(sctx, circulation, temperature);
+                report(0.05 + 0.55 * (it + 1) / rounds);
             }
             lap(o.stages.ocean ? 'temperature ↔ winds ↔ ocean' : 'temperature ↔ winds');
         } else {
@@ -99,6 +101,7 @@ export function computeClimate(input, options = {}) {
         }
         let rain = o.stages.rain(sctx, winds, temperature);
         lap('rain');
+        report(0.7);
         if (o.cloudsFromRain && o.stages.circulation) {
             // clouds from the rain shade rainy land (the temperature stage reads monthly rain); the rain then follows
             // the new temperature from where it was
@@ -117,8 +120,10 @@ export function computeClimate(input, options = {}) {
     // no physics, takes only the rain's, as a scale)
 
     // 4. Twelve months on the grid (temperature at the grid's reference height)
+    report(0.85);
     const months = synthesizeGrid(grid, anchors, K, o.stages ? { ...o, precipScale: 1 } : o);
     lap('12 months (grid)');
+    report(0.9);
 
     // 5. Per terrain cell: sample, correct for height, classify
     const cell = finishCells(grid, surface, months, lat, lon, input.elevKm, land, o, input.xyz, o.onCell ?? null);

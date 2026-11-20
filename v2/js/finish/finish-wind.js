@@ -5,6 +5,7 @@
 
 import { FastNoise } from '../core/fast-noise.js';
 import { KOPPEN_ID } from '../climate/koppen.js';
+import { report } from '../core/progress.js';
 
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 const R = 6371, D2R = Math.PI / 180, TAU = 2 * Math.PI;
@@ -48,6 +49,7 @@ export function windWork(ctx, F) {
     const ergG = grid.blur(grid.average(lat, lon, ergRaw, c => z[c] > 0), 40), fillG = grid.blur(grid.average(lat, lon, z, c => z[c] > 0), 30);
     // (where the sand seas and the loess are: for the satellite view's ground, and the debug layers)
     const erg = new Float32Array(n), loessOut = new Float32Array(n);
+    report(0.25);
     // ── sand seas: hollows filled, dune ridges across (or along) the wind ──
     const lam = F.duneKm, show = fade(lam), warpF = R / (3 * lam);
     let ergKm2 = 0;
@@ -75,6 +77,7 @@ export function windWork(ctx, F) {
         const seif = dune(across / (0.6 * lam)) * (0.6 + 0.4 * smooth(-0.3, 0.3, noise.noise3D(xyz[3 * c] * warpF * 2 + 5.1, xyz[3 * c + 1] * warpF * 2, xyz[3 * c + 2] * warpF * 2)));
         z[c] += show * e * F.duneAmpKm * ((1 - linear) * transverse + linear * seif);
     }
+    report(0.55);
     // ── deflation pans in the desert plains outside the sand seas ──
     const pf = R / F.panScaleKm, panShow = fade(F.panScaleKm);
     if (panShow > 0) for (let c = 0; c < n; c++) {
@@ -82,6 +85,7 @@ export function windWork(ctx, F) {
         const v = noise.noise3D(xyz[3 * c] * pf + 11.7, xyz[3 * c + 1] * pf + 3.1, xyz[3 * c + 2] * pf + 7.9) - 0.35;
         if (v > 0) z[c] = Math.max(Math.min(z[c], 0.003), z[c] - panShow * F.panKm * Math.min(1, v / 0.5));
     }
+    report(0.65);
     // ── loess: dust from the deserts and the outwash, carried downwind (on the grid), laid on gentle land beyond — the
     // silt mostly the outwash's and the cold deserts' (a hot desert's dust is mostly sand), kept where it is not tropical ──
     const bare = new Float32Array(desert.length), hotShare = F.loessHotShare ?? 1;

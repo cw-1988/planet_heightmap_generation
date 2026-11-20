@@ -28,6 +28,7 @@
 
 import { MinHeap, spreadKm } from '../core/min-heap.js';
 import { locate } from '../core/mesh-locate.js';
+import { part, report } from '../core/progress.js';
 
 const R = 6371;
 // Across a flat — a hollow filled to its spill level — a priority flood takes its cells in whatever order its heap gives
@@ -97,6 +98,7 @@ export function carveLevel(mesh, f, route, cfg) {
             if (parent[nb] === -1 || level < fill[nb] || (level === fill[nb] && fk < flatKm[nb])) { parent[nb] = c; fill[nb] = level; flatKm[nb] = fk; heap.push(flatKey(level, route[nb], fk), nb); }
         }
     }
+    report(0.4);                                                      // (a finish's progress: the flood is most of a level)
     // ── receivers: the steepest way down to a neighbour already reached (or the sea); on a flat, the flood's way ──
     const recv = new Int32Array(n).fill(-1), recvKm = new Float32Array(n);
     for (let i = 0; i < count; i++) {
@@ -122,6 +124,7 @@ export function carveLevel(mesh, f, route, cfg) {
         area[c] += cellArea * f.rain[c];
         if (recv[c] >= 0) area[recv[c]] += area[c];
     }
+    report(0.55);
     // ── the river beds: the analytical solution, from the sea up each river: travel time T and uplift gathered S from
     // the coast — for every river, the river through a cell draining that cell's area (every cell comes after its
     // receiver in the flood's order, so its downstream path is known; D is found by a binary search over that path's
@@ -161,6 +164,7 @@ export function carveLevel(mesh, f, route, cfg) {
             for (let k = donorsAt[c]; k < donorsAt[c + 1]; k++) { walk[top] = donors[k]; walkDepth[top++] = d + 1; }
         }
     }
+    report(0.8);
     // ── the history's rivers: a bed is at least as deep as they cut it (a canyon where a river held its way) ──
     for (let i = 0; i < count; i++) { const c = order[i], old = f.z[c] - f.inc[c]; if (old < bed[c]) bed[c] = Math.max(baseAt ? baseAt[c] : 0, old); }
     // ── an active belt rises as fast as its rivers cut: its beds stand higher — by activeHold at full activity (f.hold):
@@ -432,6 +436,11 @@ export function carveTerrain(meshes, fields, cfg, given = null) {
     // from the finest: the levels that settle the big rivers then see the same surface whatever the detail shown)
     for (let l = L - 2; l >= 0; l--) F[l] = given?.get(meshes[l].numCells) ?? downsample(meshes[l], meshes[l + 1], F[l + 1]);
     let result = null, delta = null;
+    // (how far along, for a finish's progress (core/progress.js): each round's work as its level's cells; the steps after
+    // the rounds as one more round on the finest)
+    const roundsAt = l => cfg.rounds[Math.min(l, cfg.rounds.length - 1)];
+    let work = meshes[L - 1].numCells, worked = 0;
+    for (let l = 0; l < L; l++) work += roundsAt(l) * meshes[l].numCells;
     for (let l = 0; l < L; l++) {
         const mesh = meshes[l], f = F[l];
         // route over this level's surface plus the carving the coarser level found, and the crust's micro-relief
@@ -439,9 +448,11 @@ export function carveTerrain(meshes, fields, cfg, given = null) {
         let route = new Float32Array(n);
         for (let i = 0; i < n; i++) route[i] = z[i] + micro[i] - inc[i];
         if (delta) { const up = upsample(meshes[l - 1], mesh, delta); for (let i = 0; i < n; i++) route[i] += up[i]; }
-        const rounds = cfg.rounds[Math.min(l, cfg.rounds.length - 1)];
+        const rounds = roundsAt(l);
         for (let r = 0; r < rounds; r++) {
+            const back = part(worked / work, (worked += n) / work);
             result = carveLevel(mesh, f, route, cfg);
+            back();
             // (the next round routes over an average of the old estimate and the new heights: no oscillation)
             if (r < rounds - 1) {
                 const next = new Float32Array(n), rz = result.z;

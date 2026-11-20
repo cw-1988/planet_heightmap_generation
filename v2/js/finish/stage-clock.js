@@ -1,7 +1,8 @@
 // How far along a finish is (finish.js finishPlanet, through finish-worker.js): the whole of it, and the stage under way.
-// The worker says only when each stage begins, and how far the picture is; the rest is timed. Each finish's laps
+// The worker says when each stage begins and how far the stage is, as it reports from inside (core/progress.js); between
+// two reports, the time fills in. Each finish's laps
 // (finish.js `ms`, per stage) are kept in this browser, per page and detail, and the next finish at that detail reads
-// each stage's share off them — and a stage's own progress as its time so far against its time before. With none kept:
+// each stage's share off them — and a stage's own progress, until it reports, as its time so far against its time before. With none kept:
 // the nearest detail's, scaled by the cells; with none at all, the stages' weights (finish.js STAGES), timed by this
 // finish's pace so far. A stage's share stops at 99 % until the next one begins (it is a guess until then).
 // Evolution's Add detail (evolution-main.js), Generate's and Import's build card (js/build-progress.js) read it.
