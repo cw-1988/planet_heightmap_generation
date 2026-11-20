@@ -1,8 +1,8 @@
 // Generate's own layers on the shared planet view (v2/js/view/planet-view.js; plans/SHARED_CORE_PLAN.md U3): the Plates
 // view — each plate that moves in its own hue, its continent light and its ocean dark, each piece (what Ctrl-click raises
 // or sinks) a shade of its own, the plate boundaries a band ~60 km wide in the colour of their kind, arrows for the motion
-// — the Inspect list's layers of the world's past, and the plate edits pending (and the piece under the pointer while
-// editing), drawn over the picture. Colours per region of Generate's mesh (the planet view paints them), lines on the
+// — and the Inspect list's layers of the world's past. (The plate edits pending and the piece under the pointer while
+// editing are the globe shader's: piece-overlay.js.) Colours per region of Generate's mesh (the planet view paints them), lines on the
 // picture's equirectangular canvas.
 
 import { makeRng } from './rng.js';
@@ -126,8 +126,7 @@ export function inspectColors(id, w, out, shade) {
     return true;
 }
 
-// ── lines over the picture: the plates' motion arrows (on the Plates view), the edits pending and the piece under the
-// pointer while editing ──
+// ── lines over the picture: the plates' motion arrows (on the Plates view) ──
 /** Equirectangular x, y (W px wide) of a unit vector in Generate's y-up frame. */
 const atY = (x, y, z, W) => [(Math.atan2(x, z) + Math.PI) / (2 * Math.PI) * W, (Math.PI / 2 - Math.asin(Math.max(-1, Math.min(1, y)))) / Math.PI * (W >> 1)];
 
@@ -151,92 +150,11 @@ function arrowSegments(w) {
     return (w._arrows = segs);
 }
 
-/** The regions of each piece, kept on the world. */
-function piecesOf(w) {
-    if (w._pieces) return w._pieces;
-    const m = new Map(), rp = w.r_plate;
-    for (let r = 0; r < rp.length; r++) { let a = m.get(rp[r]); if (!a) m.set(rp[r], a = []); a.push(r); }
-    return (w._pieces = m);
-}
-
-// ── the edits drawn over the picture, as the old page drew them on its mesh: the piece under the pointer while editing
-// lightened, each piece whose edit waits for Rebuild tinted by what it will become (green: raised to land; blue: sunk),
-// the ground showing through. Each piece is a mask on the picture's grid, its pixels the ones whose nearest region is
-// the piece's — so it follows the piece's own outline, not a scatter of squares. ──
-const MASK_W = 4096;                                  // (the masks' grid: ~10 km a pixel at the equator; the overlay's width)
-const EDIT_TINT = { raise: [70, 230, 110], sink: [30, 100, 255], hover: [255, 255, 255] };
-const EDIT_ALPHA = { pending: 0.38, hover: 0.22 };
-
-/** A piece's mask: its box on the MASK_W grid (x0 may be negative, x1 past the edge: a piece across the date line) and,
- *  per pixel of the box, whether it is the piece's. Kept on the world. (The region pick's valleys are drawn by the
- *  globe's shader instead: region-overlay.js.) */
-function pieceMask(w, id) {
-    const masks = (w._masks ??= new Map());
-    if (masks.has(id)) return masks.get(id);
-    const regs = piecesOf(w).get(id);
-    if (!regs) { masks.set(id, null); return null; }
-    const { xyz, index, numCells } = w.tMesh, H = MASK_W >> 1, rp = w.r_plate, TAU = 2 * Math.PI;
-    // (its longitudes, unwrapped from the widest gap between them; its latitudes; a margin of two cells round them)
-    const lons = new Float64Array(regs.length);
-    let lat0 = Infinity, lat1 = -Infinity;
-    for (let i = 0; i < regs.length; i++) {
-        const r = regs[i], lat = Math.asin(Math.max(-1, Math.min(1, xyz[3 * r + 2])));
-        lons[i] = Math.atan2(xyz[3 * r + 1], xyz[3 * r]);
-        if (lat < lat0) lat0 = lat; if (lat > lat1) lat1 = lat;
-    }
-    lons.sort();
-    let gap = lons[0] + TAU - lons[lons.length - 1], start = lons[0];
-    for (let i = 1; i < lons.length; i++) if (lons[i] - lons[i - 1] > gap) { gap = lons[i] - lons[i - 1]; start = lons[i]; }
-    const pad = 2 * Math.sqrt(4 * Math.PI / numCells), padLon = pad / Math.max(0.05, Math.cos(Math.max(Math.abs(lat0), Math.abs(lat1)) + pad));
-    let x0 = Math.floor((start - padLon + Math.PI) / TAU * MASK_W), x1 = Math.ceil((start + TAU - gap + padLon + Math.PI) / TAU * MASK_W);
-    if (x1 - x0 >= MASK_W || lat1 + pad >= Math.PI / 2 || lat0 - pad <= -Math.PI / 2) { x0 = 0; x1 = MASK_W; }
-    const y0 = Math.max(0, Math.floor((Math.PI / 2 - lat1 - pad) / Math.PI * H)), y1 = Math.min(H, Math.ceil((Math.PI / 2 - lat0 + pad) / Math.PI * H));
-    const bw = x1 - x0, bh = y1 - y0, on = new Uint8Array(bw * bh);
-    for (let j = 0; j < bh; j++) {
-        const lat = Math.PI / 2 - (y0 + j + 0.5) / H * Math.PI, cl = Math.cos(lat), sl = Math.sin(lat);
-        for (let i = 0; i < bw; i++) {
-            const lon = (x0 + i + 0.5) / MASK_W * TAU - Math.PI;
-            if (rp[index.nearest(cl * Math.cos(lon), cl * Math.sin(lon), sl)] === id) on[j * bw + i] = 1;
-        }
-    }
-    const m = { x0, y0, bw, bh, on };
-    masks.set(id, m);
-    return m;
-}
-
-/** A mask as a canvas in one colour (the last few kept: a piece hovered again draws at once). */
-const maskCanvases = new Map();
-function maskCanvas(m, rgb) {
-    const key = rgb.join(',');
-    let byColour = maskCanvases.get(m);
-    if (!byColour) { if (maskCanvases.size >= 24) maskCanvases.delete(maskCanvases.keys().next().value); maskCanvases.set(m, byColour = new Map()); }
-    let c = byColour.get(key);
-    if (c) return c;
-    c = document.createElement('canvas'); c.width = m.bw; c.height = m.bh;
-    const g = c.getContext('2d'), img = g.createImageData(m.bw, m.bh), d = img.data;
-    const { on } = m;
-    for (let i = 0; i < on.length; i++) if (on[i]) { d[4 * i] = rgb[0]; d[4 * i + 1] = rgb[1]; d[4 * i + 2] = rgb[2]; d[4 * i + 3] = 255; }
-    g.putImageData(img, 0, 0);
-    byColour.set(key, c);
-    return c;
-}
-
-/** A piece tinted on the picture (W px wide), its ground showing through. */
-function tintPiece(ctx, w, id, W, rgb, alpha) {
-    const m = pieceMask(w, id);
-    if (!m) return;
-    const c = maskCanvas(m, rgb), s = W / MASK_W, x = m.x0 * s, y = m.y0 * s, cw = m.bw * s, ch = m.bh * s;
-    ctx.save(); ctx.globalAlpha = alpha; ctx.imageSmoothingEnabled = true;
-    for (const dx of [0, -W, W]) if (x + dx < W && x + dx + cw > 0) ctx.drawImage(c, x + dx, y, cw, ch);
-    ctx.restore();
-}
-
 /**
- * The page's lines over the picture (planet-view.js extraLines), W px wide: on the Plates view the motion arrows; on every
- * view the pieces whose edit is pending (tinted by what they will become) and the piece under the pointer while editing
- * (lightened).
+ * The page's lines over the picture (planet-view.js extraLines), W px wide: on the Plates view the motion arrows. (The
+ * edits pending and the piece under the pointer are the globe shader's: piece-overlay.js.)
  */
-export function drawPlateLines(ctx, W, view, w, { pending, hovered }) {
+export function drawPlateLines(ctx, W, view, w) {
     if (!w) return;
     if (view.layer === 'plates') {
         ctx.save();
@@ -248,6 +166,4 @@ export function drawPlateLines(ctx, W, view, w, { pending, hovered }) {
         }
         ctx.stroke(); ctx.restore();
     }
-    for (const id of pending) tintPiece(ctx, w, id, W, w.plateIsOcean.has(id) ? EDIT_TINT.raise : EDIT_TINT.sink, EDIT_ALPHA.pending);
-    if (hovered >= 0) tintPiece(ctx, w, hovered, W, EDIT_TINT.hover, EDIT_ALPHA.hover);
 }

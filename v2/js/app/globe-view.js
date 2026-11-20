@@ -17,6 +17,7 @@ import { P as PROJ } from '../view/projections.js';
 import { PROJECTION_GLSL, projectionUniforms } from '../view/projection-glsl.js';
 import { CLOUDS, CLOUD_GLSL, MAX_STORMS, scaleOf, driftRadPerS, cloudNoiseTexture, cloudEdges, cloudQuantileList, cloudStormsAt } from '../view/clouds.js';
 import { REGION_GLSL, regionUniforms, regionTexture } from './region-glsl.js';
+import { PIECE_GLSL, pieceUniforms } from './piece-glsl.js';
 import { drawnPointAt } from './globe-hit.js';
 
 const GLINT = new THREE.Color(0x4488bb).multiplyScalar(0.5 * 0.55);    // (the sea's specular: V1's water sphere's)
@@ -108,7 +109,7 @@ export class GlobeView {
         this.scene.add(this.globe);
         // (a patch: tiles of the planet painted sharper, laid over the texture where they are — putPatchTile)
         this.patch = { uPatchSlot: { value: 1 } };
-        Object.assign(this.patch, regionUniforms(THREE));
+        Object.assign(this.patch, regionUniforms(THREE), pieceUniforms(THREE));
         for (const k of [0, 1]) Object.assign(this.patch, { [`uPatchAtl${k}`]: { value: null }, [`uPatchTab${k}`]: { value: null }, [`uPatchRange${k}`]: { value: new THREE.Vector4() }, [`uPatchGrid${k}`]: { value: new THREE.Vector4() } });
         this.patchLayers = [0, 1].map(() => ({ atl: null, tab: null, cols: 0, rows: 0, range: null }));
         // (the texture read where each pixel looks — its place on the sphere, not the sphere mesh's UVs, which smear across
@@ -126,7 +127,7 @@ export class GlobeView {
                 .replace('#include <common>', '#include <common>\nvarying vec3 vSphere;')
                 .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSphere = position;');
             shader.fragmentShader = shader.fragmentShader
-                .replace('#include <common>', `#include <common>\nvarying vec3 vSphere;\n${ANGLE_GLSL}\n${PATCH_GLSL}\n${REGION_GLSL}`)
+                .replace('#include <common>', `#include <common>\nvarying vec3 vSphere;\n${ANGLE_GLSL}\n${PATCH_GLSL}\n${REGION_GLSL}\n${PIECE_GLSL}`)
                 .replace('#include <map_fragment>', `vec3 sd = normalize(vSphere);
     vec2 tcS = vec2(fract(angleAt(sd.z, -sd.x) / 6.283185307179586), 1.0 - angleAt(length(sd.xz), sd.y) / 3.141592653589793);
     vec2 gxS = dFdx(tcS), gyS = dFdy(tcS);
@@ -137,7 +138,7 @@ export class GlobeView {
 #ifdef USE_MAP
     vec4 sampledDiffuseColor = withPatch(textureGrad(map, tcS, gxS, gyS), tcS);
     diffuseColor *= sampledDiffuseColor;
-    diffuseColor.rgb = withRegion(diffuseColor.rgb, tcS, gxR, gyR);
+    diffuseColor.rgb = withRegion(withPieces(diffuseColor.rgb, tcS), tcS, gxR, gyR);
 #endif`)
                 .replace('#include <specularmap_fragment>', `float specularStrength;
 #ifdef USE_SPECULARMAP
@@ -539,6 +540,27 @@ void main() {
     /** The valley under the pointer (−1: none). */
     setRegionHover(u) { this.patch.uRegionHover.value = u < 0 ? -2 : u; this._dirty = true; }
 
+    // ── (fork addition) Generate's plate edits, drawn by the shader over the picture (PIECE_GLSL; js/piece-overlay.js) ──
+    /** The piece + 1 under each texel of a W × H grid (RGBA bytes, RG the number, the first row the south), or null. */
+    setPieceGrid(data, W, H) {
+        const U = this.patch;
+        U.uPieceId.value?.dispose();
+        U.uPieceId.value = regionTexture(THREE, data, W, H);
+        if (data) U.uPieceSize.value.setX(W).setY(H);
+        U.uPieceOn.value = data && U.uPieceState.value ? 1 : 0;
+        this._dirty = true;
+    }
+    /** Each piece's tint: RGB its colour (sRGB), A its share (0: none), on a W-wide grid of `rows` rows. */
+    setPieceState(bytes, W, rows) {
+        const U = this.patch, t = U.uPieceState.value;
+        if (t && t.image.width === W && t.image.height === rows) { t.image.data.set(bytes); t.needsUpdate = true; }
+        else { t?.dispose(); U.uPieceState.value = regionTexture(THREE, bytes, W, rows); U.uPieceSize.value.setZ(W).setW(rows); }
+        U.uPieceOn.value = U.uPieceId.value ? 1 : 0;
+        this._dirty = true;
+    }
+    /** The piece under the pointer (−1: none). */
+    setPieceHover(id) { this.patch.uPieceHover.value = id < 0 ? -2 : id; this._dirty = true; }
+
     /** Crisp texels (sim cells, the default) or smoothly filtered ones (shaded terrain) — a canvas's texture. */
     setSmooth(on) {
         const filter = on ? THREE.LinearFilter : THREE.NearestFilter;
@@ -577,6 +599,7 @@ void main() {
                 fragmentShader: `uniform sampler2D map; uniform float turn; uniform vec4 uView; uniform vec2 uWrap; uniform float uAniso; varying vec2 vUv;
 ${PATCH_GLSL}
 ${REGION_GLSL}
+${PIECE_GLSL}
 ${PROJECTION_GLSL}
 ${CLOUD_GLSL}
 uniform vec4 uCloudOp; uniform vec2 uCloudGrey; uniform float uCloudOn, uCloudLight, uCloudLit, uCloudShadow, uCloudShadowOn, uCloudShadowStep;
@@ -617,7 +640,7 @@ void main() {
     if (!on) discard;
 #if __VERSION__ >= 300
     gl_FragColor = withPatch(textureGrad(map, tc, gx, gy), tc);
-    gl_FragColor.rgb = withRegion(gl_FragColor.rgb, tc, gx, gy);
+    gl_FragColor.rgb = withRegion(withPieces(gl_FragColor.rgb, tc), tc, gx, gy);
 #else
     gl_FragColor = withPatch(texture2D(map, tc), tc);
 #endif

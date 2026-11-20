@@ -16,8 +16,9 @@ import { tidyEdges } from './region-tidy.js';
 export const W = 2048, H = 1024;
 const SLICE_MS = 8;
 
-/** Each pixel's nearest cell (rows from the south), kept on the world: built a few rows at a time between frames. */
-function pixelCells(w) {
+/** Each pixel's nearest cell (rows from the south), kept on the world: built a few rows at a time between frames. (The
+ *  plate edits' tint reads it too: piece-overlay.js.) */
+export function pixelCells(w) {
     return (w._pixelCells ??= (async () => {
         const { index } = w.tMesh, out = new Int32Array(W * H);
         for (let j = 0; j < H;) {

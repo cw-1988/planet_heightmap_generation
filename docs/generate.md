@@ -98,7 +98,8 @@ floor's age, a belt and when it was last active, a shield, a flood basalt). Then
 and its floods) or lake, the place, and the layer's own — the climate, the rock and its record, the deposits or the age's
 resources and the district's story, or the land's food. Over every view, as on the old page: the piece under the pointer
 lightens while Ctrl (⌘) is held, and each pending piece is tinted by what it will become — green to rise as land, blue to
-sink — with the ground showing through, to its own outline (`js/generate-plates.js`). The hover card steps up over the
+sink — with the ground showing through, to its own outline, drawn by the globe's shader at once at any zoom:
+[plate-edit-tint.md](plate-edit-tint.md). The hover card steps up over the
 Rebuild button while edits wait.
 
 ### Edit tools (fork addition)

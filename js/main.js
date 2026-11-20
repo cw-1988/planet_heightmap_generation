@@ -32,6 +32,7 @@ import { editHeld, isEditKey } from './edit-key.js';
 import { mountCityRing } from './city-ring.js';
 import { mountRegionPick, regionChosen } from './region-pick.js';
 import { regionOverlay } from './region-overlay.js';
+import { pieceOverlay } from './piece-overlay.js';
 import { store, sliderTooltip, detailWarning, progressiveSwitch, redrawFoldedSliders, sidePanel, buildOverlay, tutorial } from './page-chrome.js';
 import { rungView } from './rung-view.js'; import { buildProgress } from './build-progress.js';
 
@@ -50,16 +51,16 @@ const inspectEl = $('debugLayer');
 
 const pv = new PlanetView({ isTouch: IS_TOUCH, gpu: new URLSearchParams(location.search).get('gpu') !== '0', paletteKey: 'orogen.generate.palette',
     onChange: viewChanged, alive: (fin) => fin === world?.fin,
-    extraLines: (ctx, W, view) => drawPlateLines(ctx, W, view, world, { pending, hovered: hoveredPiece }),
-    extraLinesKey: (view) => `${world?.version ?? 0}|${view.layer === 'plates'}|${[...pending].join(',')}|${hoveredPiece}` });
+    extraLines: (ctx, W, view) => drawPlateLines(ctx, W, view, world),
+    extraLinesKey: (view) => `${world?.version ?? 0}|${view.layer === 'plates'}` });
 const view = pv.view;
-const regionShown = regionOverlay(pv.globe);
+const regionShown = regionOverlay(pv.globe), piecesShown = pieceOverlay(pv.globe);
 // (a touch screen wider than a phone — a tablet — keeps the edit button too: styles.css body.touch)
 if (IS_TOUCH) document.body.classList.add('touch');
 console.info(`[generate] painting ${pv.gpu ? `on the GPU at ${pv.GPU_WIDTH} px` : 'on the CPU'}`);
 
 let world = null;            // the planet shown: its mesh, first picture, plates and edits, and its finished moment once done
-let dirty = true, linesDirty = false, version = 0;
+let dirty = true, version = 0;
 const pending = new Set();   // the pieces whose edit waits for Rebuild
 let hoveredPiece = -1;
 const finisher = new FinishService(), progressive = progressiveSwitch(), bar = buildProgress();   // (Progressive off: Detail N alone, no ladder; bar: the progress card)
@@ -218,11 +219,10 @@ function paint() {
 }
 function tick(now) {
     requestAnimationFrame(tick);
-    // (only the lines over the picture changed: those alone drawn again, when the picture shown allows it)
-    if (world && !dirty && linesDirty) { linesDirty = false; if (!pv.relayLines()) dirty = true; }
-    if (world && dirty) { dirty = linesDirty = false; paint(); }
+    if (world && dirty) { dirty = false; paint(); }
     pv.updatePatch(now, world && !rungs.live ? pv.shows(world.fin) : null, world?.fin, world?.seed);
     regionShown.sync(world, regionChosen);                               // (the region pick's valleys: the shader's)
+    piecesShown.sync(world, pending, hoveredPiece);                      // (the plate edits' tint: the shader's too)
     pv.render(now);
 }
 requestAnimationFrame(tick);
@@ -252,7 +252,7 @@ function readout(e) {
     }
     pv.hover(pv.readoutLines({ p, fin: pv.shows(w.fin), heightKm: w.heightKm[r], head, story: w.story, rec: w.regionCell[r] }));
 }
-function setHovered(piece) { if (piece !== hoveredPiece) { hoveredPiece = piece; linesDirty = true; } }
+function setHovered(piece) { hoveredPiece = piece; }       // (piece-overlay.js sends it on)
 pv.onPointer(readout);
 for (const el of [pv.ui.canvas, pv.ui.map]) {
     let down = null;
@@ -281,7 +281,6 @@ addEventListener('blur', () => { editKey = false; setHovered(-1); });
 for (const el of [pv.ui.canvas, pv.ui.map]) el.addEventListener('pointerleave', () => { lastPointer = null; if (!(IS_TOUCH && state.editMode)) setHovered(-1); });
 const rebuildFab = $('rebuildFab');
 function pendingChanged() {
-    linesDirty = true;
     rebuildFab.querySelector('span').textContent = `Rebuild (${pending.size})`;
     rebuildFab.style.display = pending.size ? '' : 'none';
     document.body.classList.toggle('edits-pending', pending.size > 0);      // (the readout steps up over the button)
