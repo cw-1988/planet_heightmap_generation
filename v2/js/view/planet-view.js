@@ -546,7 +546,7 @@ export class PlanetView {
         const hit = this.tiles.at(u, v);
         if (!hit) return null;
         const { t: { data }, i } = hit;
-        return { heightM: Math.round(1000 * data.h[i]), ocean: data.sea[i], water: data.wat[i], seaShare: this.tiles.seaAt(u, v) };
+        return { heightM: Math.round(1000 * data.h[i]), ocean: data.sea[i], water: data.wat[i], depthM: data.wat[i] && data.lev ? Math.max(0, 1000 * (data.lev[i] - data.h[i])) : null, seaShare: this.tiles.seaAt(u, v) };
     }
 
     /** The globe drawn: turning if asked, sized to its canvas, only when something changed. */
@@ -597,7 +597,7 @@ export class PlanetView {
         const at = fin ? this.patchAt(fin, p[0], p[1]) ?? finishedAt(fin, p[0], p[1]) : null;
         lines.push(`<span class="hi-label">Elev</span> ${Math.round(at ? at.heightM : heightKm * 1000).toLocaleString()} m`);
         if (at && view.water && (view.layer === 'terrain' || view.layer === 'satellite')) {
-            if (at.water && !at.ocean) lines.push(`<span style="color:var(--layer-climate)">●</span> <b>${['', 'Fresh lake', 'Salt lake', 'Salt pan'][at.water]}</b>`);
+            if (at.water && !at.ocean) lines.push(`<span style="color:var(--layer-climate)">●</span> <b>${['', 'Fresh lake', 'Salt lake', 'Salt pan'][at.water]}</b>${at.water !== 3 && at.depthM != null ? ` · ${Math.round(at.depthM).toLocaleString()} m deep` : ''}`);
             const rv = fin.rivers && !at.ocean ? riverAt(fin, view.riverQ, p[0], p[1]) : null;
             if (rv) lines.push(`<span style="color:${view.byRegime ? REGIME_STYLE[rv.regime].rgb : '#37c'}">●</span> <b>River</b> · ${Math.round(rv.q).toLocaleString()} m³/s · ${riverYearWords(rv)}`);
         }

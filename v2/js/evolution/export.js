@@ -92,7 +92,7 @@ function pictureAt(fin, W, opts = {}) {
     if (!opts.landOnly) return f;
     const h = new Float32Array(f.h.length);
     for (let i = 0; i < h.length; i++) h[i] = f.sea[i] ? 0 : Math.max(0, f.h[i]);
-    return { h, sea: f.sea, wat: f.wat };
+    return { h, sea: f.sea, wat: f.wat, lev: f.lev };
 }
 /** The picture painted at width W (paintFinished's palette, hillshade, lakes and colours) — the detail's where drawn. */
 function paintAt(fin, W, image, lut, opts) {

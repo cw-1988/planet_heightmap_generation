@@ -42,7 +42,7 @@ $('info').textContent = IS_TOUCH ? 'Drag to rotate · Pinch to zoom' : 'Drag to 
 let world = null, dirty = true, version = 0, building = null;
 const finisher = new FinishService();
 const overlay = buildOverlay(), panel = sidePanel();
-const rungs = rungView(pv, overlay);                                   // (the Detail ladder's steps: js/rung-view.js)
+const rungs = rungView(pv, overlay, { width: n => finishWidth(n), climate: () => climateOptions() });   // (the Detail ladder's steps: js/rung-view.js)
 const progressive = progressiveSwitch();                               // (off: the chosen Detail alone, no ladder)
 
 // ── the worker ──
@@ -71,8 +71,8 @@ function failed(message) {
 function received(msg) {
     const sh = msg.shared;
     world = { version: ++version, seed: msg.seed, tMesh: meshFromArrays(sh.mesh), meshArrays: sh.mesh, heightKm: sh.heightKm, shade: sh.shade, finishJob: sh.finish, fin: null, finishing: null, problem: null, n: sh.mesh.numCells };
-    building = null; dirty = true; rungs.clear();
-    pv.forget();                                         // (the old world's finished moment let go)
+    building = null; dirty = true; rungs.land();                     // (a step's water shown until the world's own lands)
+    pv.forget();                                        // (the old world's finished moment let go)
     importBtn.disabled = false; importBtn.textContent = 'Import';
     reapplyBtn.classList.remove('spinning');
     overlay.hide();
@@ -92,7 +92,7 @@ async function finish(w) {
     const onProgress = (p) => { if (world !== w || !w.finishing) return; w.finishing.share = before + p * (shares.get('picture') ?? 0.1); updateChip(); };
     try {
         // (the terrain lands first, the other layers after it: finish-landing.js)
-        const onTerrain = (d) => { if (world !== w) return; w.fin = terrainFin(w.n, d); dirty = true; updateChip(); console.info(`[import] terrain finished in ${((performance.now() - started) / 1000).toFixed(1)} s`); };
+        const onTerrain = (d) => { if (world !== w) return; w.fin = terrainFin(w.n, d); rungs.clear(); dirty = true; updateChip(); console.info(`[import] terrain finished in ${((performance.now() - started) / 1000).toFixed(1)} s`); };
         const res = await finisher.finish({ ...w.finishJob, mesh: w.meshArrays, cells: w.n, width: finishWidth(w.n), climateOptions: climateOptions(), valleyQ: view.riverQ }, { onStage, onProgress, onTerrain, keep: false });
         if (world !== w) return;
         quiet = !!pv.shows(w.fin);                                   // (the terrain shown already: the rest changes nothing on it)
@@ -103,7 +103,7 @@ async function finish(w) {
         w.problem = /allocation failed|out of memory/i.test(String(err.message)) ? 'Not enough memory to finish this heightmap — try a lower Detail' : `Could not finish this heightmap: ${String(err.message).split('\n')[0]}`;
         console.error(err);
     } finally {
-        if (world === w) { w.finishing = null; if (!quiet) dirty = true; updateChip(); }
+        if (world === w) { w.finishing = null; if (!quiet || rungs.live) dirty = true; if (!building) rungs.clear(); updateChip(); }
     }
 }
 function updateChip() {
@@ -170,7 +170,7 @@ importBtn.addEventListener('click', () => {
     reapplyBtn.disabled = true; reapplyBtn.classList.remove('ready');
     overlay.show(); panel.collapse();
     const g = new Uint8Array(gray);                                 // (a copy: the worker is handed it)
-    worker.postMessage({ cmd: 'importHeightmap', shared: true, N: detailFromSlider(v('sN')), progressive: progressive(), jitter: +($('sJ')?.value ?? 0.75), grayscale: g, imageWidth: grayW, imageHeight: grayH, ...sculpt() }, [g.buffer]);
+    worker.postMessage({ cmd: 'importHeightmap', shared: true, N: detailFromSlider(v('sN')), ...progressive(), jitter: +($('sJ')?.value ?? 0.75), grayscale: g, imageWidth: grayW, imageHeight: grayH, ...sculpt() }, [g.buffer]);
 });
 { const img = new Image(); img.onload = () => { loadImage(img, 'Earth (default)'); importBtn.click(); }; img.src = 'assets/earth.png'; }
 

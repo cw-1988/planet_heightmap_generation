@@ -104,6 +104,10 @@ showed out at sea as a 2.8 m step along a straight line. This change also applie
 - Dashed rivers set `lineDashOffset` from the distance along the unbent line per stroke, so the dashes can shift
   slightly where two tiles meet.
 
+## Lakes
+
+- Lakes have a bed and a depth; the water fades by Beer–Lambert down to the bed and back: [lake-water.md](lake-water.md).
+
 ## Coast distance past the tile's margin
 
 `v2/js/finish/coast-distance.js` holds the chamfer distance to the coast, moved out of fine-detail.js.

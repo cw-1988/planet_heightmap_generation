@@ -9,7 +9,7 @@ import { SEED_MAX } from './planet-code.js';
 import { setDelaunator } from './sphere-mesh.js';
 import { meshesFor } from './mesh-source.js';
 import { generateCoarsePlates } from './coarse-plates.js';
-import { detailSteps, piecesOn, regionsOf, regionLandOf, groundOnMesh, sendRung } from './detail-ladder.js';
+import { detailSteps, piecesOn, regionsOf, regionLandOf, groundOnMesh, sendRung, rungJob, presentRungJob, plainSurface } from './detail-ladder.js';
 import { warpTerrain, smoothElevation, sharpenRidges, applySoilCreep, applyDetailNoise } from './terrain-post.js';
 import { applyPlatePhysics } from './plate-physics.js';
 import { DETAIL_NOISE_DAMPEN_STRENGTH } from './terrain-config.js';
@@ -21,9 +21,6 @@ import { storyFrame, finishFrame } from '../v2/js/present/layers.js';
 import { finishConfigOf, finishOverrides, reliefShareOf } from '../v2/js/present/knobs.js';
 import { hillshade } from '../v2/js/view/terrain-shade.js';
 import { buildSimMesh } from '../v2/js/core/sim-mesh.js';
-import { plainCarveInputs } from '../v2/js/terrain/synthesize.js';
-import { surfaceConfig } from '../v2/js/finish/finish.js';
-import { terrainConfig } from '../v2/js/terrain/terrain-config.js';
 import { applyStroke } from './terrain-brush.js';
 import { applyCuts } from './region-cut.js';
 import { sketchGround } from './world-sketch.js';
@@ -83,14 +80,14 @@ async function presentGround(present, plateIsOcean, mesh, r_xyz, seed, knobs, dr
 }
 /** The Detail ladder's steps after the first (js/detail-ladder.js: `ns`, the world's own Detail last), each mesh built
  *  by `build` as its turn comes; each step shown, the last one's ground, regions and mask laid into `present`, as if the
- *  world had been built on it from the start. Returns the last mesh. */
-async function climbTo(present, ns, build, plateIsOcean, seed, knobs, t0) {
+ *  world had been built on it from the start (`water`: each step sent with its rivers' and lakes' job). Returns the last mesh. */
+async function climbTo(present, ns, build, plateIsOcean, seed, knobs, t0, water) {
     const N = ns[ns.length - 1];
     for (let i = 0; i < ns.length; i++) {
         progress(40 + 55 * i / ns.length, `Detail ${ns[i].toLocaleString('en-US')}…`);
         const tb = performance.now(), m = await build(ns[i]), tg = performance.now();
         const g = await groundOnMesh(present, m, plateIsOcean, seed, knobs, await poolFor(m.mesh, m.r_xyz));
-        if (m.n !== N) { sendRung(m.mesh, m.r_xyz, g.heightKm, g.shade, m.n, N, t0, { mesh: tg - tb, ground: performance.now() - tg }); continue; }
+        if (m.n !== N) { sendRung(m.mesh, m.r_xyz, g.heightKm, g.shade, m.n, N, t0, { mesh: tg - tb, ground: performance.now() - tg }, water && presentRungJob(present, g.surface, seed)); continue; }
         const w = present.world;
         Object.assign(w, { mask: g.mask, heightKm: g.heightKm, drainage: g.drainage, receivers: g.receivers, order: g.order, lava: g.lava, young: g.young, cut: g.cut, surface: g.surface, shade: g.shade, ms: { ...w.ms, ...g.ms, mesh: tg - tb } });
         Object.assign(present, { regionCell: g.regionCell, regionPlate: g.regionPlate, r_plate: m.r_plate });
@@ -225,8 +222,8 @@ async function handleGenerate(data) {
     const knobs = knobsOf(data, nMag);
     await presentGround(present, plateIsOcean, mesh, r_xyz, seed, knobs, ns.length === 1);
     if (ns.length > 1) {
-        sendRung(mesh, r_xyz, present.world.heightKm, present.world.shade, ns[0], N, t0);
-        ({ mesh, r_xyz, r_plate } = await climbTo(present, ns.slice(1), build, plateIsOcean, seed, knobs, t0));
+        sendRung(mesh, r_xyz, present.world.heightKm, present.world.shade, ns[0], N, t0, null, data.progressiveWater && presentRungJob(present, present.world.surface, seed));
+        ({ mesh, r_xyz, r_plate } = await climbTo(present, ns.slice(1), build, plateIsOcean, seed, knobs, t0, data.progressiveWater));
         groundDrawn(present, mesh, r_xyz);
     }
     W = { mesh, r_xyz, seed, nMag, plateIsOcean: new Set(plateIsOcean), present, r_plate: new Int32Array(r_plate), strokes: pendingStrokes };
@@ -307,13 +304,14 @@ async function importGround(data, again = false) {
         progress(0, 'Building sphere mesh…');
         const seed = data.seed ?? Math.floor(Math.random() * SEED_MAX);
         // (the Detail ladder, js/detail-ladder.js: the image shaped on each coarser step first, each shown)
-        const ns = detailSteps(data.N, data.progressive), meshes = meshesFor(ns, data.jitter, seed);
+        const ns = detailSteps(data.N, data.progressive), meshes = meshesFor(ns, data.jitter, seed), knobs = knobsOf(data, 0.4);
+        if (data.progressiveWater) importSim ??= buildSimMesh(IMPORT_SIM_CELLS, 12345);
         for (const [i, n] of ns.slice(0, -1).entries()) {
             progress(5, `Detail ${n.toLocaleString('en-US')}…`);
-            const s = await meshes[i], elev = sampleHeightmap(s.mesh, s.r_xyz, data.grayscale, data.imageWidth, data.imageHeight);
+            const s = await meshes[i], elev = sampleHeightmap(s.mesh, s.r_xyz, data.grayscale, data.imageWidth, data.imageHeight), tm = presentTerrainMesh(s.mesh, s.r_xyz);
             shapeImported(s.mesh, s.r_xyz, elev, data, seed);
             const h = Float32Array.from(elev, elevToHeightKm);
-            sendRung(s.mesh, s.r_xyz, h, hillshade(presentTerrainMesh(s.mesh, s.r_xyz), h), n, data.N, t0);
+            sendRung(s.mesh, s.r_xyz, h, hillshade(tm, h), n, data.N, t0, null, data.progressiveWater && rungJob({ sim: importSim, seed, surface: plainSurface(tm, h, knobs, seed), knobs }));
         }
         const { mesh, r_xyz } = await meshes[ns.length - 1];
         progress(25, 'Sampling heightmap…');
@@ -325,8 +323,7 @@ async function importGround(data, again = false) {
     const tm = presentTerrainMesh(mesh, r_xyz), n = mesh.numRegions, heightKm = new Float32Array(n);
     for (let r = 0; r < n; r++) heightKm[r] = elevToHeightKm(elev[r]);
     importSim ??= buildSimMesh(IMPORT_SIM_CELLS, 12345);
-    const knobs = knobsOf(data, 0.4), F = finishConfigOf(knobs), cfg = terrainConfig(presentTerrainOverrides({ knobs }));
-    const surface = { heightKm: heightKm.slice(), carveIn: plainCarveInputs(tm.xyz, n, surfaceConfig(F, cfg), seed), recCell: null, cues: null };
+    const knobs = knobsOf(data, 0.4), surface = plainSurface(tm, heightKm.slice(), knobs, seed);
     const transfer = [surface.heightKm.buffer, ...Object.values(surface.carveIn).map(a => a.buffer)], copy = (a) => { const c = a.slice(); transfer.push(c.buffer); return c; };
     const shade = hillshade(tm, heightKm);
     transfer.push(heightKm.buffer, shade.buffer);

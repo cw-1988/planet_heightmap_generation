@@ -83,11 +83,11 @@ export class DetailService {
         // (bands of at most ~1.5 million pixels — a worker's band holds ~60 bytes a pixel — and at least one per worker)
         const src = this.source(fin, seed, riverQ), parts = Math.max(Math.min(this.n, Math.floor(win.h / 64)), Math.ceil(win.w * win.h / 1.5e6), 1), rows = Math.max(16, Math.ceil(win.h / parts)), bands = [];
         for (let y = 0; y < win.h; y += rows) bands.push({ y, win: { W: win.W, x0: win.x0, y0: win.y0 + y, w: win.w, h: Math.min(rows, win.h - y) } });
-        const out = { h: new Float32Array(win.w * win.h), sea: new Uint8Array(win.w * win.h), wat: new Uint8Array(win.w * win.h) };
+        const out = { h: new Float32Array(win.w * win.h), sea: new Uint8Array(win.w * win.h), wat: new Uint8Array(win.w * win.h), lev: fin.raster.waterLevel ? new Float32Array(win.w * win.h) : null };
         let done = 0;
         await Promise.all(bands.map(b => this.run(src, b.win, signal).then(o => {
             const at = b.y * win.w;
-            out.h.set(o.h, at); out.sea.set(o.sea, at); out.wat.set(o.wat, at);
+            out.h.set(o.h, at); out.sea.set(o.sea, at); out.wat.set(o.wat, at); if (out.lev && o.lev) out.lev.set(o.lev, at);
             onBand?.(++done / bands.length);
         })));
         return out;

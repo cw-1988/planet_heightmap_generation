@@ -4,6 +4,7 @@
 // the live terrain is. The rivers drawn over it are river-draw.js's (re-exported here for the page and the exports).
 
 export { REGIME_STYLE, riverYearWords, riverPaths, drawRivers, drawRiversWindow, riverAt } from './river-draw.js';
+import { lakeMix, deepLakeRgb, nearestLake } from './lake-water.js';
 
 export class FinishService {
     constructor() { this.worker = null; this.jobs = new Map(); this.next = 1; this.prepared = 0; }
@@ -69,22 +70,24 @@ export class FinishService {
  */
 export function rasterAt(r, W, { lakes = false, landOnly = false } = {}) {
     const H = W >> 1, h = new Float32Array(W * H), sea = new Uint8Array(W * H), wat = lakes && r.water ? new Uint8Array(W * H) : null, k = r.w / W;
+    // (and each lake pixel's level, km — its depth is the level less its ground: lake-water.js; NaN on a picture without)
+    const LV = wat ? r.waterLevel ?? null : null, lev = LV ? new Float32Array(W * H).fill(NaN) : null, hit = [0, NaN];
     const val = i => (landOnly ? (r.ocean[i] ? 0 : Math.max(0, r.heightM[i])) : r.heightM[i]);
     if (k >= 1) {
         const K = Math.round(k);
         for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-            let s = 0, n = 0, m = 0, cnt = 0, wk = 0, wn = 0;
+            let s = 0, n = 0, m = 0, cnt = 0, wk = 0, wn = 0, wl = -Infinity;
             for (let dy = 0; dy < K; dy++) for (let dx = 0; dx < K; dx++) {
                 const i = (y * K + dy) * r.w + x * K + dx;
                 if (!landOnly || !r.ocean[i]) { s += r.heightM[i]; n++; }
                 m += r.ocean[i]; cnt++;
-                if (wat && r.water[i]) { wk = r.water[i]; wn++; }
+                if (wat && r.water[i]) { wk = r.water[i]; wn++; if (LV) wl = Math.max(wl, LV[i]); }
             }
             const p = y * W + x;
             h[p] = (n ? s / n : 0) / 1000; sea[p] = 2 * m >= cnt ? 1 : 0;
-            if (wat && 2 * wn >= cnt) wat[p] = wk;
+            if (wat && 2 * wn >= cnt) { wat[p] = wk; if (lev) lev[p] = wl / 1000; }
         }
-        return { h, sea, wat };
+        return { h, sea, wat, lev };
     }
     // (enlarged: each output pixel's place on the picture, its four columns — round the globe — and four rows, and the
     // Catmull–Rom weights of each)
@@ -118,7 +121,11 @@ export function rasterAt(r, W, { lakes = false, landOnly = false } = {}) {
             const p = y * W + x, wa = (1 - fx) * (1 - fy), wb = fx * (1 - fy), wc = (1 - fx) * fy, wd = fx * fy;
             h[p] = s / 1000;
             sea[p] = wa * r.ocean[a] + wb * r.ocean[b] + wc * r.ocean[c] + wd * r.ocean[d] >= 0.5 ? 1 : 0;
-            if (wat) {
+            if (LV) {
+                // (the shore: where the nearest lake's level meets this pixel's ground — its contour, not the pixels' edge)
+                nearestLake(r.water, LV, a, b, c, d, wa, wb, wc, wd, hit);
+                if (hit[0] && hit[1] > h[p]) { wat[p] = hit[0]; lev[p] = hit[1]; }
+            } else if (wat) {
                 kinds[0] = kinds[1] = kinds[2] = kinds[3] = 0;
                 kinds[r.water[a]] += wa; kinds[r.water[b]] += wb; kinds[r.water[c]] += wc; kinds[r.water[d]] += wd;
                 let best = 0;
@@ -127,7 +134,7 @@ export function rasterAt(r, W, { lakes = false, landOnly = false } = {}) {
             }
         }
     }
-    return { h, sea, wat };
+    return { h, sea, wat, lev };
 }
 
 /** The pictures the screen's textures are painted from (rasterAt, its lakes too), kept per picture and width: they change
@@ -154,29 +161,25 @@ function rasterShown(r, W, lakes) {
  * screen's few widths; an export's are made once and let go).
  */
 export function paintFinished(r, t, lut, { seaImage = null, seaWidth = 0, exaggeration = 20, lakes = false, colorAt = null, shaded = true, keep = false } = {}) {
-    const W = t.width, H = W >> 1, { h, sea, wat } = keep ? rasterShown(r, W, lakes) : rasterAt(r, W, { lakes });
+    const W = t.width, H = W >> 1, { h, sea, wat, lev } = keep ? rasterShown(r, W, lakes) : rasterAt(r, W, { lakes });
     const out = t.image.data, L = lut.rgb, { minM, stepM, zero } = lut, top = lut.n - 1;
     const pxKm = 2 * Math.PI * 6371 / W, Le = -0.5, Ln = 0.5, Lu = Math.SQRT1_2;
     for (let y = 0; y < H; y++) {
         const cl = Math.max(0.05, Math.cos(((y + 0.5) / H - 0.5) * Math.PI)), up = Math.max(0, y - 1) * W, dn = Math.min(H - 1, y + 1) * W;
         for (let x = 0; x < W; x++) {
-            const i = y * W + x, v = h[i], wet = sea[i];
+            const i = y * W + x, v = h[i], wet = sea[i], lake = wat && !wet ? wat[i] : 0, depthM = lake ? lakeDepthM(lev, i, v) : 0;
             let kk = 1;
             if (shaded && (lut.shaded || colorAt)) {
-                const ex = wet ? exaggeration * 0.35 : exaggeration;
+                // (under water — the sea, a lake — the floor's relief in a gentler light, as through the water)
+                const ex = wet || lake ? exaggeration * 0.35 : exaggeration;
                 const ge = (h[y * W + (x + 1) % W] - h[y * W + (x - 1 + W) % W]) / (2 * pxKm * cl), gn = (h[up + x] - h[dn + x]) / (2 * pxKm);
                 const px = -ex * ge, py = -ex * gn, len = Math.sqrt(px * px + py * py + 1);
                 kk = 0.35 + 0.65 * Math.max(0, (px * Le + py * Ln + Lu) / len) / Lu;
             }
             const j = Math.round((v * 1000 - minM) / stepM), k3 = 3 * (wet ? Math.max(0, Math.min(zero - 1, j)) : Math.min(top, Math.max(zero, j)));
             const o = 4 * i;
-            if (colorAt) { colorAt(out, o, x, y, wet, kk, k3, v, wat ? wat[i] : 0); continue; }
-            if (wat && wat[i] && !wet) {
-                // (a lake: flat water — fresh in the palette's shallow-water blue, salt a greener teal, a pan pale salt)
-                const lk = wat[i] === 3 ? PAN_RGB : lakeRgb(lut, wat[i]);
-                out[o] = lk[0]; out[o + 1] = lk[1]; out[o + 2] = lk[2]; out[o + 3] = 255;
-                continue;
-            }
+            if (colorAt) { colorAt(out, o, x, y, wet, kk, k3, v, wat ? wat[i] : 0, depthM); continue; }
+            if (lake) { paintLake(out, o, lut, lake, depthM, kk, L, k3); continue; }
             out[o] = Math.min(255, L[k3] * kk); out[o + 1] = Math.min(255, L[k3 + 1] * kk); out[o + 2] = Math.min(255, L[k3 + 2] * kk); out[o + 3] = 255;
         }
     }
@@ -198,7 +201,7 @@ export function paintFinished(r, t, lut, { seaImage = null, seaWidth = 0, exagge
  * the window's place on a W-wide planet).
  */
 export function paintWindow(fw, win, out, lut, { exaggeration = 20, lakes = false, colorAt = null, shaded = true } = {}) {
-    const { W, x0, y0, w, h } = win, HE = W >> 1, { h: hh, sea, wat } = fw, L = lut.rgb, { minM, stepM, zero } = lut, top = lut.n - 1;
+    const { W, x0, y0, w, h } = win, HE = W >> 1, { h: hh, sea, wat, lev = null } = fw, L = lut.rgb, { minM, stepM, zero } = lut, top = lut.n - 1;
     const pxKm = 2 * Math.PI * 6371 / W, Le = -0.5, Ln = 0.5, Lu = Math.SQRT1_2;
     // (fork) the picture's exaggeration at every level: the fine detail's slopes fall gently (fine-ladder.js LADDER), so the
     // shading of the broad forms stays the world map's and the finer ones join it. (Lowered as the pixels shrank, the
@@ -206,30 +209,36 @@ export function paintWindow(fw, win, out, lut, { exaggeration = 20, lakes = fals
     for (let y = 0; y < h; y++) {
         const Y = Math.min(HE - 1, Math.max(0, y0 + y)), cl = Math.max(0.05, Math.cos(((Y + 0.5) / HE - 0.5) * Math.PI)), up = Math.max(0, y - 1) * w, dn = Math.min(h - 1, y + 1) * w;
         for (let x = 0; x < w; x++) {
-            const i = y * w + x, v = hh[i], wet = sea[i];
+            const i = y * w + x, v = hh[i], wet = sea[i], lake = lakes && wat && !wet ? wat[i] : 0, depthM = lake ? lakeDepthM(lev, i, v) : 0;
             let kk = 1;
             if (shaded && (lut.shaded || colorAt)) {
-                const ex = wet ? exaggeration * 0.35 : exaggeration;
+                const ex = wet || lake ? exaggeration * 0.35 : exaggeration;
                 const ge = (hh[y * w + Math.min(w - 1, x + 1)] - hh[y * w + Math.max(0, x - 1)]) / ((x > 0 && x < w - 1 ? 2 : 1) * pxKm * cl), gn = (hh[up + x] - hh[dn + x]) / ((y > 0 && y < h - 1 ? 2 : 1) * pxKm);
                 const px = -ex * ge, py = -ex * gn, len = Math.sqrt(px * px + py * py + 1);
                 kk = 0.35 + 0.65 * Math.max(0, (px * Le + py * Ln + Lu) / len) / Lu;
             }
             const j = Math.round((v * 1000 - minM) / stepM), k3 = 3 * (wet ? Math.max(0, Math.min(zero - 1, j)) : Math.min(top, Math.max(zero, j)));
             const o = 4 * i;
-            if (colorAt) { colorAt(out, o, ((x0 + x) % W + W) % W, Y, wet, kk, k3, v, lakes && wat ? wat[i] : 0); continue; }
-            if (lakes && wat && wat[i] && !wet) {
-                const lk = wat[i] === 3 ? PAN_RGB : lakeRgb(lut, wat[i]);
-                out[o] = lk[0]; out[o + 1] = lk[1]; out[o + 2] = lk[2]; out[o + 3] = 255;
-                continue;
-            }
+            if (colorAt) { colorAt(out, o, ((x0 + x) % W + W) % W, Y, wet, kk, k3, v, lakes && wat ? wat[i] : 0, depthM); continue; }
+            if (lake) { paintLake(out, o, lut, lake, depthM, kk, L, k3); continue; }
             out[o] = Math.min(255, L[k3] * kk); out[o + 1] = Math.min(255, L[k3 + 1] * kk); out[o + 2] = Math.min(255, L[k3 + 2] * kk); out[o + 3] = 255;
         }
     }
 }
 
-// ── lakes and rivers (plans/V2_FINISH_PLAN.md R2): cartographic — lakes flat water, rivers blue lines tapering with their
-// discharge, seasonal ones dashed, those dry most of the year dotted; or coloured by their regime ──
-const PAN_RGB = [226, 220, 204];
+// ── lakes and rivers (plans/V2_FINISH_PLAN.md R2): lakes water you see into, over their bed (lake-water.js), rivers blue
+// lines tapering with their discharge, seasonal ones dashed, those dry most of the year dotted; or coloured by their regime ──
+const PAN_RGB = [226, 220, 204], deepRgb = [0, 0, 0], bedRgb = [0, 0, 0];
+/** A lake pixel's depth (m): its level less its ground (v, km); ∞ on a picture without its lakes' levels. */
+const lakeDepthM = (lev, i, v) => (lev && lev[i] === lev[i] ? Math.max(0, 1000 * (lev[i] - v)) : Infinity);
+/** A lake pixel into out[o…]: a salt pan pale salt; open water its bed — the palette's land colour at the bed's
+ *  height (k3, on the land's side), shaded — seen through its depth (lake-water.js lakeMix). */
+function paintLake(out, o, lut, kind, depthM, kk, L, k3) {
+    if (kind === 3) { out[o] = PAN_RGB[0] * kk; out[o + 1] = PAN_RGB[1] * kk; out[o + 2] = PAN_RGB[2] * kk; out[o + 3] = 255; return; }
+    const zero3 = 3 * lut.zero, b = k3 < zero3 ? zero3 : k3;
+    bedRgb[0] = L[b] * kk; bedRgb[1] = L[b + 1] * kk; bedRgb[2] = L[b + 2] * kk;
+    lakeMix(out, o, deepLakeRgb(lut, depthM, kind === 2, kk, deepRgb), bedRgb, depthM, kind === 2);
+}
 const lakeCache = new Map();
 /** A lake's colour as the Terrain view draws it (fresh, salt, a pan) in a palette — for the exports' rivers-and-lakes layer. */
 export const lakeColor = (lut, kind) => (kind === 3 ? PAN_RGB : lakeRgb(lut, kind));
@@ -248,5 +257,6 @@ function lakeRgb(lut, kind) {
 /** The finished picture's height (m) and lake kind at a point of the map (u, v as river-draw.js riverAt). */
 export function finishedAt(fin, u, v) {
     const r = fin.raster, i = Math.min(r.h - 1, Math.floor(v * r.h)) * r.w + Math.min(r.w - 1, Math.floor(u * r.w));
-    return { heightM: r.heightM[i], ocean: r.ocean[i], water: r.water?.[i] ?? 0 };
+    const water = r.water?.[i] ?? 0, depthM = water && r.waterLevel ? Math.max(0, r.waterLevel[i] - r.heightM[i]) : null;
+    return { heightM: r.heightM[i], ocean: r.ocean[i], water, depthM };
 }

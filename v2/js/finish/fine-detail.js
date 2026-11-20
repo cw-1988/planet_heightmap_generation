@@ -18,6 +18,7 @@ import { fineLadder } from './fine-ladder.js';
 import { hash3, bumps, smoothNoise } from './lattice-noise.js';
 import { riverLines, cropLines, carveValleys } from './river-valleys.js';
 import { fadeFor } from './pixel-fade.js';
+import { nearestLake } from '../evolution/lake-water.js';
 
 const R = 6371, D2R = Math.PI / 180, TAU = 2 * Math.PI;
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -85,7 +86,7 @@ export function cropSource(src, win) {
         }
         return out;
     };
-    return { r: sub(src.r, ['heightM', 'ocean', 'water'], src.r.w / W), d: src.d ? sub(src.d, DRIVER_FIELDS, src.d.w / W) : null,
+    return { r: sub(src.r, ['heightM', 'ocean', 'water', 'waterLevel'], src.r.w / W), d: src.d ? sub(src.d, DRIVER_FIELDS, src.d.w / W) : null,
         g: src.g ? sub(src.g, ['rock'], src.g.w / W) : null, c: src.c ? sub(src.c, ['tAnnual', 'pAnnual'], src.c.w / W) : null, seed: src.seed, cellKm: src.cellKm,
         rv: src.rvAll ? cropLines(src.rvAll, win, M) : null };
 }
@@ -120,6 +121,9 @@ export function fineWindow(src, { W, x0, y0, w, h }, signal = null) {
     // detail is steered by — the Catmull–Rom's slope turns at each of the picture's pixels, and stripes steered by it creased
     // there ──
     const hb = new Float32Array(N), hs = new Float32Array(N), seaB = new Uint8Array(N), watB = new Uint8Array(N), k = RW / W;
+    // (the lakes by their level, where the picture has it: the nearest lake's level (km) — the shore drawn where it meets
+    // the window's own ground, its finer detail included, at the crop — lake-water.js)
+    const LV = r.water && r.waterLevel ? r.waterLevel : null, levB = LV ? new Float32Array(N).fill(NaN) : null, hit = [0, NaN];
     {
         const cx = new Int32Array(4 * ew), fxs = new Float32Array(ew), cy = new Int32Array(4 * eh), fys = new Float32Array(eh), H4 = r.heightM;
         for (let i = 0; i < ew; i++) { const u = (X0 + i + 0.5) * k - 0.5, xi = Math.floor(u); fxs[i] = u - xi; for (let q = 0; q < 4; q++) cx[4 * i + q] = colR(((xi - 1 + q) % RW + RW) % RW); }
@@ -139,7 +143,8 @@ export function fineWindow(src, { W, x0, y0, w, h }, signal = null) {
             const sm = FINE.baseSmooth * (1 - smooth(0, 0.25, so));
             hb[p] = ((1 - sm) * s / 1000) + sm * hs[p];
             seaB[p] = wa * r.ocean[a] + wb * r.ocean[b] + wc * r.ocean[c] + wd * r.ocean[e] >= 0.5 ? 1 : 0;
-            if (r.water) {
+            if (LV) { nearestLake(r.water, LV, a, b, c, e, wa, wb, wc, wd, hit); watB[p] = hit[0]; levB[p] = hit[1]; }
+            else if (r.water) {
                 kinds[0] = kinds[1] = kinds[2] = kinds[3] = 0;
                 kinds[r.water[a]] += wa; kinds[r.water[b]] += wb; kinds[r.water[c]] += wc; kinds[r.water[e]] += wd;
                 let best = 0; for (let q = 1; q < 4; q++) if (kinds[q] > kinds[best]) best = q;
@@ -147,9 +152,16 @@ export function fineWindow(src, { W, x0, y0, w, h }, signal = null) {
             }
         }
     }
-    const out = { h: new Float32Array(w * h), sea: new Uint8Array(w * h), wat: new Uint8Array(w * h), ms };
+    const out = { h: new Float32Array(w * h), sea: new Uint8Array(w * h), wat: new Uint8Array(w * h), lev: levB ? new Float32Array(w * h) : null, ms };
     const crop = (src2, dst) => { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) dst[j * w + i] = src2[(j + M) * ew + i + M]; };
-    if (!d || k >= 1) { crop(hb, out.h); crop(seaB, out.sea); crop(watB, out.wat); return out; }
+    // (the lakes, after the heights: lake where the nearest lake's level stands above the window's ground)
+    const cropLakes = () => {
+        crop(watB, out.wat);
+        if (!levB) return;
+        crop(levB, out.lev);
+        for (let q = 0; q < w * h; q++) if (out.wat[q] && !(out.lev[q] > out.h[q])) out.wat[q] = 0;
+    };
+    if (!d || k >= 1) { crop(hb, out.h); crop(seaB, out.sea); cropLakes(); return out; }
 
     lap('base');
     // ── the drivers, read at a pixel when wanted: bilinear, eased across each pixel so it has no kinks (`at` sets the pixel,
@@ -292,7 +304,7 @@ export function fineWindow(src, { W, x0, y0, w, h }, signal = null) {
         const v = hb[p] + D[p];
         if (v < 0 && coastKm[p] < reach) { hf[p] = v; sea[p] = 1; } else hf[p] = v < 0 ? 0.001 : v;
     }
-    crop(hf, out.h); crop(sea, out.sea); crop(watB, out.wat);
+    crop(hf, out.h); crop(sea, out.sea); cropLakes();
     lap('sea');
     return out;
 }

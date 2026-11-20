@@ -12,6 +12,7 @@ import { RAMPS, rampColor, drawRampBar } from '../climate-lab/palettes.js';
 import { statValue } from '../climate/cell-stats.js';
 import { FastNoise } from '../core/fast-noise.js';
 import { styledSatellite, SAT_SHADE } from './sat-style.js';
+import { satLake } from './lake-water.js';
 import { QUANTITY_COLORS, ICE_SHEET_RGB, SNOW_RGB, climateLegendHTML, classLabel } from '../../../js/climate-layers.js';
 
 /** The land's measures beyond Köppen (cell-stats.js), per cell or per pixel of a finished moment's picture: each
@@ -488,7 +489,7 @@ function satelliteColor(season, C, W, fin = null) {
     const styled = !!fin?.raster?.heightM;
     const S = styled ? styledSatellite(R, season, fin.raster.heightM, fin.raster.w, fin.rivers, fin.raster.water, fin.raster) : R.sat[season];
     const shadeAmp = styled ? SAT_SHADE : 1, enlarged = R.w < W, blend = [0, 0, 0];
-    return (out, o, x, y, wet, kk, k3, v, lake) => {
+    return (out, o, x, y, wet, kk, k3, v, lake, depthM = Infinity) => {
         // (the land's relief shading deeper than the other layers': the mountains stand out, as on a satellite image)
         const k = wet ? shadeK(kk) : 1 + shadeAmp * (0.37 + 0.68 * (kk - 0.35) / 0.65 - 1);      // (0.28–1.08: "the hillshading is too strong")
         if (wet) {
@@ -514,6 +515,8 @@ function satelliteColor(season, C, W, fin = null) {
                 if (season !== 'year') t += g(C.T[season], x, y) - g(C.T.year, x, y);
                 f = season === 'year' ? Math.max(0, Math.min(1, (-2 - t) / 8)) : Math.max(0, Math.min(1, (-1 - t) / 5));
             }
+            // (open water you see into: its bed, the land's own colour in its light, through its depth — lake-water.js)
+            if (lake !== 3 && i >= 0 && depthM < Infinity) { satLake(out, o, lake === 2 ? L : seaDepthRgb(-depthM / 1000, blend), S, 3 * i, k, depthM, lake === 2, LAKE_ICE, f); return; }
             for (let ch = 0; ch < 3; ch++) out[o + ch] = L[ch] + (LAKE_ICE[ch] - L[ch]) * f;
             out[o + 3] = 255;
             return;

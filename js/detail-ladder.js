@@ -6,9 +6,13 @@
 
 import { projectCoarsePlates } from './coarse-plates.js';
 import { smoothAndReconnectPlates } from './plates.js';
-import { presentTerrainMesh, presentGroundOf } from '../v2/js/present/world.js';
-import { finishConfigOf } from '../v2/js/present/knobs.js';
+import { presentTerrainMesh, presentGroundOf, presentTerrainOverrides } from '../v2/js/present/world.js';
+import { finishConfigOf, finishOverrides } from '../v2/js/present/knobs.js';
+import { finishFrame } from '../v2/js/present/layers.js';
 import { hillshade } from '../v2/js/view/terrain-shade.js';
+import { plainCarveInputs } from '../v2/js/terrain/synthesize.js';
+import { surfaceConfig } from '../v2/js/finish/finish.js';
+import { terrainConfig } from '../v2/js/terrain/terrain-config.js';
 
 /** The ladder's first step, and how much finer each next one is: twice the cells, √2 the sharpness (×4 jumped too far
  *  between pictures: the owner, 2026-11-20). */
@@ -68,9 +72,39 @@ export async function groundOnMesh(present, m, plateIsOcean, seed, knobs, pool) 
 }
 
 /** A step of the ladder sent to the page: its mesh (Evolution's z-up frame), heights and hillshade, its Detail, and when
- *  (ms since the build began at `t0`). */
-export function sendRung(mesh, r_xyz, heightKm, shade, n, of, t0, ms = null) {
+ *  (ms since the build began at `t0`); with `water` (rungJob: Rivers and lakes in each step) the finish's job for it. */
+export function sendRung(mesh, r_xyz, heightKm, shade, n, of, t0, ms = null, water = null) {
     const tm = presentTerrainMesh(mesh, r_xyz), h = heightKm.slice(), s = shade.slice();
     const m = { numCells: tm.numCells, xyz: tm.xyz.slice(), adjOffset: tm.adjOffset.slice(), adjList: tm.adjList.slice() };
-    self.postMessage({ type: 'rung', mesh: m, heightKm: h, shade: s, detail: n, of, at: performance.now() - t0, ms }, [m.xyz.buffer, m.adjOffset.buffer, m.adjList.buffer, h.buffer, s.buffer]);
+    self.postMessage({ type: 'rung', mesh: m, heightKm: h, shade: s, detail: n, of, at: performance.now() - t0, ms, finish: water?.job ?? null },
+        [m.xyz.buffer, m.adjOffset.buffer, m.adjList.buffer, h.buffer, s.buffer, ...(water?.transfer ?? [])]);
+}
+
+/**
+ * A step's water (Rivers and lakes in each step, docs/progressive-detail.md): the finish's job for the step's own ground,
+ * which the page runs to its terrain only (finish-worker.js terrainOnly) — its rivers, lakes and the valleys they cut, on
+ * the step's mesh. `frame` the Frame on the history's clock (Generate's; null for an imported image: no rocks), `sim` the
+ * sim mesh, `surface` the step's uncarved ground ({heightKm, carveIn, recCell, cues}). Copies, with their buffers.
+ */
+export function rungJob({ frame = null, sim, seed, surface, knobs }) {
+    const transfer = [], copy = (a) => { const c = a.slice(); transfer.push(c.buffer); return c; };
+    const job = {
+        frame: frame && Object.fromEntries(Object.entries(frame).map(([k, v]) => [k, ArrayBuffer.isView(v) ? copy(v) : v])), seed,
+        simMesh: { numCells: sim.numCells, xyz: copy(sim.xyz), adjOffset: copy(sim.adjOffset), adjList: copy(sim.adjList) },
+        surface: { heightKm: copy(surface.heightKm), recCell: surface.recCell && copy(surface.recCell), cues: surface.cues && copy(surface.cues),
+            carveIn: Object.fromEntries(Object.entries(surface.carveIn).map(([k, a]) => [k, copy(a)])) },
+        terrain: presentTerrainOverrides({ knobs }), finish: finishOverrides(knobs),
+    };
+    return { job, transfer };
+}
+/** A step's water job for Generate's present-day world: its Frame (as sharedPayload sends it), its sim mesh, the
+ *  step's surface (groundOnMesh's, or the world's own on the first step). */
+export const presentRungJob = (present, surface, seed) =>
+    rungJob({ frame: finishFrame(present.world.frame, present.world.belts.record), sim: present.L.sim, seed, surface, knobs: present.knobs });
+
+/** An imported image's uncarved surface on mesh `tm` (Evolution's frame): its heights as they are, the carving's inputs of
+ *  ground with no history (synthesize.js plainCarveInputs). */
+export function plainSurface(tm, heightKm, knobs, seed) {
+    const cfg = terrainConfig(presentTerrainOverrides({ knobs }));
+    return { heightKm, carveIn: plainCarveInputs(tm.xyz, tm.numCells, surfaceConfig(finishConfigOf(knobs), cfg), seed), recCell: null, cues: null };
 }

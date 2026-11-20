@@ -103,7 +103,7 @@ function generate(seed, toggledIndices = [], keepEdits = false) {
     if (!keepEdits) tools.reset();
     showBuildOverlay();
     $('generate').disabled = true; $('generate').textContent = 'Building…'; $('generate').classList.add('generating');
-    worker.postMessage({ cmd: 'generate', ...sliders(), progressive: progressive(), seed, toggledIndices, next: true, shared: true, cuts: tools.cuts, strokes: tools.strokes });
+    worker.postMessage({ cmd: 'generate', ...sliders(), ...progressive(), seed, toggledIndices, next: true, shared: true, cuts: tools.cuts, strokes: tools.strokes });
 }
 function failed(message) {
     console.error('[generate] build failed:', message);
@@ -128,7 +128,7 @@ function received(msg) {
         n: sh.mesh.numCells,
     };
     if (kind === 'editDone' && old) { w.seed = old.seed; w.plateIsOcean = old.plateIsOcean; w.originalPlateIsOcean = old.originalPlateIsOcean; }
-    world = w; building = null; dirty = true; hoveredPiece = -1; rungs.clear();
+    world = w; building = null; dirty = true; hoveredPiece = -1; rungs.land();   // (a step's water shown until the world's own lands)
     pv.forget();                                         // (the old world's finished moment let go)
     if (pv.gpu) pv.gpu.setMesh(w.tMesh);
     resetBuildButton();
@@ -154,7 +154,7 @@ async function finish(w) {
     const onProgress = (p) => { if (world !== w || !w.finishing) return; w.finishing.share = before + p * (shares.get('picture') ?? 0.1); updateChip(); };
     try {
         // (the terrain lands first, the other layers after it: finish-landing.js)
-        const onTerrain = (d) => { if (world !== w) return; w.fin = terrainFin(w.n, d); dirty = true; updateChip(); console.info(`[generate] terrain finished in ${((performance.now() - started) / 1000).toFixed(1)} s`); };
+        const onTerrain = (d) => { if (world !== w) return; w.fin = terrainFin(w.n, d); rungs.clear(); dirty = true; updateChip(); console.info(`[generate] terrain finished in ${((performance.now() - started) / 1000).toFixed(1)} s`); };
         const res = await finisher.finish({ ...job, mesh: w.meshArrays, cells: w.n, width: finishWidth(w.n), climateOptions: climateOptions(), valleyQ: view.riverQ }, { onStage, onProgress, onTerrain, keep: false });
         if (world !== w) return;
         quiet = !!pv.shows(w.fin);                                   // (the terrain shown already: the rest changes nothing on it)
@@ -166,7 +166,7 @@ async function finish(w) {
         w.problem = /allocation failed|out of memory/i.test(String(err.message)) ? 'Not enough memory to finish this planet — try a lower Detail' : `Could not finish this planet: ${String(err.message).split('\n')[0]}`;
         console.error(err);
     } finally {
-        if (world === w) { w.finishing = null; if (!quiet) dirty = true; updateChip(); }
+        if (world === w) { w.finishing = null; if (!quiet || rungs.live) dirty = true; if (!building) rungs.clear(); updateChip(); }
     }
 }
 
@@ -348,7 +348,7 @@ reapplyBtn.addEventListener('click', () => {
 
 // ── the build overlay ──
 const overlay = buildOverlay();
-const rungs = rungView(pv, overlay);
+const rungs = rungView(pv, overlay, { width: finishWidth, climate: climateOptions });
 const onProgress = (pct, label) => overlay.progress(pct, label), showBuildOverlay = () => overlay.show(), hideBuildOverlay = () => overlay.hide();
 
 // ── Build New World, the planet code ──
