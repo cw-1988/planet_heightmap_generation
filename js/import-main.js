@@ -19,7 +19,7 @@ import { FARMING_LAYERS } from '../v2/js/evolution/farming-view.js';
 import { detailFromSlider } from './detail-scale.js';
 import { showBuildError, describeFailure, holdControls } from './build-error.js';
 import { state } from './state.js';
-import { sliderTooltip, detailWarning, redrawFoldedSliders, sidePanel, buildOverlay } from './page-chrome.js';
+import { sliderTooltip, detailWarning, progressiveSwitch, redrawFoldedSliders, sidePanel, buildOverlay } from './page-chrome.js';
 import { rungView } from './rung-view.js';
 
 setDelaunator(Delaunator);
@@ -43,6 +43,7 @@ let world = null, dirty = true, version = 0, building = null;
 const finisher = new FinishService();
 const overlay = buildOverlay(), panel = sidePanel();
 const rungs = rungView(pv, overlay);                                   // (the Detail ladder's steps: js/rung-view.js)
+const progressive = progressiveSwitch();                               // (off: the chosen Detail alone, no ladder)
 
 // ── the worker ──
 let worker = null;
@@ -169,7 +170,7 @@ importBtn.addEventListener('click', () => {
     reapplyBtn.disabled = true; reapplyBtn.classList.remove('ready');
     overlay.show(); panel.collapse();
     const g = new Uint8Array(gray);                                 // (a copy: the worker is handed it)
-    worker.postMessage({ cmd: 'importHeightmap', shared: true, N: detailFromSlider(v('sN')), jitter: +($('sJ')?.value ?? 0.75), grayscale: g, imageWidth: grayW, imageHeight: grayH, ...sculpt() }, [g.buffer]);
+    worker.postMessage({ cmd: 'importHeightmap', shared: true, N: detailFromSlider(v('sN')), progressive: progressive(), jitter: +($('sJ')?.value ?? 0.75), grayscale: g, imageWidth: grayW, imageHeight: grayH, ...sculpt() }, [g.buffer]);
 });
 { const img = new Image(); img.onload = () => { loadImage(img, 'Earth (default)'); importBtn.click(); }; img.src = 'assets/earth.png'; }
 

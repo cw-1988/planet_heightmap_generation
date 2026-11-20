@@ -37,6 +37,16 @@ export function detailWarning(detail, isTouch) {
     else warn.textContent = '';
 }
 
+/** The Progressive generation switch under the Detail slider (docs/progressive-detail.md): remembered on this browser,
+ *  on unless switched off. Returns a reader of its state for the build's message. */
+export function progressiveSwitch() {
+    const box = $('progressive');
+    if (!box) return () => true;
+    box.checked = store.get('progressiveDetail') !== '0';
+    box.addEventListener('change', () => store.set('progressiveDetail', box.checked ? '1' : '0'));
+    return () => box.checked;
+}
+
 /** Ranges inside a <details> drawn again when it opens (a browser may not move a hidden slider's thumb). */
 export function redrawFoldedSliders() {
     document.querySelectorAll('details.section').forEach((det) => det.addEventListener('toggle', () => {

@@ -20,6 +20,9 @@ export function detailRungs(N) {
     for (let n = RUNG_FIRST; n < N; n *= RUNG_STEP) out.push(n);
     return out;
 }
+/** Every Detail a build draws, the last N: the ladder, or N alone with Progressive generation off (the page's
+ *  `progressive: false`: faster, nothing shown until it is done). */
+export const detailSteps = (N, progressive = true) => (progressive === false ? [N] : [...detailRungs(N), N]);
 
 /** Generate's mesh at Detail `n` (js/mesh-source.js) with the pieces projected on it (as handleGenerate always did). */
 export function piecesOn(n, { mesh, r_xyz }, seed, coarse, P) {

@@ -10,6 +10,13 @@ root), and that jumped too far between pictures. ×2 the cells is ×1.41 the sha
 step. The cost: the coarse steps together cost about as much as the last one does (1/2 + 1/4 + … of it), where at ×4
 they cost a third of it.
 
+**Progressive generation** (the switch under the Detail slider on Generate and Import, on by default, remembered on
+the browser as `progressiveDetail`; the owner, 2026-11-20): off, the planet is built at the chosen Detail alone
+(`detailSteps(N, false)` is `[N]`). It is faster, since none of the coarse steps' ground is drawn (about as much as the
+last step at ×2), but nothing is shown until it is done. Which is better depends on the moment: watching it grow, or
+getting the final planet sooner. Measured in the browser pane, 2026-11-20, at 204,000 Detail on a new seed: 8.6 s to
+the button freed with it off, 17.8 s with it on (6 coarse steps).
+
 ## How
 
 - **Worked out once** (`js/planet-worker.js` handleGenerate): the plates, their motion, the past and the Frame, on the

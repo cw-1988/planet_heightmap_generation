@@ -11,7 +11,7 @@ with a ~440 ms freeze. Measured 2026-11-20 on the owner's Windows laptop, Genera
    sea: the ground rising inland and deepening offshore, with a little rolling relief, hillshaded. The page shows it
    until the first step of the Detail ladder arrives, so a new planet never starts as an empty sphere. Nothing of it is kept.
 2. **The Detail ladder** (from ~2–3 s) — the ground at 5,000 Detail, then ×2 each step up to the Detail chosen, each
-   shown in place of the last: [progressive-detail.md](progressive-detail.md).
+   shown in place of the last (skipped with Progressive generation off): [progressive-detail.md](progressive-detail.md).
 3. **The first picture** (~8.4 s at 204,000; ~4 s before the ladder) — the present-day world's ground at the Detail
    chosen, the ladder's last step. Its surface is drawn on a pool of worker
    threads (`v2/js/terrain/terrain-pool.js`, made when the planet worker starts, on the fixed sim mesh): the same ground,

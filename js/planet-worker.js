@@ -9,7 +9,7 @@ import { SEED_MAX } from './planet-code.js';
 import { setDelaunator } from './sphere-mesh.js';
 import { meshesFor } from './mesh-source.js';
 import { generateCoarsePlates } from './coarse-plates.js';
-import { detailRungs, piecesOn, regionsOf, regionLandOf, groundOnMesh, sendRung } from './detail-ladder.js';
+import { detailSteps, piecesOn, regionsOf, regionLandOf, groundOnMesh, sendRung } from './detail-ladder.js';
 import { warpTerrain, smoothElevation, sharpenRidges, applySoilCreep, applyDetailNoise } from './terrain-post.js';
 import { applyPlatePhysics } from './plate-physics.js';
 import { DETAIL_NOISE_DAMPEN_STRENGTH } from './terrain-config.js';
@@ -205,8 +205,8 @@ async function handleGenerate(data) {
     const coarse = { coarseMesh, coarse_xyz, coarse_r_plate, coarsePlateSeeds };
     W = null; pendingStrokes = data.strokes ?? [];
     progress(20, 'Projecting plates…');
-    // (the Detail ladder, js/detail-ladder.js: the world first built at its coarsest step, then finer up to N)
-    const ns = [...detailRungs(N), N], meshes = meshesFor(ns, jitter, seed), build = async (n) => piecesOn(n, await meshes[ns.indexOf(n)], seed, coarse, P);
+    // (the Detail ladder, js/detail-ladder.js: coarsest step first, then finer up to N; N alone with Progressive off)
+    const ns = detailSteps(N, data.progressive), meshes = meshesFor(ns, jitter, seed), build = async (n) => piecesOn(n, await meshes[ns.indexOf(n)], seed, coarse, P);
     let { mesh, r_xyz, r_plate } = await build(ns[0]);
     const plateSeeds = coarsePlateSeeds, plateIsOcean = coarsePlateIsOcean, originalPlateIsOcean = new Set(plateIsOcean);
     // (a planet code's edits: pieces raised or sunk, by their index in the layout)
@@ -307,7 +307,7 @@ async function importGround(data, again = false) {
         progress(0, 'Building sphere mesh…');
         const seed = data.seed ?? Math.floor(Math.random() * SEED_MAX);
         // (the Detail ladder, js/detail-ladder.js: the image shaped on each coarser step first, each shown)
-        const ns = [...detailRungs(data.N), data.N], meshes = meshesFor(ns, data.jitter, seed);
+        const ns = detailSteps(data.N, data.progressive), meshes = meshesFor(ns, data.jitter, seed);
         for (const [i, n] of ns.slice(0, -1).entries()) {
             progress(5, `Detail ${n.toLocaleString('en-US')}…`);
             const s = await meshes[i], elev = sampleHeightmap(s.mesh, s.r_xyz, data.grayscale, data.imageWidth, data.imageHeight);

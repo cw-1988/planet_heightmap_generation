@@ -30,7 +30,7 @@ import { mountEditTools } from './edit-tools.js';
 import { mountCityRing } from './city-ring.js';
 import { mountRegionPick, regionChosen } from './region-pick.js';
 import { regionOverlay } from './region-overlay.js';
-import { store, sliderTooltip, detailWarning, redrawFoldedSliders, sidePanel, buildOverlay, tutorial } from './page-chrome.js';
+import { store, sliderTooltip, detailWarning, progressiveSwitch, redrawFoldedSliders, sidePanel, buildOverlay, tutorial } from './page-chrome.js';
 import { rungView } from './rung-view.js';
 
 setDelaunator(Delaunator);
@@ -63,7 +63,7 @@ let world = null;            // the planet shown: its mesh, first picture, plate
 let dirty = true, linesDirty = false, version = 0;
 const pending = new Set();   // the pieces whose edit waits for Rebuild
 let hoveredPiece = -1;
-const finisher = new FinishService();
+const finisher = new FinishService(), progressive = progressiveSwitch();   // (Progressive off: Detail N alone, no ladder)
 
 function viewChanged(what) {
     dirty = true;
@@ -103,7 +103,7 @@ function generate(seed, toggledIndices = [], keepEdits = false) {
     if (!keepEdits) tools.reset();
     showBuildOverlay();
     $('generate').disabled = true; $('generate').textContent = 'Building…'; $('generate').classList.add('generating');
-    worker.postMessage({ cmd: 'generate', ...sliders(), seed, toggledIndices, next: true, shared: true, cuts: tools.cuts, strokes: tools.strokes });
+    worker.postMessage({ cmd: 'generate', ...sliders(), progressive: progressive(), seed, toggledIndices, next: true, shared: true, cuts: tools.cuts, strokes: tools.strokes });
 }
 function failed(message) {
     console.error('[generate] build failed:', message);

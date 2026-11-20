@@ -807,6 +807,8 @@ body:has(#helpBtn) { --bar-help: 64px; }
 .detail-warn:empty { display: none; }
 .detail-warn.orange { color: var(--ui-amber); }
 .detail-warn.red { color: var(--ui-red); }
+.cg label.detail-progressive { display: flex; align-items: center; gap: 6px; margin: 4px 0 2px; font-family: var(--font-ui); font-size: 12px; color: var(--muted); cursor: pointer; }
+.detail-progressive input { width: 15px; height: 15px; margin: 0; accent-color: var(--ui-action); cursor: pointer; }
 #topInfo {
     position: absolute; top: calc(var(--nav-h) + 12px); left: calc(50% + var(--open-shift, 0px)); transform: translateX(-50%);
     font: 500 13px/1.3 var(--font-ui); color: var(--muted);
