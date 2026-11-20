@@ -16,7 +16,8 @@
 
 import { MinHeap } from '../core/min-heap.js';
 import { flatKey } from '../terrain/carve.js';
-import { siltLake } from './lake-silt.js';
+import { siltLake, lakeInlets } from './lake-silt.js';
+import { hollowFates } from './lake-fates.js';
 
 const SEC_PER_YEAR = 3.156e7, R = 6371;
 /** The distance (km) between two neighbouring cells (the chord: the same to well under a metre at a cell's size). */
@@ -290,7 +291,7 @@ export function hydrology(ctx, F) {
         const lake = origin && cells.length * cellKm2 >= F.lakeMinKm2 && cells.length >= 2 && (L - deepest) * 1000 >= F.lakeMinDepthM;
         if (!origin && ctx.fillHollows) laterCuts.push(id);
         // (old: a hollow of the tectonic surface, glaciated or not; the ice age's own hollows are young)
-        hollows.push({ cells, level: L, outlet, deepCell, floor: deepest, lake, inflow: 0, seasonW: 0, area: 0, glacial: glacial >= 0.5 * cells.length, old: sea || (!!ctx.tectonic && tect >= F.lakeTectonicShare * cells.length), sea });
+        hollows.push({ cells, level: L, outlet, deepCell, floor: deepest, lake, origin, inflow: 0, seasonW: 0, area: 0, glacial: glacial >= 0.5 * cells.length, old: sea || (!!ctx.tectonic && tect >= F.lakeTectonicShare * cells.length), sea });
     }
     // ── discharge, upstream first (each cell comes after the cell it drains into in the flood's order): each cell's own
     // runoff; a lake gathers its cells' and passes on only what it does not evaporate, at its outlet; a river loses water
@@ -345,12 +346,11 @@ export function hydrology(ctx, F) {
             // what evaporates from the lake full
             let full = 0;
             for (const x of h.cells) full += lakeDeficit(x) * cellKm2 * 1e3 / SEC_PER_YEAR;
-            // Every river ends at the sea (developer: "every river needs to end at ocean not lake"): a lake stays only where
-            // its river fills it and it is big for its river — at least lakeKeepKm2 × √(inflow / 1000 m³/s), the ice age's
-            // lake districts half that — and passes on all that flows in. Else it is cut through to its floor and the river
-            // runs on in its gorge: a big river's pond ("a lot of the time large rivers are ending up in tiny lakes"), and a
-            // basin its river cannot fill — no closed basins, no salt lakes or pans for a river to end in
-            const areaKm2 = h.cells.length * cellKm2, young = h.glacial && !h.old;
+            // A lake stays only where its river fills it, and passes on all that flows in; a basin its river cannot fill is
+            // cut through to its floor (developer: "every river needs to end at ocean not lake" — no closed basins off the
+            // sea's remnants). Whether it is big enough for its river ("a lot of the time large rivers are ending up in tiny
+            // lakes") the sediment decides, below (lake-silt.js): a great river fills its pond
+            const young = h.glacial && !h.old;
             // (a gorge cut from a basin upstream already runs through it below its rim: its water has a lower way out and
             // drains by it — no lake strung along the gorge)
             let crossed = Infinity;
@@ -364,16 +364,19 @@ export function hydrology(ctx, F) {
             // A remnant of the sea (developer: inland seas "COMPLETELY dried out", lakes over them "just too enormous"): its
             // river spilled over the rim in wetter times and cut the outlet down by at most seaBreachKm (Bonneville at Red
             // Rock Pass, Lake Idaho into Hells Canyon), not to the sea whatever the rim (owner, 2026-11-20). Below it, the
-            // water balance: it spills if its river outweighs what all the ground below the outlet evaporates; else closed
-            const hole = h.sea ? h.cells.filter(x => z[x] < 0) : null;
+            // water balance: it spills if its river outweighs what all the ground below the outlet evaporates; else closed.
+            // A land basin its river cannot fill is closed the same way, at its rim: a terminal lake as big as its inflow
+            // keeps wet, or a pan (Chad, Eyre, the Great Salt Lake; owner, 2026-11-20: lakes by "a mostly scientific
+            // approach" — no longer a gorge cut to its floor to drain it)
+            const hole = h.sea ? h.cells.filter(x => z[x] < 0) : null, closedLand = !h.sea && !drained && h.inflow < full;
             let outLevel = 0, low = null, evap = 0, k = -1;
-            if (h.sea) {
-                const B = F.seaBreachKm * smooth(Math.log(F.seaBreachQ[0]), Math.log(F.seaBreachQ[1]), Math.log(Math.max(1e-9, h.inflow)));
-                outLevel = Math.max(F.seaCutFloorKm, h.level - B);
+            if (h.sea || closedLand) {
+                const B = h.sea ? F.seaBreachKm * smooth(Math.log(F.seaBreachQ[0]), Math.log(F.seaBreachQ[1]), Math.log(Math.max(1e-9, h.inflow))) : 0;
+                outLevel = h.sea ? Math.max(F.seaCutFloorKm, h.level - B) : h.level;
                 low = h.cells.filter(x => z[x] < outLevel).sort((a, b) => z[a] - z[b]);
                 for (let i = 0; i < low.length; i++) { const e = lakeDeficit(low[i]) * cellKm2 * 1e3 / SEC_PER_YEAR; if (evap + e > h.inflow) break; evap += e; k = i; }
             }
-            if (h.sea && k < low.length - 1) {
+            if ((h.sea || closedLand) && k < low.length - 1) {
                 // closed: the lowest cells its inflow keeps wet. A terminal salt sea where big for its river or an old deep
                 // sea floor (the Caspian, the Dead Sea); else a salt pan filled toward a flat (below). Its rivers end there
                 outflow = 0; toBasins += h.inflow; from = h.deepCell;
@@ -382,7 +385,7 @@ export function hydrology(ctx, F) {
             } else if (h.sea) {
                 // full to its outlet, it spills through the gorge it cut, and the lowland round it drains as land does (below)
                 level = cut(h.deepCell, outLevel); from = h.deepCell;
-            } else if (drained || areaKm2 < keepKm2 || h.inflow < full) { cut(h.deepCell, h.floor); level = h.floor; }
+            } else if (drained) { cut(h.deepCell, h.floor); level = h.floor; h.drained = true; }
             else if (F.breachKm > 0) {
                 // an old basin that overflows has cut its outlet down (developer: the erosion should "break these basins
                 // up"): a gorge through its rim, deeper the more spills over; the lake drains to what lies below the gorge —
@@ -413,16 +416,11 @@ export function hydrology(ctx, F) {
             }
             // (a lake the map can show: at least lakeMinKm2 and two cells — not a blob on a river)
             if (water.length < 2 || water.length * cellKm2 < F.lakeMinKm2) water.length = 0;
-            // (a river's pond — what water a partly cut basin keeps, small for its river — cut through too: the size that
-            // counts is the water left, not the basin's)
-            // (a remnant of the sea keeps its water whatever its size: no gorge could drain it)
-            if (!h.sea && water.length && water.length * cellKm2 < keepKm2) { cut(h.deepCell, h.floor); level = h.floor; water.length = 0; }
             // (a remnant of the sea full to its brim keeps the water of each part of its hole — often pits scattered over a
-            // lowland that spills just above sea level, and the basin's rivers run to the nearest (below). Each part is a
-            // lake of its own, kept only where it is big for the basin's river, as any lake (a great river's only a huge
-            // one); a smaller one its delta has filled — ground just above sea level, below — and the rivers cross it to
-            // the water kept or the outlet (developer, 2026-10-27: major rivers ending in lakes "< 1% unless the lake is huge")
-            else if (h.sea && kind === Water.FRESH && water.length) {
+            // lowland that spills just above sea level, and the basin's rivers run to the nearest (below). Each part the
+            // map can show is a lake of its own, which the sediment fills as any lake; a filled one is ground just above
+            // sea level, below, and the rivers cross it to the water kept or the outlet)
+            if (h.sea && kind === Water.FRESH && water.length) {
                 const inWater = new Set(water), part = new Set(), kept = [];
                 for (const s0 of water) {
                     if (part.has(s0)) continue;
@@ -432,15 +430,20 @@ export function hydrology(ctx, F) {
                         const nb = adjList[k];
                         if (inWater.has(nb) && !part.has(nb)) { part.add(nb); piece.push(nb); }
                     }
-                    if (piece.length * cellKm2 >= Math.max(F.lakeMinKm2, keepKm2)) for (const x of piece) kept.push(x);
+                    if (piece.length * cellKm2 >= F.lakeMinKm2) for (const x of piece) kept.push(x);
                 }
                 water.length = 0;
                 for (const x of kept) water.push(x);
             }
-            if (kind === Water.FRESH && !young && water.length) { const w = siltLake(water, level, F.lakeSiltKm * h.area, z, cellKm2, F.lakeMinKm2, adjOffset, adjList); if (w !== water) { water.length = 0; for (const x of w) water.push(x); } }
+            if (kind === Water.FRESH && water.length) {
+                const w = siltLake(water, level, F.lakeSiltKm * h.area * (young ? F.glacialSiltShare : 1), lakeInlets(water, q, recv, adjOffset, adjList), z, cellKm2, F.lakeMinKm2, adjOffset, adjList);
+                if (w !== water) { water.length = 0; for (const x of w) water.push(x); }
+            }
             if (kind === Water.SALT && !water.length) { kind = Water.PAN; h.pan = true; }
+            // (a land basin's pan: the lowest ground its inflow wets, a playa)
+            if (closedLand && kind === Water.PAN) { for (let i = 0; i <= Math.max(0, k); i++) water.push(low[i]); level = z[water[water.length - 1]] + 1e-3; }
             for (const x of water) { lakeKind[x] = kind; lakeLevel[x] = level; }
-            if (h.sea ? kind === Water.FRESH : !water.length) cutPockets(h, id, c);
+            if (h.sea || closedLand ? kind === Water.FRESH : !water.length) cutPockets(h, id, c);
             h.kind = water.length ? kind : h.pan ? Water.PAN : Water.NONE; h.levelNow = level; h.outflow = outflow; h.fullEvap = full; h.outletIn = h.inflow;
             q[c] = outflow; qw[c] = h.seasonW; area[c] = h.area;
             if (!(outflow > 0)) continue;
@@ -600,7 +603,7 @@ export function hydrology(ctx, F) {
         }) : null,
         stats: { runoffMm: total * SEC_PER_YEAR / 1e3 / Math.max(1, landKm2), toSeaShare: toSea / Math.max(1e-9, total), toBasinsShare: toBasins / Math.max(1e-9, total),
             lostShare: lost / Math.max(1e-9, total), byOriginShare: Object.fromEntries(Object.entries(byOrigin).map(([k, v]) => [k, +(100 * v / Math.max(1, count * cellKm2)).toFixed(2)])),
-            biggestLakesKm2: sizes.slice(0, 6).map(Math.round), cutCells, cutMaxKm: +cutMaxKm.toFixed(3), cutMeanM: Math.round(1000 * cutKm3 / Math.max(1, cutCells) / cellKm2), reaches, points: L.lat.length, biggestM3s: biggest, freshLakes: lakes, saltLakes: salt, pans, lakeShare: lakeKm2 / Math.max(1, landKm2) },
+            biggestLakesKm2: sizes.slice(0, 6).map(Math.round), cutCells, cutMaxKm: +cutMaxKm.toFixed(3), cutMeanM: Math.round(1000 * cutKm3 / Math.max(1, cutCells) / cellKm2), reaches, points: L.lat.length, biggestM3s: biggest, freshLakes: lakes, saltLakes: salt, pans, lakeShare: lakeKm2 / Math.max(1, landKm2), fates: hollowFates(hollows, ctx.lat, cellKm2, Water) },
     };
 }
 

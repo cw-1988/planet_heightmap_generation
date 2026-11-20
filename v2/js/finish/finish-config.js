@@ -142,14 +142,11 @@ export const FINISH = {
     breachQ: [10, 1000],        // …by what spills over (m³/s): none below the first, full from the second…
     glacialBreachShare: 0.5,    // …half as deep in the ice age's own (young) hollows, and only by big rivers (glacialBreachQ, m³/s):
     glacialBreachQ: [500, 5000], // a big river breaks through its lakes, a small one keeps its lake district
-    // which lakes stay (developer: "every river needs to end at ocean not lake"): a lake on a river is cut through to its
-    // floor unless its river fills it and it is at least lakeKeepKm2 × √(inflow / 1000 m³/s) big (the ice age's lakes
-    // glacialKeepShare of that) — no closed basins
+    // a closed remnant of the sea is a terminal salt sea, not a pan, where it is at least lakeKeepKm2 × √(inflow / 1000
+    // m³/s) big (the ice age's glacialKeepShare of that), a major river's (from lakeHugeQ[0] m³/s, by lakeHugeQ[1]) at
+    // least lakeHugeKm2 (Titicaca ~8 300). Which fresh lakes stay the sediment decides (lakeSiltKm, lake-silt.js)
     lakeKeepKm2: 5000,
     glacialKeepShare: 0.5,
-    // …and a major river keeps only a huge lake (developer, 2026-10-27: major rivers ending in a lake "< 1% unless the lake
-    // is huge"): from lakeHugeQ[0] m³/s, by lakeHugeQ[1], at least lakeHugeKm2 (Titicaca ~8 300, Ladoga ~18 000) — a
-    // remnant of the sea too: one smaller its delta fills
     lakeHugeKm2: 8000,
     lakeHugeQ: [500, 1000],
     // Where a river must cut through — a basin it drains, a pocket in it — its gorge keeps the river's own course, every bend
@@ -166,7 +163,8 @@ export const FINISH = {
                                 // (0: never — developer: a small trapped sea is "NOT a valid end it should go out to the real sea")…
     seaCutFloorKm: 0.003,       // …else a gorge stops this above sea level, and dry ground below sea level is filled to it
     seaBreachKm: 0.8, seaBreachQ: [100, 3000], // a trapped sea's outlet cut: at most this deep, all of it by Q[1] m³/s
-    lakeSiltKm: 0.01,           // sediment a fresh lake's rivers fill it with: this depth off its catchment (lake-silt.js)
+    lakeSiltKm: 0.01,           // sediment a fresh lake's rivers fill it with: this depth off its catchment (lake-silt.js)…
+    glacialSiltShare: 0.1,      // …the ice age's young lakes this share (they have stood ~12 000 years)
     // inland seas (2026-10-15, developer: inland seas "COMPLETELY dried out … leaving holes in the ground"): a body below
     // sea level behind a low, short barrier is a sea the mesh cannot connect — a strait narrower than its cells, low land
     // the carve keeps at its 2 m floor — opened into the ocean along the way it would spill, by a smooth weight on the

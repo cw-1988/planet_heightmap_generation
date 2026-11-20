@@ -21,9 +21,12 @@ tuned.
 |---|---|---|---|
 | `lakeMinKm2` | — (∞: no lakes) | 50 km² (÷6) | The smallest hollow that is a lake |
 | `lakeMinDepthM` | 60 m (×4) | 5 m (÷3) | …and its least depth |
-| `lakeKeepKm2`, `lakeHugeKm2` | ×10 | ÷50 | How big a lake must be for its river to keep it, not cut through |
+| `lakeKeepKm2`, `lakeHugeKm2` | ×10 | ÷50 | How big a closed basin's water must be for its river to make it a salt lake, not a pan |
 | `breachKm`, `seaBreachKm` | ×2, ×1.5 | ÷4 | How deep an overflow cuts its outlet ([basin-lakes.md](basin-lakes.md)) |
-| `lakeSiltKm` | ×5 | ÷10 | The sediment rivers fill a lake with |
+| `lakeSiltKm` | ×5 | ÷10 | The sediment rivers fill a lake with: the main control of how big the big lakes are |
+
+Silt is trapped by Brune's curve (volume left V0·e^(−S/V0)), so a step of the slider shrinks or grows the big lakes
+smoothly rather than switching them off; small lakes on small rivers keep most of their water at any step.
 
 At −1, `lakeMinKm2` is ∞, so no water is kept anywhere. A closed basin keeps only its salt pan, a fresh one drains.
 

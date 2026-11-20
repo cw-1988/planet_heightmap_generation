@@ -200,14 +200,15 @@ while they show; on a phone unlit and no shadows); the export's Clouds layer (tr
 Satellite with clouds are one still moment of them, from the same noise in JavaScript. **Rivers and lakes** by the climate
 (`finish-hydro.js`): discharge in m³/s from each place's runoff, less what dry river beds lose; each river's year — its
 monthly flows from each month's rain and snowmelt (and groundwater draining back slowly), routed down the rivers — and
-its regime: permanent, permanent with a yearly flood season (the Nile's), seasonal, dry most of the year; every river ends at the sea: a
-lake stays only where its river fills it and it is big for its river (`lakeKeepKm2` × √(inflow / 1000 m³/s); a major
-river's, from `lakeHugeQ` 500–1000 m³/s, only a huge one — `lakeHugeKm2`, 8 000 km²: 2026-10-27, major rivers ending in
-lakes "< 1% unless the lake is huge"; a lake may stand only in a hollow of the tectonic surface read on the carving's mesh
-nearest `tectonicHollowMeshKm` across, where a range's troughs and a lowland's hummocks average away), and passes all its
-water on; anything smaller —
-or a basin its river cannot fill — is cut through by a gorge to its floor (old basins that overflow have cut their rims
-down; the ice age's hollows are lake districts). A gorge keeps its river's own course through the basin, every bend of
+its regime: permanent, permanent with a yearly flood season (the Nile's), seasonal, dry most of the year. A
+fresh lake stays where its river fills it and its sediment has not (`lakeSiltKm` × the catchment, trapped by Brune's
+curve from the inlets: a small lake on a small river, a big one on a big river, 2026-11-20 —
+[docs/basin-lakes.md](../docs/basin-lakes.md)); a lake may stand only in a glacial hollow or one of the tectonic surface
+read on the carving's mesh nearest `tectonicHollowMeshKm` across, where a range's troughs and a lowland's hummocks
+average away, and passes all its water on. A basin its river cannot fill is closed: a salt lake where it is big for its
+river (`lakeKeepKm2` × √(inflow / 1000 m³/s), `lakeHugeKm2` for a major river), else a salt pan; any other hollow is
+cut through by a gorge to its floor (old basins that overflow have cut their rims down; the ice age's hollows are lake
+districts). A gorge keeps its river's own course through the basin, every bend of
 it, unless a shortcut is enough less work — the rock cut and a little for the length: along its own course a river does
 only `riverDirectness` of the work (0.1), so a bend is cut through only where the way round is over ten times the
 shortcut's (the worst hooks and tangles across drained basins — developer, rivers "that go back and forth", but "some

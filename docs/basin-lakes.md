@@ -28,10 +28,18 @@ trapped-sea branch), `v2/js/finish/lake-silt.js`. Config: `seaBreachKm`, `seaBre
    while the inflow still covers their evaporation (`lakeDeficit`). If the inflow can wet them all, the lake fills to the
    outlet and spills through the gorge. Otherwise it is closed: a terminal salt sea where it is big for its river or on
    an old deep sea floor (the Caspian, the Dead Sea), else a salt pan.
-3. **Rivers fill fresh lakes with sediment.** A fresh lake (not one the ice age just scoured) gets `lakeSiltKm` × its
-   catchment's area of sediment (10 m off the catchment). It fills the shallowest water first, to 1 m above the level:
-   a delta and lacustrine plain. A broad, shallow lake loses most of its area and a deep one keeps its core. Pieces left
-   under `lakeMinKm2` are filled too. Analogues: the Pannonian lake (filled), the Po and Mesopotamian plains.
+3. **Rivers fill fresh lakes with sediment** (`lake-silt.js`). Every fresh lake gets `lakeSiltKm` × its catchment's
+   area of sediment (10 m off the catchment; a young glacial lake `glacialSiltShare` of that, 12 000 years of it). It
+   traps that by Brune's curve: the share it keeps falls with the share of its basin still open water, so the volume
+   left is V0·e^(−S/V0) and no lake drops from full to nothing at a threshold. Deltas build out from the inlets, the
+   biggest river's furthest, round the deep water before over it, to 1 m above the level. Pieces left under
+   `lakeMinKm2` are filled too. This replaced the size-for-river cut (`lakeKeepKm2`), which kept only lakes big for
+   their river and so left one lake on a continent. Analogues: the Pannonian lake (filled), the Rhône in Lake Geneva.
+4. **A land basin its river cannot fill is closed**, as in 2: a salt lake or a salt pan on its lowest ground, no longer
+   cut through to the sea (the Great Basin, the Altiplano's salars).
+
+`water.fates` in the hydrology's stats counts per fate (no origin, too small, lake, salt, pan, drained, filled) the
+hollows and their area, all and within 35° of the equator.
 
 ## Measured on the seed (the region 17–23N, 94–101W)
 
@@ -41,7 +49,16 @@ trapped-sea branch), `v2/js/finish/lake-silt.js`. Config: `seaBreachKm`, `seaBre
 | Evaporation over the whole basin only | One salt lake of 521 620 km² at 996 m: the whole region flooded |
 | Bounded cut (0.8 km), no sediment | A fresh lake of 214 138 km² at 421 m |
 | + sediment 30 m | No lake left: a dead-flat plain at ~422 m |
-| + sediment 10 m (now), Lakes −0.1 | A lake of ~36 000 km² at 388 m in the basin's deepest part, a filled plain around it |
+| + sediment 10 m, Lakes −0.1 | A lake of ~36 000 km² at 388 m in the basin's deepest part, a filled plain around it; the only lake in the continent's south |
+
+With Brune trapping, no size-for-river cut and closed land basins (now). "Pieces" are the lakes between 5S–50N and
+135–60W (the old rule: 21 at −0.1):
+
+| Lakes | The basin's lake | Pieces | Fresh lakes on the planet |
+|---|---|---|---|
+| 0 | 107 193 km² at 421 m | 53 | 1 235 |
+| −0.1 | 74 119 km² at 388 m | 45 | 719 |
+| −0.2 | 43 435 km² at 353 m (the old rule: none) | 43 | 688 |
 
 ## What is physics and what is a choice
 
