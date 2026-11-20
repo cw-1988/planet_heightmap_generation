@@ -62,10 +62,12 @@ export function surfaceConfig(F, cfg) {
  *          onStage?: (name: string) => void, F?: Object, cfg?: Object, mesh?: Object, surface?: Function}} o
  *   mesh: the mesh to finish on (else the terrain mesh of `cells`); surface: the page's own surface on it, instead of
  *   the history's drawn here — (mesh, cfg) → {heightKm, carveIn, recCell, cues} (or a promise of it), drawn with
- *   surfaceConfig's cfg (Generate: v2/js/present/world.js presentSynthesize's `surface`); no pool is needed then
+ *   surfaceConfig's cfg (Generate: v2/js/present/world.js presentSynthesize's `surface`); no pool is needed then.
+ *   onTerrain({mesh, z, ocean, lake, lakeLevel, rivers, drain}): the terrain as soon as it is final (after the water),
+ *   awaited — the rest (detail, rocks, final climate, deposits, farming) changes none of it
  * @returns {Promise<{mesh: Object, z: Float32Array, ocean: Uint8Array, ms: Object, stats: Object}>}
  */
-export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, closePool = false, onStage = () => {}, F = FINISH, cfg = terrainConfig(), debug = false, climateOptions = {}, driversWidth = cells >= 1.5e6 ? 2048 : 1024, inspect = null, mesh: givenMesh = null, surface = null }) {
+export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, closePool = false, onStage = () => {}, F = FINISH, cfg = terrainConfig(), debug = false, climateOptions = {}, driversWidth = cells >= 1.5e6 ? 2048 : 1024, inspect = null, mesh: givenMesh = null, surface = null, onTerrain = null }) {
     const ms = {}, stats = {};
     let t0 = performance.now();
     const lap = name => { const t = performance.now(); ms[name] = t - t0; t0 = t; };
@@ -274,6 +276,9 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     // (the sea again, after the rivers' gorges)
     ocean = oceanMask(mesh, C.z);
     lap('water');
+    // (the terrain is final from here — its heights, sea, lakes and rivers: the stages below change none of them — so a
+    // page can show it now, while the climate's, the rocks' and the farming's layers follow)
+    await onTerrain?.({ mesh, z: C.z, ocean, lake: Hy.lake, lakeLevel: Hy.lakeLevel, rivers: Hy.rivers, drain: drainOf(Hy, ocean, C.z) });
 
     // ── what the detail finer than the mesh is drawn from (finish-drivers.js; plans/V2_FINE_DETAIL_PLAN.md) ──
     onStage('detail');
@@ -378,10 +383,15 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     const flow = new Float32Array(n);
     for (let c = 0; c < n; c++) flow[c] = Math.log10(Math.max(1, Hy.area[c]));
     // (drain: where each cell's water goes, the land it drains (km²), its water (m³/s), height (km) and lake, for the region pick's valleys — js/region-basin.js)
-    return { mesh, z: C.z, ocean, lake: Hy.lake, lakeLevel: Hy.lakeLevel, rivers: Hy.rivers, drain: { recv: Hy.recv.slice(), area: Hy.area.slice(), sea: ocean.slice(), q: Float32Array.from(Hy.q), z: Float32Array.from(C.z), lake: Hy.lake.slice() }, drivers, ms, stats, geology, farming,
+    return { mesh, z: C.z, ocean, lake: Hy.lake, lakeLevel: Hy.lakeLevel, rivers: Hy.rivers, drain: drainOf(Hy, ocean, C.z), drivers, ms, stats, geology, farming,
         climate: { page: pageC, cell: { koppen: cellsClimate.koppen, tAnnual: cellsClimate.tAnnual, pAnnual: cellsClimate.pAnnual, sat, cover, stats: cellStats.stats, mottleSeed: ((seed | 0) * 0x2f71 + 0x6d) >>> 0,
             flow, young, rivers: Hy.rivers, ripSat, families: famGrid.done() } },
         layers: debug ? { ice: I.ice, sink: B.sink, erg: W.erg, loess: W.loess, basalt, koppen, before, rain: pAnn, lat, lon, q: Hy.q, terminal: Hy.terminal } : null };
+}
+
+/** Where each cell's water goes, the land it drains (km²), its water (m³/s), height (km) and lake — copies, for the page. */
+function drainOf(Hy, ocean, z) {
+    return { recv: Hy.recv.slice(), area: Hy.area.slice(), sea: ocean.slice(), q: Float32Array.from(Hy.q), z: Float32Array.from(z), lake: Hy.lake.slice() };
 }
 
 /** The mesh's positions displaced by a smooth noise field (km-sized waves, three octaves): a domain warp of everything read there. */
@@ -525,8 +535,12 @@ export function oceanMask(mesh, z, seaSeedKm2 = FINISH.seaSeedKm2, deepKm = FINI
  * east), 16-bit metres, and the ocean (1) — for the page to paint and shade, and to export. Heights blended over the
  * mesh triangle under each pixel; `onRow` reports progress.
  */
-export function finishRaster(mesh, z, ocean, w, onRow = null, lake = null, lakeLevel = null, climate = null, geology = null, farming = null) {
-    const h = w >> 1, heightM = new Int16Array(w * h), sea = new Uint8Array(w * h), water = new Uint8Array(w * h), c3 = [0, 0, 0], w3 = [0, 0, 0];
+export function finishRaster(mesh, z, ocean, w, onRow = null, lake = null, lakeLevel = null, climate = null, geology = null, farming = null, located = null) {
+    const h = w >> 1;
+    // (located: each pixel's three cells and weights — an empty {} is filled, a filled one read instead of locating again:
+    // the terrain's early picture and the finished one share them)
+    const got = located?.c ? located : null, keep = located && !got ? Object.assign(located, { c: new Int32Array(3 * w * h), w: new Float64Array(3 * w * h) }) : null;
+    const heightM = new Int16Array(w * h), sea = new Uint8Array(w * h), water = new Uint8Array(w * h), c3 = [0, 0, 0], w3 = [0, 0, 0];
     // (the climate's picture: at most as wide as the page's sharpest texture — every f-th pixel of the heights' — the
     // land's Köppen class (its weightiest land cell's), °C × 100 and mm a year (its land cells' weighted mean); the sea
     // −32768 °C, 0 mm. With the land's cover: its colours from space (the year, January, July: its land cells' weighted
@@ -553,8 +567,13 @@ export function finishRaster(mesh, z, ocean, w, onRow = null, lake = null, lakeL
     for (let py = 0; py < h; py++) {
         const lat = (0.5 - (py + 0.5) / h) * Math.PI, cl = Math.cos(lat), sl = Math.sin(lat);
         for (let px = 0; px < w; px++) {
-            locate(mesh, cl * cosLon[px], cl * sinLon[px], sl, c3, w3);
-            const i = py * w + px, v = w3[0] * z[c3[0]] + w3[1] * z[c3[1]] + w3[2] * z[c3[2]];
+            const i = py * w + px, o3 = 3 * i;
+            if (got) { c3[0] = got.c[o3]; c3[1] = got.c[o3 + 1]; c3[2] = got.c[o3 + 2]; w3[0] = got.w[o3]; w3[1] = got.w[o3 + 1]; w3[2] = got.w[o3 + 2]; }
+            else {
+                locate(mesh, cl * cosLon[px], cl * sinLon[px], sl, c3, w3);
+                if (keep) { keep.c[o3] = c3[0]; keep.c[o3 + 1] = c3[1]; keep.c[o3 + 2] = c3[2]; keep.w[o3] = w3[0]; keep.w[o3 + 1] = w3[1]; keep.w[o3 + 2] = w3[2]; }
+            }
+            const v =w3[0] * z[c3[0]] + w3[1] * z[c3[1]] + w3[2] * z[c3[2]];
             heightM[i] = Math.max(-32000, Math.min(32000, Math.round(v * 1000)));
             const near = w3[0] >= w3[1] && w3[0] >= w3[2] ? c3[0] : w3[1] >= w3[2] ? c3[1] : c3[2];
             sea[i] = ocean[near];

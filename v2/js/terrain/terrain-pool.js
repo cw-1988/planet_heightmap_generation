@@ -234,7 +234,7 @@ export class TerrainPool {
         const sampler = reuseSampler ? mesh.sampler : { cells: new Int32Array(3 * n), weights: new Float32Array(3 * n), key: samplerKey };
         const heightKm = new Float32Array(n);
         const parts = wantParts ? surfaceParts(n) : null;
-        const carveIn = wantCarve ? carveInputs(n) : null, recCell = wantRec ? new Int32Array(n) : null, cues = wantRec ? new Int8Array(3 * n) : null;
+        const carveIn = wantCarve ? carveInputs(n, cfg) : null, recCell = wantRec ? new Int32Array(n) : null, cues = wantRec ? new Int8Array(3 * n) : null;
         const byId = new Map(mesh.chunks.map(c => [c.id, c]));
         const jobId = this.nextJob++, slim = Object.fromEntries(FRAME_FIELDS.map(k => [k, frame[k]]));      // (to the planner only)
         slim.plates = frame.plates.map(p => p && { quat: p.quat });           // (the plates' rotations: detail is anchored to the crust)

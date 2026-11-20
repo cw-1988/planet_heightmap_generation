@@ -97,9 +97,11 @@ export function buildOverlay() {
             fill.style.transition = 'none'; fill.style.transform = 'scaleX(0)'; label.textContent = '';
             fill.offsetWidth;                                         // (the bar snapped to 0 before it eases again)
             fill.style.transition = '';
-            o.active = true; overlay.classList.remove('hidden'); holdControls(true);
+            o.active = true; overlay.classList.remove('hidden', 'over-sketch'); holdControls(true);
         },
-        hide() { setTimeout(() => { o.active = false; holdControls(false); overlay.classList.add('hidden'); overlay.classList.remove('initial'); }, 300); },
+        // (a first sketch of the planet shown under it: the overlay clear, only its spinner and bar over the planet)
+        sketch() { overlay.classList.remove('initial'); overlay.classList.add('over-sketch'); },
+        hide() { setTimeout(() => { o.active = false; holdControls(false); overlay.classList.add('hidden'); overlay.classList.remove('initial'); setTimeout(() => overlay.classList.remove('over-sketch'), 600); }, 300); },
     };
     holdControls(true);
     return o;

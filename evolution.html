@@ -323,6 +323,7 @@
         }
     }
     </script>
+    <script type="module">if (localStorage.__recArm) await import("/v2/tools/input-replay/record.js").then(m => m.startRecording({ persist: true }));</script>
     <script type="module" src="v2/js/evolution/evolution-main.js" onerror="orogenCantRun()"></script>
     <script type="module" src="js/a11y.js"></script>
 </body>

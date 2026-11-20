@@ -5,14 +5,17 @@
 //
 // Message in:  {type: 'finish', id, frame (the terrain fields of a frame, terrain-pool.js FRAME_FIELDS, and the plates'
 //              rotations), simMesh {numCells, xyz, adjOffset, adjList}, seed, cells, width, delaunatorUrl, poolSize?,
-//              keepCells? (a pass of Add detail's ladder: the last pass's detail, whose meshes stay)}
+//              keepCells? (a pass of Add detail's ladder: the last pass's detail, whose meshes stay), earlyTerrain? (send
+//              the terrain as soon as it is final: the 'terrain' message), valleyQ? (with it, the valleys' lines for the
+//              rivers of at least this m³/s: river-valleys.js riverLines)}
 //              · {type: 'prepare', cells, simCells, delaunatorUrl} — the meshes a finish at `cells` needs, built ahead
 //              while nothing waits on them (no reply; a finish asked for meanwhile waits for them, then finds them built)
 //              A page that draws its own surface (Generate: plans/SHARED_CORE_PLAN.md U1) adds mesh {numCells, xyz, adjOffset,
 //              adjList} (its own mesh, finished on instead of a terrain mesh), surface {heightKm, carveIn, recCell, cues}
 //              (drawn on it with finish.js surfaceConfig's terrain config), and the overrides of its terrain config
 //              (`terrain`) and of the finish's (`finish`) — no terrain pool then
-// Messages out: {type: 'stage', id, stage} · {type: 'progress', id, share} (the picture) · {type: 'done', id, raster:
+// Messages out: {type: 'stage', id, stage} · {type: 'progress', id, share} (the picture) · {type: 'terrain', id, raster
+//              {w, h, heightM, ocean, water}, rivers, drain, valleyQ, lines} (with earlyTerrain: the terrain, before the other layers) · {type: 'done', id, raster:
 //              {w, h, heightM, ocean, water, geology, farming (farming/farming.js: its parts per pixel)}, rivers
 //              (finish-hydro.js), climate (the moment's own, at its detail: the
 //              grid's fields, climate-fields.js, and raster {w, h, koppen, tAnnual (°C × 100), pAnnual (mm), stats} — the land's
@@ -28,8 +31,10 @@ import { keepOnlyTerrainMesh, terrainMesh } from '../terrain/terrain-mesh.js';
 import { ladderCells } from '../terrain/synthesize.js';
 import { meshFromArrays } from '../core/sim-mesh.js';
 import { setDelaunator } from '../../../js/sphere-mesh.js';
+import { riverLines } from './river-valleys.js';
 
 let sim = null, simCells = 0, delaunatorSet = false;
+const LOCATED_WIDTH = 2048;                                          // (2048 × 1024 pixels' cells: ~75 MB while the finish runs)
 
 self.onmessage = async ({ data }) => {
     if (data.type === 'prepare') {
@@ -43,7 +48,7 @@ self.onmessage = async ({ data }) => {
         return;
     }
     if (data.type !== 'finish') return;
-    const { id, frame, seed, width, poolSize = null, climateOptions = {}, surface = null } = data;
+    const { id, frame, seed, width, poolSize = null, climateOptions = {}, surface = null, earlyTerrain = false, valleyQ = 0 } = data;
     try {
         if (!delaunatorSet) { setDelaunator((await import(data.delaunatorUrl)).default); delaunatorSet = true; }
         if (!sim || simCells !== data.simMesh.numCells) { sim = meshFromArrays(data.simMesh); simCells = data.simMesh.numCells; }
@@ -55,11 +60,22 @@ self.onmessage = async ({ data }) => {
         keepOnlyTerrainMesh(...(mesh ? [] : [cells]), ...(keepCells ? [keepCells] : []), ...ladderCells(sim.numCells, Math.max(cells, keepCells)));
         const pool = surface ? null : await TerrainPool.create(sim, poolSize);
         const own = mesh && surface ? { mesh, surface: () => surface } : {};
+        // (the terrain, as soon as it is final: its picture of heights, sea and lakes, its rivers and drain — copies; the
+        // pixels' cells kept for the finished picture, up to LOCATED_WIDTH: wider, their memory outweighs the second saved)
+        const located = earlyTerrain && width <= LOCATED_WIDTH ? {} : null;
+        const onTerrain = earlyTerrain ? t => {
+            const raster = finishRaster(t.mesh, t.z, t.ocean, width, null, t.lake, t.lakeLevel, null, null, null, located);
+            // (and the valleys' lines the zoomed tiles cut, for the rivers the page draws — ~0.15 s off its thread; built on a
+            // copy, so the rivers sent with 'done' carry no cache)
+            const lines = valleyQ > 0 && valleyQ < Infinity ? riverLines({ ...t.rivers }, valleyQ, raster) : null;
+            self.postMessage({ type: 'terrain', id, raster, rivers: t.rivers, drain: t.drain, valleyQ, lines },
+                [raster.heightM.buffer, raster.ocean.buffer, raster.water.buffer, ...Object.values(t.drain).map(a => a.buffer), ...(lines ? [lines.buffer] : [])]);
+        } : null;
         const out = await finishPlanet({ frame, simMesh: sim, seed, cells, pool, closePool: !!pool, climateOptions, driversWidth: driverWidth(width), onStage: stage => self.postMessage({ type: 'stage', id, stage }),
-            ...own, ...(data.terrain ? { cfg: terrainConfig(data.terrain) } : {}), ...(data.finish ? { F: { ...FINISH, ...data.finish } } : {}) });
+            onTerrain, ...own, ...(data.terrain ? { cfg: terrainConfig(data.terrain) } : {}), ...(data.finish ? { F: { ...FINISH, ...data.finish } } : {}) });
         self.postMessage({ type: 'stage', id, stage: 'picture' });
         const t0 = performance.now();
-        const raster = finishRaster(out.mesh, out.z, out.ocean, width, share => self.postMessage({ type: 'progress', id, share }), out.lake, out.lakeLevel, out.climate.cell, out.geology, out.farming);
+        const raster = finishRaster(out.mesh, out.z, out.ocean, width, share => self.postMessage({ type: 'progress', id, share }), out.lake, out.lakeLevel, out.climate.cell, out.geology, out.farming, located);
         const farm = raster.farming ? [...[...FARM_KEYS, 'kind'].map(k => raster.farming[k].buffer), ...Object.values(raster.farming.crops ?? {}).map(a => a.buffer)] : [];
         out.ms.picture = performance.now() - t0;
         // (the finished moment's climate: the grid's fields, and its own picture of the land's climate)

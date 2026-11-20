@@ -972,6 +972,8 @@ body.edits-pending #hoverInfo { bottom: 112px; }
 .build-overlay.initial {
     background: var(--ui-stage);
 }
+/* a first sketch of the planet under it (js/world-sketch.js): the planet seen and turned, the spinner and bar over it */
+.build-overlay.over-sketch { background: transparent; pointer-events: none; }
 .build-overlay-inner {
     display: flex; flex-direction: column; align-items: center;
     transform: translateX(var(--open-shift, 0px));   /* (with the planet, js/open-area.js) */

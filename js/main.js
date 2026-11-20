@@ -12,6 +12,7 @@ import { meshFromArrays } from '../v2/js/core/sim-mesh.js';
 import { PlanetView } from '../v2/js/view/planet-view.js';
 import { mountLayerBar } from '../v2/js/view/layer-bar.js';
 import { FinishService } from '../v2/js/evolution/finish-view.js';
+import { terrainFin, finishedFin } from './finish-landing.js';
 import { STAGES as FINISH_STAGES } from '../v2/js/finish/finish.js';
 import { initEvolutionExport, CATALOGUE, rollRows, rollShift } from '../v2/js/evolution/export.js';
 import { DATA_SCALES } from '../v2/js/view/export-raster.js';
@@ -76,6 +77,8 @@ function startWorker() {
     worker.onmessage = ({ data: msg }) => {
         if (msg.type === 'progress') { onProgress(msg.pct, msg.label); return; }
         if (msg.type === 'error') { failed(msg.message); return; }
+        // (the first sketch, js/world-sketch.js: shown while the page has no world yet, the overlay drawn back to its bar)
+        if (msg.type === 'sketch') { if (!world) { pv.paintLive({ T: msg, tMesh: meshFromArrays(msg.mesh) }); overlay.sketch(); } return; }
         if (msg.type === 'done' || msg.type === 'reapplyDone' || msg.type === 'editDone') received(msg);
     };
     worker.onerror = (e) => { failed(e.message || 'Worker crashed'); worker.terminate(); startWorker(); };
@@ -144,21 +147,24 @@ async function finish(w) {
     finisher.cancel();
     const started = performance.now(), job = w.finishJob, shares = new Map(FINISH_STAGES);
     w.fin = null; w.problem = null; w.finishing = { stage: 'starting', share: 0 }; updateChip();
-    let before = 0;
+    let before = 0, quiet = false;
     const onStage = (s) => { if (world !== w) return; before = 0; for (const [k, v] of FINISH_STAGES) { if (k === s) break; before += v; } w.finishing = { stage: s, share: before }; updateChip(); };
     const onProgress = (p) => { if (world !== w || !w.finishing) return; w.finishing.share = before + p * (shares.get('picture') ?? 0.1); updateChip(); };
     try {
-        const res = await finisher.finish({ ...job, mesh: w.meshArrays, cells: w.n, width: finishWidth(w.n), climateOptions: climateOptions() }, { onStage, onProgress, keep: false });
+        // (the terrain lands first, the other layers after it: finish-landing.js)
+        const onTerrain = (d) => { if (world !== w) return; w.fin = terrainFin(w.n, d); dirty = true; updateChip(); console.info(`[generate] terrain finished in ${((performance.now() - started) / 1000).toFixed(1)} s`); };
+        const res = await finisher.finish({ ...job, mesh: w.meshArrays, cells: w.n, width: finishWidth(w.n), climateOptions: climateOptions(), valleyQ: view.riverQ }, { onStage, onProgress, onTerrain, keep: false });
         if (world !== w) return;
-        w.fin = { cells: w.n, raster: res.raster, rivers: res.rivers, drain: res.drain, climate: res.climate, stats: res.stats };
+        quiet = !!pv.shows(w.fin);                                   // (the terrain shown already: the rest changes nothing on it)
+        w.fin = finishedFin(w.n, res, w.fin);
         w.climateKey = `${$('sTmp').value}|${$('sPrc').value}`;
-        console.info(`[generate] finished in ${((performance.now() - started) / 1000).toFixed(1)} s`, Object.fromEntries(Object.entries(res.ms).map(([k, v]) => [k, +(v / 1000).toFixed(2)])));
+        console.info(`[generate] finished in ${((performance.now() - started) / 1000).toFixed(1)} s; its steps (s): ${Object.entries(res.ms).map(([k, v]) => `${k} ${(v / 1000).toFixed(2)}`).join(", ")}`);
     } catch (err) {
         if (err.name === 'AbortError' || world !== w) return;
         w.problem = /allocation failed|out of memory/i.test(String(err.message)) ? 'Not enough memory to finish this planet — try a lower Detail' : `Could not finish this planet: ${String(err.message).split('\n')[0]}`;
         console.error(err);
     } finally {
-        if (world === w) { w.finishing = null; dirty = true; updateChip(); }
+        if (world === w) { w.finishing = null; if (!quiet) dirty = true; updateChip(); }
     }
 }
 
@@ -172,7 +178,7 @@ function updateChip() {
     if (text) { $('climateChipText').textContent = text; $('climateChipBtn').hidden = !act; $('climateChipBtn').textContent = act ?? ''; }
     // (the layers that come with the finish: locked until it is done)
     const fin = w?.fin;
-    for (const id of ['satellite', 'geology', 'farming']) document.querySelector(`#mapTabs [data-layer="${id}"]`)?.classList.toggle('locked', !fin);
+    for (const id of ['satellite', 'geology', 'farming']) document.querySelector(`#mapTabs [data-layer="${id}"]`)?.classList.toggle('locked', !fin || fin.partial);
 }
 $('climateChipBtn').addEventListener('click', () => { if (world?.problem) finish(world); });
 
@@ -409,7 +415,7 @@ function producePlates(rctx, job) {
     return { kind: colour ? 'rgba' : 'gray8', W, H, data: rollRows(platesMap(world, W, colour ? 'rgba' : 'id'), W, H, colour ? 4 : 1, shift) };
 }
 const exportPanel = initEvolutionExport({
-    moment: () => (world?.fin ? { frame: world.story, fin: world.fin, seed: code(), cloudSeed: world.seed } : null),
+    moment: () => (world?.fin && !world.fin.partial ? { frame: world.story, fin: world.fin, seed: code(), cloudSeed: world.seed } : null),
     look: () => ({ lut: heightLutOf(view.palette), exaggeration: pv.SHADING.exaggeration, water: view.water, riverQ: view.riverQ, byRegime: view.byRegime, deposit: view.deposit }),
     centerLon: () => view.centerLon, projection: () => (view.mode === 'map' ? { id: view.projection, opts: view.projOpts } : null), isTouch: IS_TOUCH,
     fine: (fin, _seed, W, onProgress) => pv.detail.window(fin, world.seed, { W, x0: 0, y0: 0, w: W, h: W >> 1 }, null, onProgress),
@@ -417,7 +423,7 @@ const exportPanel = initEvolutionExport({
     names: (ctx, opts) => { const c = Math.round(opts.centerLon || 0); return { start: ['orogen', ctx.seed], end: [c ? `c${Math.abs(c)}${c > 0 ? 'E' : 'W'}` : null] }; },
     about: (ctx) => ({ page: 'Generate', planet: `planet code ${ctx.seed}`, link: `https://orogen.studio/generate#${ctx.seed}` }) });
 $('exportBtn').addEventListener('click', () => {
-    if (world?.fin) { exportPanel.open(); return; }
+    if (world?.fin && !world.fin.partial) { exportPanel.open(); return; }
     // (the maps come from the finished world: a few seconds after the planet)
     pv.hover([world?.finishing ? `The maps are ready once the planet is finished — ${Math.round(100 * world.finishing.share)} %` : 'The maps are ready once the planet is finished']);
     setTimeout(() => pv.hover(null), 2500);
@@ -426,6 +432,7 @@ $('exportBtn').addEventListener('click', () => {
 // ── stats ──
 function stats(msg) {
     const w = world;
+    if (msg._ms) console.info(`[generate] first picture in ${(msg._workerTotal / 1000).toFixed(1)} s; the ground's steps (s): ${Object.entries(msg._ms).map(([k, v]) => `${k.trim()} ${(v / 1000).toFixed(2)}`).join(", ")}`);
     $('stats').innerHTML = `Regions: ${w.n.toLocaleString()}<br>Plates: ${w.present?.plates.length ?? '–'} moving, ${w.plateSeeds.length} pieces` +
         (msg._workerTotal ? `<br>First picture in ${(msg._workerTotal / 1000).toFixed(1)} s` : '');
 }

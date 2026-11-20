@@ -10,6 +10,7 @@ import { meshFromArrays } from '../v2/js/core/sim-mesh.js';
 import { PlanetView } from '../v2/js/view/planet-view.js';
 import { mountLayerBar } from '../v2/js/view/layer-bar.js';
 import { FinishService } from '../v2/js/evolution/finish-view.js';
+import { terrainFin, finishedFin } from './finish-landing.js';
 import { STAGES as FINISH_STAGES } from '../v2/js/finish/finish.js';
 import { initEvolutionExport } from '../v2/js/evolution/export.js';
 import { heightLutOf } from '../v2/js/evolution/looks.js';
@@ -82,20 +83,23 @@ async function finish(w) {
     finisher.cancel();
     const started = performance.now(), shares = new Map(FINISH_STAGES);
     w.fin = null; w.problem = null; w.finishing = { stage: 'starting', share: 0 }; updateChip();
-    let before = 0;
+    let before = 0, quiet = false;
     const onStage = (s) => { if (world !== w) return; before = 0; for (const [k, val] of FINISH_STAGES) { if (k === s) break; before += val; } w.finishing = { stage: s, share: before }; updateChip(); };
     const onProgress = (p) => { if (world !== w || !w.finishing) return; w.finishing.share = before + p * (shares.get('picture') ?? 0.1); updateChip(); };
     try {
-        const res = await finisher.finish({ ...w.finishJob, mesh: w.meshArrays, cells: w.n, width: finishWidth(w.n), climateOptions: climateOptions() }, { onStage, onProgress, keep: false });
+        // (the terrain lands first, the other layers after it: finish-landing.js)
+        const onTerrain = (d) => { if (world !== w) return; w.fin = terrainFin(w.n, d); dirty = true; updateChip(); console.info(`[import] terrain finished in ${((performance.now() - started) / 1000).toFixed(1)} s`); };
+        const res = await finisher.finish({ ...w.finishJob, mesh: w.meshArrays, cells: w.n, width: finishWidth(w.n), climateOptions: climateOptions(), valleyQ: view.riverQ }, { onStage, onProgress, onTerrain, keep: false });
         if (world !== w) return;
-        w.fin = { cells: w.n, raster: res.raster, rivers: res.rivers, climate: res.climate, stats: res.stats };
+        quiet = !!pv.shows(w.fin);                                   // (the terrain shown already: the rest changes nothing on it)
+        w.fin = finishedFin(w.n, res, w.fin);
         console.info(`[import] finished in ${((performance.now() - started) / 1000).toFixed(1)} s`);
     } catch (err) {
         if (err.name === 'AbortError' || world !== w) return;
         w.problem = /allocation failed|out of memory/i.test(String(err.message)) ? 'Not enough memory to finish this heightmap — try a lower Detail' : `Could not finish this heightmap: ${String(err.message).split('\n')[0]}`;
         console.error(err);
     } finally {
-        if (world === w) { w.finishing = null; dirty = true; updateChip(); }
+        if (world === w) { w.finishing = null; if (!quiet) dirty = true; updateChip(); }
     }
 }
 function updateChip() {
@@ -105,7 +109,7 @@ function updateChip() {
     else if (w?.problem && needs) { text = w.problem; act = 'Try again'; }
     chip.hidden = !text;
     if (text) { $('climateChipText').textContent = text; $('climateChipBtn').hidden = !act; $('climateChipBtn').textContent = act ?? ''; }
-    for (const id of ['satellite', 'farming']) document.querySelector(`#mapTabs [data-layer="${id}"]`)?.classList.toggle('locked', !w?.fin);
+    for (const id of ['satellite', 'farming']) document.querySelector(`#mapTabs [data-layer="${id}"]`)?.classList.toggle('locked', !w?.fin || w.fin.partial);
 }
 $('climateChipBtn').addEventListener('click', () => { if (world?.problem) finish(world); });
 
@@ -191,7 +195,7 @@ reapplyBtn.addEventListener('click', () => {
 
 // ── the export: Evolution's panel and maps, from the finished heightmap ──
 const exportPanel = initEvolutionExport({
-    moment: () => (world?.fin ? { frame: { time: 0 }, fin: world.fin, seed: 'import', cloudSeed: world.seed } : null),
+    moment: () => (world?.fin && !world.fin.partial ? { frame: { time: 0 }, fin: world.fin, seed: 'import', cloudSeed: world.seed } : null),
     look: () => ({ lut: heightLutOf(view.palette), exaggeration: pv.SHADING.exaggeration, water: view.water, riverQ: view.riverQ, byRegime: view.byRegime, deposit: view.deposit }),
     centerLon: () => view.centerLon, projection: () => (view.mode === 'map' ? { id: view.projection, opts: view.projOpts } : null), isTouch: IS_TOUCH,
     fine: (fin, _seed, W, onProgress) => pv.detail.window(fin, world.seed, { W, x0: 0, y0: 0, w: W, h: W >> 1 }, null, onProgress),
@@ -199,7 +203,7 @@ const exportPanel = initEvolutionExport({
     names: (ctx, opts) => { const c = Math.round(opts.centerLon || 0); return { start: ['orogen', 'import'], end: [c ? `c${Math.abs(c)}${c > 0 ? 'E' : 'W'}` : null] }; },
     about: () => ({ page: 'Import', planet: 'an imported heightmap', link: null }) });
 $('exportBtn').addEventListener('click', () => {
-    if (world?.fin) { exportPanel.open(); return; }
+    if (world?.fin && !world.fin.partial) { exportPanel.open(); return; }
     pv.hover([world?.finishing ? `The maps are ready once the heightmap is finished — ${Math.round(100 * world.finishing.share)} %` : 'The maps are ready once the heightmap is finished']);
     setTimeout(() => pv.hover(null), 2500);
 });

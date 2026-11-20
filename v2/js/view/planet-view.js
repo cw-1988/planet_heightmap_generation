@@ -321,7 +321,8 @@ export class PlanetView {
     shows(fin) {
         const v = this.view;
         if (!fin || !v.finished || !(v.layer === 'terrain' || v.layer === 'heightmap' || CLIMATE_LAYERS.has(v.layer) || GEOLOGY_LAYERS.has(v.layer) || FARMING_LAYERS.has(v.layer))) return null;
-        return (!CLIMATE_LAYERS.has(v.layer) || fin.climate) && (!FINISHED_ONLY_LAYERS.has(v.layer) || fin.climate?.raster?.sat) && (!GEOLOGY_LAYERS.has(v.layer) || fin.raster.geology) ? fin : null;
+        return (!CLIMATE_LAYERS.has(v.layer) || fin.climate) && (!FINISHED_ONLY_LAYERS.has(v.layer) || fin.climate?.raster?.sat) && (!GEOLOGY_LAYERS.has(v.layer) || fin.raster.geology)
+            && (!FARMING_LAYERS.has(v.layer) || fin.raster.farming) ? fin : null;
     }
 
     /** The legend's key for a finished moment's view (a legend made for another is made again). */

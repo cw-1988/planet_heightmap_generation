@@ -125,6 +125,8 @@ export function mountRegionPick(pv, hooks) {
     }
 
     function build(w) {
+        // (the terrain alone landed first — finish-landing.js: the region waits for its climate)
+        if (w?.fin?.partial) { note = 'Wait for the climate to finish'; refresh(); return; }
         const F = w?.fin && valleys(w) && frameOf(w);
         if (!F || open) return;
         const crop = cropPlanet(w.fin, F), ids = new Set(C.ids), V = C.V, borderKm = +border.value;
