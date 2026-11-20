@@ -204,6 +204,15 @@ export function cropLines(lines, { W, x0, y0, w, h }, mPx) {
 export function carveValleys(D, lines, { hb, seaB, W, X0, Y0, ew, eh, pxKm, cosLa, fade }) {
     if (!lines || !lines.length) return;
     const N = ew * eh, cut = new Float32Array(N), flat = new Float32Array(N), levS = new Float32Array(N), levN = new Float32Array(N), levW = new Float32Array(N), k = W / TEX_W, swing = meanderSwing(fade), mo = [0, 0], turn = [0, 0], cv = [0, 0];
+    // (the finer detail drained by the rivers — owner: on rough mountains the lines ran over the bumps, in no valley. The
+    // valleys above are the picture's (its ground above the river's own); the detail added at this zoom (fine-ladder.js,
+    // the rocks) is no part of them, and ran straight across every river. So the detail beside a line rises no faster than
+    // the valleys' walls (VALLEY.side) from its floor: the river in a V of its own through any texture, as wide as the texture is
+    // high, the same at every zoom (the detail is faded in by the pixels, and its valleys with it). How far that reaches: the
+    // window's highest detail, climbed at that slope)
+    let dMax = 0;
+    for (let p = 0; p < N; p++) if (!seaB[p] && D[p] > dMax) dMax = D[p];
+    const cone = new Float32Array(N).fill(Infinity), coneOut = dMax / VALLEY.side;
     for (let s = 0; s < lines.length; s += LINE) {
         // (faded in by the flow where each pixel's nearest point is, below: by the segment's larger end, two segments meeting
         // faded unlike, and the deepest cut stepped across the valley at every point of the line — a fringe of spurs)
@@ -211,8 +220,8 @@ export function carveValleys(D, lines, { hb, seaB, W, X0, Y0, ew, eh, pxKm, cosL
         // land around them have, which the picture's pixels blur away; none where the picture lies lower)
         const qa = lines[s + 4], qb = lines[s + 5], ha = lines[s + 13], hb1 = lines[s + 14], Sa = lines[s + 18], Sb = lines[s + 19];
         const da = Math.min(VALLEY.depthMax, Math.max(0, ha - lines[s + 20])), db = Math.min(VALLEY.depthMax, Math.max(0, hb1 - lines[s + 21]));
-        const big = reachOf(Math.max(qa, qb), Math.max(da, db));
-        if (!(fade(2 * big.out) > 0)) continue;
+        const big = reachOf(Math.max(qa, qb), Math.max(da, db)), bigOut = Math.max(LEVEL_OUT * big.out, big.f + coneOut);
+        if (!(fade(2 * big.out) > 0) && !(coneOut > 0)) continue;
         const ax = lines[s] * k - X0, ay = lines[s + 1] * k - Y0, bx = lines[s + 2] * k - X0, by = lines[s + 3] * k - Y0;
         const sa = lines[s + 6], sb = lines[s + 7], n0x = lines[s + 8], n0y = lines[s + 9], n1x = lines[s + 10], n1y = lines[s + 11], seed = lines[s + 12];
         const sHead = lines[s + 15], sTail = lines[s + 16], sEnd = lines[s + 17];
@@ -221,7 +230,7 @@ export function carveValleys(D, lines, { hb, seaB, W, X0, Y0, ew, eh, pxKm, cosL
         const jMid = Math.min(eh - 1, Math.max(0, Math.round((ay + by) / 2))), cl = Math.max(0.05, cosLa[jMid]);
         const ex = (bx - ax) * cl, ey = by - ay, L2 = ex * ex + ey * ey, lenKm = Math.sqrt(L2) * pxKm;
         endTurns(lines, s, cl, turn);
-        const bulge = curveMaxKm(turn[0], turn[1], lenKm), reach = LEVEL_OUT * big.out + swing + bulge;
+        const bulge = curveMaxKm(turn[0], turn[1], lenKm), reach = bigOut + swing + bulge;
         const rx = reach / (pxKm * cl) + 1, ry = reach / pxKm + 1;
         const i0 = Math.max(0, Math.floor(Math.min(ax, bx) - rx)), i1 = Math.min(ew - 1, Math.ceil(Math.max(ax, bx) + rx));
         const j0 = Math.max(0, Math.floor(Math.min(ay, by) - ry)), j1 = Math.min(eh - 1, Math.ceil(Math.max(ay, by) + ry));
@@ -238,8 +247,8 @@ export function carveValleys(D, lines, { hb, seaB, W, X0, Y0, ew, eh, pxKm, cosL
             // pixel lies along the line run on past the segment's ends: the next segments' rounded ends reached back past
             // the head, a dip of 5 m 1 km upstream of the line)
             const q = qa + t * (qb - qa), v = reachOf(q, da + t * (db - da)), wide = LEVEL_OUT * v.out, sOn = sa + tr * (sb - sa);
-            const fd = fade(2 * v.out) * smooth(0, v.out, sOn - sHead) * smooth(0, v.out, sTail - sOn);
-            if (!(fd > 0) || !(over < wide) || !(Math.abs(side) - swing - bulge < wide)) continue;
+            const ends = smooth(0, v.out, sOn - sHead) * smooth(0, v.out, sTail - sOn), fd = fade(2 * v.out) * ends, any = Math.max(wide, v.f + coneOut);
+            if (!(ends > 0) || !(over < any) || !(Math.abs(side) - swing - bulge < any)) continue;
             // (the distance from the bent line — the river as drawn, river-meander.js: its offset to the side there, eased by
             // how steeply it swings — a pixel read once per segment, not once per step of the bent line: a bend's every step
             // swept a box as wide as the valley, ~1,000× the pixels up close)
@@ -250,7 +259,10 @@ export function carveValleys(D, lines, { hb, seaB, W, X0, Y0, ew, eh, pxKm, cosL
             // along a river turned them thousands of waves: zigzag banks, and swirls on every slope a creek crossed; and the
             // floor's wander to either side flipped at each segment's end — removed 2026-11-18)
             const dist = Math.hypot(over, Math.abs(side - mo[0]) / Math.hypot(1, mo[1]));
-            if (!(dist < wide)) continue;
+            // (the detail's ceiling here: the walls' slope up from the floor's edge, let go where the line begins and ends)
+            const cap = VALLEY.side * Math.max(0, dist - v.f) / Math.max(1e-3, ends);
+            if (cap < cone[p]) cone[p] = cap;
+            if (!(fd > 0) || !(dist < wide)) continue;
             // (the valley down to the river's own ground, which lies above the sea; and the channel in its floor as deep as its
             // flow's hydraulic geometry, across its width)
             const chan = channelDepthKm(q) * (1 - smooth(0.6 * v.f, v.f, dist));
@@ -275,9 +287,9 @@ export function carveValleys(D, lines, { hb, seaB, W, X0, Y0, ew, eh, pxKm, cosL
         }
     }
     for (let p = 0; p < N; p++) {
-        if (!(cut[p] > 0 || flat[p] > 0 || levW[p] > 0)) continue;
+        if (!(cut[p] > 0 || flat[p] > 0 || levW[p] > 0 || cone[p] < D[p])) continue;
         const before = D[p];
-        let v = before * (1 - flat[p]) - cut[p] + (levN[p] > 0 ? levW[p] * levS[p] / levN[p] : 0);
+        let v = Math.min(before * (1 - flat[p]), cone[p]) - cut[p] + (levN[p] > 0 ? levW[p] * levS[p] / levN[p] : 0);
         // (no new sea inland and no channel of sea up the river: the floor stays a few metres up)
         if (hb[p] + v < SEA_FLOOR) v = Math.min(before, Math.max(v, SEA_FLOOR - hb[p]));
         D[p] = v;
