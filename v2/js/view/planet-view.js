@@ -25,6 +25,7 @@ import { stepByWheel } from './wheel-step.js';
 import { FARMING_LAYERS, finishedFarmingColor, farmingLegendHTML, farmingLines, farmChipClicked, farmOptionsKey } from '../evolution/farming-view.js';
 import { initViewStrip, initProjectionPicker } from '../../../js/view-strip.js';
 import { LayerBar } from './layer-bar.js';
+import { restoreViewOptions, showRestoredMode } from './view-memory.js';
 import { createGraticuleFrame } from '../../../js/graticule-frame.js';
 import { inSpace } from '../../../js/stage.js';
 import { openLeft, openShift, onOpenArea, planetWidthFrom, planetChanged } from '../../../js/open-area.js';
@@ -126,6 +127,7 @@ export class PlanetView {
             e.preventDefault(); e.stopPropagation();
             stepByWheel(this.bar.reach, e);
         }, { capture: true, passive: false });
+        restoreViewOptions(view);                        // (the strip's options as last left: view/view-memory.js)
         $('chkWater').addEventListener('change', e => { view.water = e.target.checked; changed('water'); });
         $('riverDensity').addEventListener('change', e => { view.riverQ = Number(e.target.value); changed('view'); });
         $('chkRegime').addEventListener('change', e => { view.byRegime = e.target.checked; changed('regime'); });
@@ -154,6 +156,7 @@ export class PlanetView {
         $('gridSpacing').addEventListener('change', e => { view.gridStep = Number(e.target.value); changed('view'); });
         // the view strip under the layer bar (Globe | Map and what applies to it; on a phone, in the bottom sheet)
         initViewStrip();
+        showRestoredMode();
     }
 
     /** Show a layer (as its tab does). */
