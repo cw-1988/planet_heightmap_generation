@@ -68,7 +68,7 @@ export function riverParts(R, i0, i1, q0, extra = () => 0) {
             const tx = (b[0] - a[0]) * cl, ty = b[1] - a[1], l = Math.hypot(tx, ty) || 1;
             pts[k][5] = -ty / l; pts[k][6] = tx / l;
         }
-        pts.seed = i0; pts.head = head; pts.tail = tail;
+        pts.seed = i0; pts.head = head; pts.tail = tail; pts.sEnd = s;    // (s: the whole reach's length, its meanders pinned at both ends)
         out.push(pts);
     }
     return out;
@@ -76,14 +76,15 @@ export function riverParts(R, i0, i1, q0, extra = () => 0) {
 
 /** A segment's entries in the lines' array: x0 y0 x1 y1 (2048-wide texture), q0 q1, s0 s1 (km along), n0x n0y n1x n1y,
  *  seed, h0 h1 (the picture's height under each end, km: riverLines'; 0 for the page's), sHead sTail (km along where the
- *  drawn line truly begins and ends — its valley tapered in from there — or ∓1e9 where it goes on: riverLines'). */
-export const LINE = 17;
+ *  drawn line truly begins and ends — its valley tapered in from there — or ∓1e9 where it goes on: riverLines'), sEnd (the
+ *  reach's length, km: its meanders ease to nothing at its confluences and mouth, river-meander.js). */
+export const LINE = 18;
 /** One part's segments onto `out`, LINE entries each (riverParts' points). */
 export function pushSegments(out, pts) {
     const sHead = pts.sHead ?? -1e9, sTail = pts.sTail ?? 1e9;
     for (let i = 0; i < pts.length - 1; i++) {
         const a = pts[i], b = pts[i + 1];
-        out.push(a[0], a[1], b[0], b[1], a[2], b[2], a[4], b[4], a[5], a[6], b[5], b[6], pts.seed, a[7] ?? 0, b[7] ?? 0, sHead, sTail);
+        out.push(a[0], a[1], b[0], b[1], a[2], b[2], a[4], b[4], a[5], a[6], b[5], b[6], pts.seed, a[7] ?? 0, b[7] ?? 0, sHead, sTail, pts.sEnd);
     }
 }
 
@@ -163,7 +164,7 @@ export function carveValleys(D, lines, { hb, gE, gN, seaB, W, X0, Y0, ew, eh, px
         if (!(fade(2 * big.out) > 0)) continue;
         const ax = lines[s] * k - X0, ay = lines[s + 1] * k - Y0, bx = lines[s + 2] * k - X0, by = lines[s + 3] * k - Y0;
         const sa = lines[s + 6], sb = lines[s + 7], n0x = lines[s + 8], n0y = lines[s + 9], n1x = lines[s + 10], n1y = lines[s + 11], seed = lines[s + 12], ha = lines[s + 13], hb1 = lines[s + 14];
-        const sHead = lines[s + 15], sTail = lines[s + 16];
+        const sHead = lines[s + 15], sTail = lines[s + 16], sEnd = lines[s + 17];
         // (the segment's box, out to its valley's reach and its meanders' swing: east–west in pixels of this latitude)
         const jMid = Math.min(eh - 1, Math.max(0, Math.round((ay + by) / 2))), cl = Math.max(0.05, cosLa[jMid]), reach = LEVEL_OUT * big.out + swing;
         const rx = reach / (pxKm * cl) + 1, ry = reach / pxKm + 1;
@@ -188,7 +189,7 @@ export function carveValleys(D, lines, { hb, gE, gN, seaB, W, X0, Y0, ew, eh, px
             // (the distance from the bent line — the river as drawn, river-meander.js: its offset to the side there, eased by
             // how steeply it swings — a pixel read once per segment, not once per step of the bent line: a bend's every step
             // swept a box as wide as the valley, ~1,000× the pixels up close)
-            meanderAt(sa + t * (sb - sa), q, seed, fade, mo);
+            meanderAt(sa + t * (sb - sa), sEnd, q, seed, fade, mo);
             // (the valley a clean profile about the drawn line, its width the flow's: no noise on its banks or its floor. Their
             // noises ran at a frequency set by the flow, times a place ~6,371 km from the centre — the flow's least change
             // along a river turned them thousands of waves: zigzag banks, and swirls on every slope a creek crossed; and the

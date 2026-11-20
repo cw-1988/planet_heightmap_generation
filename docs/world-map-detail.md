@@ -68,6 +68,10 @@ showed out at sea as a 2.8 m step along a straight line. This change also applie
   swings by `MEANDER.share` of its length and fades in with the same `fadeFor` as the ground.
 - Its phase is the distance along the river, so it runs on continuously whatever the flow does. A shared point gets the
   same normal from both segments, so the bent line has no gaps at its joints.
+- Each reach's waves ease to nothing at its two ends (`pinAt`, over 16 km or half the reach). Reaches meet at
+  confluences and mouths, and each has its own waves. Before this, each end swung its own way, so a tributary stopped
+  kilometres short of its trunk, and so did its valley (2026-11-20). `v2/tools/check-river-joins.mjs` checks that the
+  bent ends meet and that the waves are still there mid-reach.
 - The page's drawn line (`v2/js/evolution/river-draw.js`, `bendSegment`) and the valley cut under it
   (`carveValleys`, `meanderAt`) bend by the same waves, so the river stays on its valley floor.
 - The valleys have gentle sides: `VALLEY.side` is 0.04 (about 2.3°). At 0.2, every river sat in a trench with a hard rim

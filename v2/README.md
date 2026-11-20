@@ -328,6 +328,7 @@ node v2/tools/check-save.mjs --fixture        # (a) on a small planet kept as th
 node v2/tools/check-seeds.mjs                 # the seeds: each of 0 … 2,147,483,645 its own world; typed seeds, words' hashes and old planet codes as they were
 node v2/tools/check-present.mjs [--verbose]   # Generate's present-day world (plans/GENERATE_REDESIGN_PLAN.md): its plates that move, their
                                               # boundaries, old codes' layout unchanged — on 10 fixed planets
+node v2/tools/check-river-joins.mjs           # the rivers' meanders: tributaries' bent lines and valleys meet their trunk (docs/world-map-detail.md)
 ```
 
 After a change to what a frame or a detailed moment holds, or to `js/save/`, run `check-save.mjs`: planets saved by an
