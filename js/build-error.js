@@ -2,7 +2,8 @@
 // overlay becomes a message with a Close button instead of spinning over the page until a reload. Shared by Generate
 // (js/main.js) and Import (js/import-main.js); js/generate.js announces failures as the 'orogen:build-failed' event.
 // While a build runs the overlay sits behind the page's controls, over the planet only; the controls stay in view but
-// are held (inert), since a job started mid-build (a code loaded, a climate slider or tab, the map) would cross it.
+// are held (inert), since a job started mid-build (a code loaded, a climate slider or tab) would cross it; the view
+// strip stays live (LIVE below).
 
 const HELD = ['ui', 'layerBar', 'mobileViewSwitch', 'editToggle', 'refreshFab', 'rebuildFab'];
 
@@ -37,10 +38,27 @@ export function showBuildError(text, detail = '') {
     box.querySelector('.build-error-close').focus();
 }
 
+// Live on every page mid-build, wherever they sit (the layer bar, or the panel's bottom sheet on a phone): the view strip
+// and its fold arrow. They only change how the picture is drawn (globe or map, grid, hillshade, clouds, rivers), never
+// start a job (owner, 2026-11-20: "i also want those option to be adjustable WHILE generating"; docs/view-memory.md).
+const LIVE = ['viewStrip', 'viewFold'];
+let held = [];
+
+/** `el` held, or — where a live control sits inside it — each of its children down to that control's path. */
+function hold(el, live) {
+    if (live.includes(el)) return;
+    if (!live.some(l => el.contains(l))) { el.setAttribute('inert', ''); held.push(el); return; }
+    for (const child of el.children) hold(child, live);
+}
+
 /** Hold the controls while a build runs (true), release them after (false); `keep`: those a page leaves live (Generate's
- *  panel: a setting changed mid-build restarts the build, js/main.js). */
+ *  panel: a setting changed mid-build restarts the build, js/main.js). The view strip always stays live (LIVE). */
 export function holdControls(on, keep = []) {
-    for (const id of HELD) if (!keep.includes(id)) document.getElementById(id)?.toggleAttribute('inert', on);
+    for (const el of held) el.removeAttribute('inert');
+    held = [];
+    if (!on) return;
+    const live = LIVE.map(id => document.getElementById(id)).filter(Boolean);
+    for (const id of HELD) if (!keep.includes(id)) { const el = document.getElementById(id); if (el) hold(el, live); }
 }
 
 /** Back to the ordinary progress overlay (a new build starting). */

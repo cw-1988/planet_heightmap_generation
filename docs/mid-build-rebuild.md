@@ -8,6 +8,7 @@ Code: `js/main.js` (`generate`, `asked`, the panel's input listener). Back to [g
 
 - **The panel live:** the build overlay holds the layer bar and the edit buttons (inert), but not `#ui`
   (`buildOverlay({ keep: ['ui'] })`, `holdControls(on, keep)` in `js/build-error.js`). Import keeps the whole page held.
+- **The view strip live, on every page:** its options are only drawing, never a job: [view-memory.md](view-memory.md).
 - **The button:** while building it reads Building… and does nothing. Any change in the panel (not the planet code
   field) makes it Rebuild (class `restart`).
 - **Rebuild:** the planet worker is terminated and a fresh one started. That also stops the worker's own mesh workers.

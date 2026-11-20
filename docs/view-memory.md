@@ -13,6 +13,15 @@ both, so the first picture already shows them. A remembered Map is shown once th
 Kept under their own keys, from before: the palette (per page, `paletteKey`), the projection (`orogen.projection`),
 Stars (`js/stage.js`), the strip's fold (`orogen.view-strip-open`).
 
+## Live while a world builds
+
+Asked for by the owner, 2026-11-20. A build holds the page's controls (inert, `holdControls` in `js/build-error.js`):
+the layer bar's tabs, the edit buttons, and on Import the panel. The view strip and its fold arrow are left out of the
+hold wherever they sit (`LIVE`; on a phone the strip is in the panel's bottom sheet): the hold goes down to the strip's
+siblings instead of its container. Its options only change how the picture is drawn (Globe or Map, grid, hillshade,
+clouds, rivers), never start a job, so nothing mid-build can cross them. Checked in Node with a fake page: desktop and
+phone layouts, Generate's live panel and Import's held one; not yet in a browser.
+
 ## A new control
 
 It goes in `OPTIONS` (its id, the view's field it drives, its kind), or it is forgotten on reload. A stored value that no
