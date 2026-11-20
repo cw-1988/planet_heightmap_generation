@@ -5,7 +5,7 @@
 //     widths, and a river steeper than Leopold & Wolman's threshold without bends of its own.
 // Two tributaries meet and run on to the sea. Usage: node v2/tools/check-river-joins.mjs
 
-import { riverParts, pushSegments, LINE } from '../js/finish/river-valleys.js';
+import { riverParts, pushSegments, LINE, carveValleys } from '../js/finish/river-valleys.js';
 import { bendSegment, meanderAt } from '../js/finish/river-meander.js';
 import { channelKm, channelDepthKm, braidSlope, meanderShare } from '../js/finish/river-hydraulics.js';
 
@@ -55,5 +55,19 @@ for (let s = 20; s < 80; s += h) {
 }
 if (!(flat > 0) || !(steep < 0.5 * flat) || !(swing > 0.1)) fail(`a bend's turning: ${flat.toFixed(3)} gentle, ${steep.toFixed(3)} steep (its swing ${swing.toFixed(2)} km)`);
 if (!(meanderShare(800, 0) === 1 && meanderShare(800, 1) === 0)) fail('meanderShare not 1 when flat, 0 when steep');
-console.log(fails ? `FAIL (${fails})` : `PASS: confluences joined (gap ${worst.toExponential(1)} px); channel, bends and braiding by the laws`);
+
+// (a valley cut by carveValleys: the picture 1 km up, the river's own ground 0.5 km — the floor 0.5 km down plus the
+// channel's depth, the wall at most the threshold hillslope, the land untouched past its reach. A fade holding nothing
+// of 16 km keeps the line straight: the meanders stop at the first wave the pixels don't hold)
+const zoom = 256, pk = 2 * Math.PI * 6371 / (2048 * zoom), ew = 200, eh = 200, row0 = 100, q = 800, N = ew * eh;
+const line = Float64Array.from([10, 512 + 0.5 / zoom, 10.5, 512 + 0.5 / zoom, q, q, 0, 0.5 * zoom * pk, 0, 1, 0, 1, 3, 1, 1, -1e9, 1e9, 1e3, 1e-5, 1e-5, 0.5, 0.5]);
+const D = new Float32Array(N), cut = { hb: new Float32Array(N).fill(1), seaB: new Uint8Array(N), W: 2048 * zoom, X0: 10 * zoom - 20, Y0: 512 * zoom - row0, ew, eh, pxKm: pk, cosLa: new Float32Array(eh).fill(1), fade: lam => (lam < 16 ? 1 : 0) };
+carveValleys(D, line, cut);
+const col = 84, at2 = j => D[j * ew + col], floor = -(0.5 + channelDepthKm(q)), rim = Math.ceil((channelKm(q) / 2 + 0.5 / 0.35) / pk) + 2;
+let steepest = 0;
+for (let j = row0 + Math.ceil(channelKm(q) / pk) + 1; j < row0 + rim; j++) steepest = Math.max(steepest, Math.abs(at2(j + 1) - at2(j)) / pk);
+if (Math.abs(at2(row0) - floor) > 0.01) fail(`valley floor ${at2(row0).toFixed(3)} km, by the river's ground ${floor.toFixed(3)}`);
+if (steepest > 0.7 * 1.1) fail(`valley wall ${steepest.toFixed(2)} steep, above the threshold hillslope 0.7`);
+if (Math.abs(at2(row0 + rim)) > 1e-4 || Math.abs(at2(row0 - rim)) > 1e-4) fail(`land past the valley cut: ${at2(row0 + rim)}, ${at2(row0 - rim)} km`);
+console.log(fails ? `FAIL (${fails})` : `PASS: confluences joined (gap ${worst.toExponential(1)} px); channel, bends, braiding and valley by the laws`);
 process.exit(fails ? 1 : 0);
