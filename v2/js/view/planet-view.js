@@ -343,7 +343,12 @@ export class PlanetView {
         t.ctx.putImageData(t.image, 0, 0);
         // (the rivers' lines on the Terrain view — and on Farmland, the water its canals and floods come from; from space they
         // are ground, not lines — the Satellite view draws none: drawn at a 2048-wide texture's scale, as thick on the sharper one)
-        if (view.water && (view.layer === 'terrain' || view.layer === 'farmLand') && fin.rivers) { const k = t.width / this.MAP_WIDTH * (this.MAP_WIDTH / 2048); t.ctx.save(); t.ctx.scale(k, k); drawRivers(t.ctx, riverPaths(fin, view.riverQ), view.byRegime && view.layer === 'terrain'); t.ctx.restore(); }
+        const rivers = view.water && (view.layer === 'terrain' || view.layer === 'farmLand') && fin.rivers, q = view.riverQ;
+        const drawRiversOn = () => { const k = t.width / this.MAP_WIDTH * (this.MAP_WIDTH / 2048); t.ctx.save(); t.ctx.scale(k, k); drawRivers(t.ctx, riverPaths(fin, q), view.byRegime && view.layer === 'terrain'); t.ctx.restore(); };
+        // (a moment's rivers not yet traced — the first paint of a world landing, ~110 ms — are drawn a frame later, so the
+        // picture shows first and the page doesn't stall for both)
+        const later = rivers && !fin.paths?.has(q), token = (this.riverToken = {});
+        if (rivers && !later) drawRiversOn();
         // (the picture kept without the lines, so lines alone changing — a hover, a choice — draw over it again: relayLines)
         const under = (this.under ??= document.createElement('canvas'));
         if (under.width !== t.canvas.width || under.height !== t.canvas.height) { under.width = t.canvas.width; under.height = t.canvas.height; }
@@ -351,6 +356,11 @@ export class PlanetView {
         this.underOf = { t, C };
         this.drawLines(t, C);
         this.show(t);
+        if (later) requestAnimationFrame(() => setTimeout(() => {
+            if (this.riverToken !== token || this.underOf?.t !== t) return;   // (painted again since: that paint drew its own)
+            t.ctx.drawImage(under, 0, 0); drawRiversOn(); under.getContext('2d').drawImage(t.canvas, 0, 0);
+            this.drawLines(t, C); this.show(t);
+        }, 0));
         // (and made again for another finished moment — the same moment finished again, with another climate, has the same key)
         const legend = $('climateLegend'), legendKey = C || geo || farm ? this.finishedLegendKey(fin, farm, id) : '';
         if (legend.dataset.key !== legendKey || this.legendFin !== fin) {

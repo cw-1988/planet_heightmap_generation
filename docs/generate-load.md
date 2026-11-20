@@ -29,8 +29,9 @@ one.
 
 ## The page's long tasks left
 
-- **The terrain landing**: ~260 ms, the picture painted (~150 ms) and the rivers drawn on it (~110 ms). It replaces the
-  old ~440 ms freeze, earlier.
+- **The terrain landing**: ~90 ms for the picture, then ~60 ms a frame later for the rivers (`planet-view.js`
+  paintFinished: rivers not yet traced for a moment are drawn on the next frame). It replaces one ~260 ms task, and before
+  that the old ~440 ms freeze.
 - **The finished world**: the zoomed tiles' first crops (~40 ms); the valley lines (~120 ms on the page before) now come
   from the worker.
 
@@ -43,5 +44,12 @@ lock its climate layers again between passes.
 
 `v2/tools/input-replay/record.js` records what a person does on a page (pointer, wheel, clicks, keys) and how the page
 keeps up (late frames, long tasks, texture uploads); `replay.js` plays a recording back at the same times and places.
-Usage is in each file's header. In the browser the finish's climate ran ~8.5 s against ~6 s in Node; the planet worker
-does nothing after it sends the first picture, so that gap isn't the page's own work competing.
+Usage is in each file's header.
+
+In the app's browser pane the finish's climate ran ~8.5 s against ~6 s in Node. The gap is not the page's work competing
+with it. The climate alone, in a worker on an idle page, took 5.5–6.6 s against 3.0–3.5 s in Node. A plain arithmetic
+loop showed the same gap: 3.4 s against 2.15 s. So the pane runs JavaScript ~1.6× slower than Node on this machine, for
+any code. Only a cheaper or parallel climate would shorten it there.
+
+A long-task log in that pane needs its tab in front: a tab behind another gets no animation frames, so it paints nothing
+and logs no long tasks.
