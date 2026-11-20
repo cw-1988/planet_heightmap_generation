@@ -215,12 +215,9 @@ windyness is good"; 0 keeps every course, 1 takes the way of least work); no clo
 filled in to sea level); only the real oceans are sea. **Inland seas** (2026-10-15): a sea behind a low, short barrier
 (sill ≲ 30 m, ≲ 160 km of dry land — a strait narrower than the cells) is opened into the ocean; a remnant of the sea cut
 off in a basin (≳ 5 000–20 000 km² and 50–200 m below sea level) has its floor filled with sediment toward ≤ ~1 km below its
-rim. It is its hole — the basin's cells below sea level — and its water stays in it (developer: lakes over trapped
-seas filled to the basin's sill were "just too enormous"): where its river keeps the hole full, a fresh inland sea to its
-brim, just above sea level, its outflow cut down through the basin's rim to it and the lowland round it draining as land
-does — each part of the hole a lake of its own, kept only where it is big for the basin's river (the pits scattered over
-such a lowland its rivers' deltas have filled: ground just above sea level); short of it, it shrinks inside the hole by its water balance — a terminal salt sea where it is big for its river or
-an old sea floor, else a salt pan filled to a flat — never a dry hole, never a lake drowning the lowland round it. A land
+rim. Its outlet is cut down by at most `seaBreachKm` (by its river's size), not to the sea; below that the water balance
+decides — a fresh lake spilling through the gorge, else a salt sea or salt pan — and a fresh lake's rivers fill its
+shallows with sediment (`lakeSiltKm`): [docs/basin-lakes.md](../docs/basin-lakes.md) (2026-11-20). A land
 basin (or a full trapped sea's lowland) left without water drains whole: every
 pocket in it (a sub-basin behind its own sill, which the gorge from the basin's floor does not reach) gets its own gorge
 out from its lowest point. Drawn on the Terrain view as a flow map (hairlines, stronger for bigger

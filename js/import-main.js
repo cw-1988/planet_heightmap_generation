@@ -22,6 +22,7 @@ import { state } from './state.js';
 import { sliderTooltip, detailWarning, progressiveSwitch, redrawFoldedSliders, sidePanel, buildOverlay } from './page-chrome.js';
 import { rungView } from './rung-view.js';
 import { buildProgress } from './build-progress.js';
+import { lakesLabel } from '../v2/js/finish/lake-amount.js';
 
 setDelaunator(Delaunator);
 
@@ -62,7 +63,7 @@ function startWorker() {
 startWorker();
 const v = (id) => +($(id)?.value ?? 0);
 const sculpt = () => ({ terrainWarp: v('sTw'), smoothing: v('sS'), glacialErosion: v('sGl'), hydraulicErosion: v('sHEr'), thermalErosion: v('sTEr'), ridgeSharpening: v('sRs') });
-const climateOptions = () => ({ greenhouseWm2: v('sTmp'), precipScale: Math.max(0, 1 + 0.5 * v('sPrc')) });
+const climateOptions = () => ({ greenhouseWm2: v('sTmp'), precipScale: Math.max(0, 1 + 0.5 * v('sPrc')), lakes: v('sLk') });   // (lakes: the Lakes slider, lake-amount.js)
 
 function failed(message) {
     console.error('[import] failed:', message);
@@ -178,7 +179,7 @@ importBtn.addEventListener('click', () => {
 
 // ── the sliders: Detail, the sculpting (Reapply), the climate (the finish again) ──
 const reapplyBtn = $('reapplyBtn'), SCULPT = ['sTw', 'sS', 'sGl', 'sHEr', 'sTEr', 'sRs'];
-for (const s of ['sN', ...SCULPT, 'sTmp', 'sPrc']) {
+for (const s of ['sN', ...SCULPT, 'sTmp', 'sPrc', 'sLk']) {
     const slider = $(s);
     if (!slider) continue;
     sliderTooltip(slider);
@@ -187,10 +188,11 @@ for (const s of ['sN', ...SCULPT, 'sTmp', 'sPrc']) {
         if (s === 'sN') { const d = detailFromSlider(val); out.textContent = d.toLocaleString(); detailWarning(d, IS_TOUCH); }
         else if (s === 'sTmp') out.textContent = `${val > 0 ? '+' : val === 0 ? '±' : '−'}${Math.abs(val)} W/m²`;
         else if (s === 'sPrc') { const pct = Math.round(val * 50); out.textContent = `${pct > 0 ? '+' : pct === 0 ? '±' : ''}${pct}%`; }
+        else if (s === 'sLk') out.textContent = lakesLabel(val);
         else out.textContent = e.target.value;
         if (SCULPT.includes(s) && world) { reapplyBtn.disabled = false; reapplyBtn.classList.add('ready'); }
     });
-    if (s === 'sTmp' || s === 'sPrc') slider.addEventListener('change', () => { if (world) finish(world); });
+    if (s === 'sTmp' || s === 'sPrc' || s === 'sLk') slider.addEventListener('change', () => { if (world) finish(world); });
 }
 redrawFoldedSliders();
 reapplyBtn.addEventListener('click', () => {

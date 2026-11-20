@@ -159,14 +159,14 @@ export const FINISH = {
     // cut through only where the way round is over 1 / this times the shortcut (0.5: a detour twice as long); 0 keeps every
     // course as it was, 1 takes the way of least work
     riverDirectness: 0.1,
-    riverWanderKm: 0.03,        // across a flat (a filled hollow, a pit filled to just above the sea) the rivers' ways bend
-                                // with the meander as if the ground under them were this much lower where it is low (0: the
-                                // straightest way: developer, 2026-10-27 — "slightly too straight now")
+    riverWanderKm: 0.03,        // across a flat (a filled hollow or pit) rivers bend with the meander as if the ground were this
+                                // much lower where it is low (0: the straightest way; developer: "slightly too straight now")
     gorgeLengthKm: 0.02,
     seaCutKm: 0,                // a basin below sea level opens into the ocean if its cut through dry land is at most this long
                                 // (0: never — developer: a small trapped sea is "NOT a valid end it should go out to the real sea")…
-    seaCutFloorKm: 0.003,       // …else its gorge stops this little above sea level (no arm of the sea winding inland); the
-                                // ground it leaves below sea level is filled in to there (no dry land below sea level)
+    seaCutFloorKm: 0.003,       // …else a gorge stops this above sea level, and dry ground below sea level is filled to it
+    seaBreachKm: 0.8, seaBreachQ: [100, 3000], // a trapped sea's outlet cut: at most this deep, all of it by Q[1] m³/s
+    lakeSiltKm: 0.01,           // sediment a fresh lake's rivers fill it with: this depth off its catchment (lake-silt.js)
     // inland seas (2026-10-15, developer: inland seas "COMPLETELY dried out … leaving holes in the ground"): a body below
     // sea level behind a low, short barrier is a sea the mesh cannot connect — a strait narrower than its cells, low land
     // the carve keeps at its 2 m floor — opened into the ocean along the way it would spill, by a smooth weight on the

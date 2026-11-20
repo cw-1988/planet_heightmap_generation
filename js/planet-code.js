@@ -19,6 +19,7 @@ const SLIDERS = [
     { min: -30,   step: 2,    count: 31  }, // 13: Temperature (a forcing in W/m²; before 2026-10 −15…15 °C — same positions)
     { min: -1,    step: 0.1,  count: 21  }, // 14: Precipitation
     { min: 0,     step: 0.01, count: 101 }, // 15: Land Coverage
+    { min: -1,    step: 0.1,  count: 21  }, // 16: Lakes (2026-11; only in LAKES_LEN codes)
 ];
 
 // Mixed-radix bases (right-to-left): lcIdx, prcIdx, tmpIdx, csvIdx, twIdx, scIdx, rsIdx, teIdx, heIdx, glIdx, smIdx, nsIdx, cnIdx, pIdx, jIdx, nIdx, seed
@@ -27,6 +28,7 @@ const RADICES = [101, 21, 31, 21, 21, 21, 21, 21, 21, 21, 21, 51, 10, 117, 21, 2
 // 0 … 2^24 − 1). The seed is the code's top digit, so the codes of those seeds are as they were, and a seed this large
 // still fits in BASE_LEN characters.
 export const SEED_MAX = 2147483646;
+const LAKES_LEN = 23; // a code with Lakes set (its lowest digit; Lakes ±0 keeps the 22-char code, so codes stay as they were)
 const BASE_LEN = 22; // base code length (no toggles)
 const PREV5_LEN = 21; // previous 21-char codes (before land coverage)
 const PREV4_LEN = 18; // previous 18-char codes (before continent variety/temp/precip)
@@ -136,6 +138,14 @@ const DECODE_FORMATS = {
         ],
         defaults: { landCoverage: 0.3 }
     },
+    [LAKES_LEN]: {
+        radices: [21, ...RADICES],
+        fields: [['lakes', 16], ['landCoverage', 15], ['precipitationOffset', 14], ['greenhouse', 13],
+            ['continentSizeVariety', 12], ['terrainWarp', 11], ['soilCreep', 10], ['ridgeSharpening', 9],
+            ['thermalErosion', 8], ['hydraulicErosion', 7], ['glacialErosion', 6],
+            ['smoothing', 5], ['roughness', 4], ['numContinents', 3], ['P', 2], ['jitter', 1], ['N', 0]],
+        defaults: {}
+    },
     [BASE_LEN]: {
         radices: RADICES,
         fields: [
@@ -162,6 +172,7 @@ function decodeFormat(packed, config, toggleStr) {
     result.seed = Number(packed);
     if (result.seed < 0 || result.seed >= SEED_MAX) return null;
     Object.assign(result, defaults);
+    result.lakes ??= 0;                                  // (before LAKES_LEN codes: the finish as tuned)
 
     const toggledIndices = [];
     if (toggleStr) {
@@ -195,9 +206,10 @@ function decodeFormat(packed, config, toggleStr) {
  * @param {number} precipitationOffset - Precipitation offset (-1–1, step 0.1)
  * @param {number} landCoverage - Land Coverage (0–1, step 0.05)
  * @param {number[]} [toggledIndices=[]] - Sorted array of toggled plate indices
+ * @param {number} [lakes=0] - Lakes (-1–1, step 0.1); set, the code is 23 chars
  * @returns {string} base36 code (22 chars without edits, 22 + '-' + 2*k with k edits)
  */
-export function encodePlanetCode(seed, N, jitter, P, numContinents, roughness, terrainWarp, smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening, soilCreep, continentSizeVariety, greenhouse, precipitationOffset, landCoverage, toggledIndices = []) {
+export function encodePlanetCode(seed, N, jitter, P, numContinents, roughness, terrainWarp, smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening, soilCreep, continentSizeVariety, greenhouse, precipitationOffset, landCoverage, toggledIndices = [], lakes = 0) {
     const nIdx  = toIndex(N, SLIDERS[0]);
     const jIdx  = toIndex(jitter, SLIDERS[1]);
     const pIdx  = toIndex(P, SLIDERS[2]);
@@ -234,7 +246,9 @@ export function encodePlanetCode(seed, N, jitter, P, numContinents, roughness, t
     packed = packed * BigInt(RADICES[1])  + BigInt(prcIdx);  // * 21
     packed = packed * BigInt(RADICES[0])  + BigInt(lcIdx);   // * 21
 
-    let code = packed.toString(36).padStart(BASE_LEN, '0');
+    const lkIdx = toIndex(lakes, SLIDERS[16]);
+    if (lkIdx !== 10) packed = packed * 21n + BigInt(lkIdx);  // * 21 (Lakes ±0: index 10)
+    let code = packed.toString(36).padStart(lkIdx !== 10 ? LAKES_LEN : BASE_LEN, '0');
 
     // Append toggled plate indices: "-" + 2-char base36 per index
     if (toggledIndices.length > 0) {
@@ -248,9 +262,9 @@ export function encodePlanetCode(seed, N, jitter, P, numContinents, roughness, t
 
 /**
  * Decode a base36 planet code back into planet parameters.
- * Supports 22-char (current), 21-char (prev5), 18-char (prev4), 17-char (prev3), 16-char (prev2), 14-char (previous-gen), and 13-char (legacy) codes.
+ * Supports 23-char (Lakes set), 22-char (current), 21-char (prev5), 18-char (prev4), 17-char (prev3), 16-char (prev2), 14-char (previous-gen), and 13-char (legacy) codes.
  * @param {string} code - base36 code (13, 14, 16, 17, 18, 21, or 22 chars, optionally followed by "-" + toggle indices)
- * @returns {{ seed: number, N: number, jitter: number, P: number, numContinents: number, roughness: number, terrainWarp: number, smoothing: number, glacialErosion: number, hydraulicErosion: number, thermalErosion: number, ridgeSharpening: number, soilCreep: number, continentSizeVariety: number, greenhouse: number, precipitationOffset: number, landCoverage: number, toggledIndices: number[] } | null}
+ * @returns {{ seed: number, N: number, jitter: number, P: number, numContinents: number, roughness: number, terrainWarp: number, smoothing: number, glacialErosion: number, hydraulicErosion: number, thermalErosion: number, ridgeSharpening: number, soilCreep: number, continentSizeVariety: number, greenhouse: number, precipitationOffset: number, landCoverage: number, lakes: number, toggledIndices: number[] } | null}
  */
 export function decodePlanetCode(code) {
     if (typeof code !== 'string') return null;

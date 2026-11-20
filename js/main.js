@@ -21,6 +21,7 @@ import { CLIMATE_LAYERS } from '../v2/js/evolution/climate-view.js';
 import { GEOLOGY_LAYERS } from '../v2/js/evolution/geology-view.js';
 import { FARMING_LAYERS } from '../v2/js/evolution/farming-view.js';
 import { encodePlanetCode, decodePlanetCode } from './planet-code.js';
+import { lakesLabel } from '../v2/js/finish/lake-amount.js';
 import { detailFromSlider, sliderFromDetail } from './detail-scale.js';
 import { showBuildError, describeFailure, holdControls } from './build-error.js';
 import { presentCrustLine } from './present-crust.js';
@@ -95,7 +96,7 @@ function sliders() {
         greenhouse: v('sTmp'), precipitationOffset: v('sPrc'), landCoverage: v('sLc') };
 }
 /** The climate's options for the finish (as Evolution's, and as Generate's climate read its sliders). */
-const climateOptions = () => ({ greenhouseWm2: +$('sTmp').value, precipScale: Math.max(0, 1 + 0.5 * +$('sPrc').value) });
+const climateOptions = () => ({ greenhouseWm2: +$('sTmp').value, precipScale: Math.max(0, 1 + 0.5 * +$('sPrc').value), lakes: +$('sLk').value });   // (lakes: lake-amount.js)
 
 let building = null;         // what the worker is doing: 'generate', 'reapply', 'edit'
 function generate(seed, toggledIndices = [], keepEdits = false) {
@@ -159,7 +160,7 @@ async function finish(w) {
         if (world !== w) return;
         quiet = !!pv.shows(w.fin);                                   // (the terrain shown already: the rest changes nothing on it)
         w.fin = finishedFin(w.n, res, w.fin);
-        w.climateKey = `${$('sTmp').value}|${$('sPrc').value}`;
+        w.climateKey = `${$('sTmp').value}|${$('sPrc').value}|${$('sLk').value}`;
         console.info(`[generate] finished in ${((performance.now() - started) / 1000).toFixed(1)} s; its steps (s): ${Object.entries(res.ms).map(([k, v]) => `${k} ${(v / 1000).toFixed(2)}`).join(", ")}`);
     } catch (err) {
         if (err.name === 'AbortError' || world !== w) return;
@@ -308,7 +309,7 @@ mountRegionPick(pv, { world: () => world });
 $('editToggle')?.addEventListener('click', () => { state.editMode = !state.editMode; $('editToggle').classList.toggle('active', state.editMode); $('editToggle').setAttribute('aria-pressed', String(state.editMode)); if (!state.editMode) setHovered(-1); });
 
 // ── the sliders: their values, the stale build button, Reapply, the climate ──
-const sliderIds = ['sN', 'sP', 'sCn', 'sJ', 'sNs', 'sCsv', 'sLc'], PLATE_SLIDERS = ['sP', 'sCn', 'sCsv', 'sLc'], SCULPT = ['sTw', 'sS', 'sGl', 'sHEr', 'sTEr', 'sRs'];
+const sliderIds = ['sN', 'sP', 'sCn', 'sJ', 'sNs', 'sCsv', 'sLc'], PLATE_SLIDERS = ['sP', 'sCn', 'sCsv', 'sLc'], SCULPT = ['sTw', 'sS', 'sGl', 'sHEr', 'sTEr', 'sRs'], FINISHED = ['sTmp', 'sPrc', 'sLk'];   // (FINISHED: the finish again on release)
 let lastGenValues = {};
 function snapshotSliders() { for (const id of sliderIds) lastGenValues[id] = $(id).value; }
 function checkStale() {
@@ -322,7 +323,7 @@ function checkStale() {
     else btn.textContent = 'Build new world';
 }
 const reapplyBtn = $('reapplyBtn');
-for (const s of ['sN', 'sP', 'sCn', 'sJ', 'sNs', 'sCsv', 'sLc', ...SCULPT, 'sTmp', 'sPrc']) {
+for (const s of ['sN', 'sP', 'sCn', 'sJ', 'sNs', 'sCsv', 'sLc', ...SCULPT, ...FINISHED]) {
     const slider = $(s), v = s.replace('s', 'v');
     sliderTooltip(slider);
     slider.addEventListener('input', (e) => {
@@ -331,12 +332,13 @@ for (const s of ['sN', 'sP', 'sCn', 'sJ', 'sNs', 'sCsv', 'sLc', ...SCULPT, 'sTmp
         else if (s === 'sTmp') $(v).textContent = `${val > 0 ? '+' : val === 0 ? '±' : '−'}${Math.abs(val)} W/m²`;
         else if (s === 'sPrc') { const pct = Math.round(val * 50); $(v).textContent = `${pct > 0 ? '+' : pct === 0 ? '±' : ''}${pct}%`; }
         else if (s === 'sLc') $(v).textContent = `${Math.round(val * 100)}%`;
+        else if (s === 'sLk') $(v).textContent = lakesLabel(val);
         else $(v).textContent = e.target.value;
         if (SCULPT.includes(s)) { reapplyBtn.disabled = false; reapplyBtn.classList.add('ready'); }
-        else if (s !== 'sTmp' && s !== 'sPrc') checkStale();
+        else if (!FINISHED.includes(s)) checkStale();
     });
     // (the climate: the finish again, with the ground it has — on release, not every step of a drag)
-    if (s === 'sTmp' || s === 'sPrc') slider.addEventListener('change', () => { if (world) { updatePlanetCode(false); finish(world); } });
+    if (FINISHED.includes(s)) slider.addEventListener('change', () => { if (world) { updatePlanetCode(false); finish(world); } });
 }
 redrawFoldedSliders();
 reapplyBtn.addEventListener('click', () => {
@@ -373,7 +375,7 @@ function toggledIndices() {
 function updatePlanetCode(flash) {
     if (!world) return;
     const v = (id) => +$(id).value;
-    currentCode = encodePlanetCode(world.seed, detailFromSlider(v('sN')), v('sJ'), v('sP'), v('sCn'), v('sNs'), v('sTw'), v('sS'), v('sGl'), v('sHEr'), v('sTEr'), v('sRs'), 0.75, v('sCsv'), v('sTmp'), v('sPrc'), v('sLc'), toggledIndices());
+    currentCode = encodePlanetCode(world.seed, detailFromSlider(v('sN')), v('sJ'), v('sP'), v('sCn'), v('sNs'), v('sTw'), v('sS'), v('sGl'), v('sHEr'), v('sTEr'), v('sRs'), 0.75, v('sCsv'), v('sTmp'), v('sPrc'), v('sLc'), toggledIndices(), v('sLk'));
     seedInput.value = currentCode;
     loadBtn.classList.toggle('ready', false);
     history.replaceState(null, '', `${location.search}#${currentCode}`);
@@ -386,7 +388,7 @@ copyBtn.addEventListener('click', () => {
 seedInput.addEventListener('input', () => { const val = seedInput.value.trim().toLowerCase(); loadBtn.classList.toggle('ready', val.length > 0 && val !== currentCode); seedError.classList.remove('visible'); });
 function setSlidersFrom(params) {
     const map = { sN: sliderFromDetail(params.N), sJ: params.jitter, sP: params.P, sCn: params.numContinents, sNs: params.roughness, sCsv: params.continentSizeVariety, sLc: params.landCoverage,
-        sTw: params.terrainWarp, sS: params.smoothing, sGl: params.glacialErosion, sHEr: params.hydraulicErosion, sTEr: params.thermalErosion, sRs: params.ridgeSharpening, sTmp: params.greenhouse, sPrc: params.precipitationOffset };
+        sTw: params.terrainWarp, sS: params.smoothing, sGl: params.glacialErosion, sHEr: params.hydraulicErosion, sTEr: params.thermalErosion, sRs: params.ridgeSharpening, sTmp: params.greenhouse, sPrc: params.precipitationOffset, sLk: params.lakes ?? 0 };
     for (const [id, val] of Object.entries(map)) { const el = $(id); el.value = val; el.dispatchEvent(new Event('input')); }
 }
 function applyCode(code) {

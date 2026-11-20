@@ -14,7 +14,7 @@
 //              A page that draws its own surface (Generate: plans/SHARED_CORE_PLAN.md U1) adds mesh {numCells, xyz, adjOffset,
 //              adjList} (its own mesh, finished on instead of a terrain mesh), surface {heightKm, carveIn, recCell, cues}
 //              (drawn on it with finish.js surfaceConfig's terrain config), and the overrides of its terrain config
-//              (`terrain`) and of the finish's (`finish`) — no terrain pool then
+//              (`terrain`) and of the finish's (`finish`) — no terrain pool then. climateOptions.lakes: the Lakes slider (lake-amount.js)
 // Messages out: {type: 'stage', id, stage} · {type: 'progress', id, share} (the picture) · {type: 'terrain', id, raster
 //              {w, h, heightM, ocean, water, waterLevel (the lakes' level, m)}, rivers, drain, valleyQ, lines} (with earlyTerrain: the terrain, before the other layers) · {type: 'drivers', id, drivers}
 //              (with earlyTerrain: the fine detail's drivers once drawn, so the terrain zooms in; 'done' then without them) · {type: 'done', id, raster:
@@ -35,6 +35,7 @@ import { meshFromArrays } from '../core/sim-mesh.js';
 import { setDelaunator } from '../../../js/sphere-mesh.js';
 import { riverLines } from './river-valleys.js';
 import { stepClimate } from './step-climate.js';
+import { lakeOverrides } from './lake-amount.js';
 
 let sim = null, simCells = 0, delaunatorSet = false;
 const LOCATED_WIDTH = 2048;                                          // (2048 × 1024 pixels' cells: ~75 MB while the finish runs)
@@ -80,7 +81,7 @@ self.onmessage = async ({ data }) => {
         let driversSent = false;
         const onDrivers = earlyTerrain ? dr => { self.postMessage({ type: 'drivers', id, drivers: dr }, DRIVER_FIELDS.map(k => dr[k].buffer)); driversSent = true; } : null;
         const out = await finishPlanet({ frame, simMesh: sim, seed, cells, pool, closePool: !!pool, climateOptions, driversWidth: driverWidth(width), onStage: stage => self.postMessage({ type: 'stage', id, stage }),
-            onTerrain, onDrivers, ...own, ...(terrainOnly ? { climate: stepClimate } : {}),...(data.terrain ? { cfg: terrainConfig(data.terrain) } : {}), ...(data.finish ? { F: { ...FINISH, ...data.finish } } : {}) });
+            onTerrain, onDrivers, ...own, ...(terrainOnly ? { climate: stepClimate } : {}),...(data.terrain ? { cfg: terrainConfig(data.terrain) } : {}), F: { ...FINISH, ...lakeOverrides(climateOptions.lakes), ...(data.finish ?? {}) } });   // (the page's Lakes: lake-amount.js)
         if (out.terrainOnly) { self.postMessage({ type: 'done', id, terrainOnly: true, ms: out.ms }); return; }
         self.postMessage({ type: 'stage', id, stage: 'picture' });
         const t0 = performance.now();

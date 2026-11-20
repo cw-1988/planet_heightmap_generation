@@ -63,9 +63,10 @@ Roughness (in Shape your world) scales the hills, the coast's bays and the fine 
 |---------|-------|---------|-------------|
 | Temperature | -30 – 30 W/m² | 0 | Warms or cools the whole planet. The value is the change in the heat its air holds in — a radiative forcing in the energy balance, in W/m². Snow, sea ice and ice sheets amplify a cooling far more than a warming: on Earth −10 cools the planet ≈ 8 °C and +10 warms it ≈ 6 °C, and past −20 the ice runs away — sea ice on a quarter of the sea at −20, a snowball planet by −28 to −30. The winds and currents shift with them, and warmer seas evaporate more, so a warm world is wetter and a cold one drier |
 | Precipitation | -1 – 1 | 0 | The pace of the water cycle (±50 %): evaporation from the seas and land scaled, so about that much more or less rain overall — where it falls still follows the winds and mountains |
+| Lakes | -1 – 1 | 0 | How readily the land's hollows hold water, from none to a lake district (the rain stays Precipitation's): [lakes-slider.md](lakes-slider.md) |
 
-Releasing either slider finishes the planet again (the ground stays): its rivers, ice, Satellite view, rocks and food all
-follow the new climate.
+Releasing any of them finishes the planet again (the ground stays): its rivers, lakes, ice, Satellite view, rocks and
+food all follow. Lakes set is kept in the planet code (23 characters; at ±0 the code is the 22-character one as before).
 
 ### Inspect (advanced)
 
