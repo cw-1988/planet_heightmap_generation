@@ -29,6 +29,9 @@ import { createGraticuleFrame } from '../../../js/graticule-frame.js';
 import { inSpace } from '../../../js/stage.js';
 import { openLeft, openShift, onOpenArea, planetWidthFrom, planetChanged } from '../../../js/open-area.js';
 import { createMapBand, navHeight } from '../../../js/map-band.js';
+// (the zoomed tiles' canvases kept in memory, not on the GPU: uploading a GPU-backed 2D canvas into the patch texture cost
+// ~9 ms of GPU a tile — readback through the shared GPU — and lagged every pan and zoom; docs/view-performance.md)
+const TILE_CTX = { willReadFrequently: true };
 
 const $ = id => document.getElementById(id);
 const SEASONS = ['year', 'jan', 'jul'];
@@ -482,7 +485,7 @@ export class PlanetView {
         if (t.look !== look) this.paintTileBase(fin, t, look);
         if (extra === null) { t.extra = null; return t.base; }
         if (!t.canvas) { t.canvas = document.createElement('canvas'); t.canvas.width = t.canvas.height = SLOT; }
-        const ctx = t.canvas.getContext('2d'), W = t.win.W, k = W / this.MAP_WIDTH;
+        const ctx = t.canvas.getContext('2d', TILE_CTX), W = t.win.W, k = W / this.MAP_WIDTH;
         ctx.globalCompositeOperation = 'copy'; ctx.drawImage(t.base, 0, 0); ctx.globalCompositeOperation = 'source-atop';
         ctx.save(); ctx.translate(-(t.win.x0 + 1), -(t.win.y0 + 1)); ctx.scale(k, k);
         this.extraLines(ctx, this.MAP_WIDTH, this.view);
@@ -505,7 +508,7 @@ export class PlanetView {
         const px = this.tileImage.data, sea = t.data.sea;
         for (let i = 0, n = px.length >> 2; i < n; i++) px[4 * i + 3] = sea[i] ? 128 : 255;
         if (!t.base) { t.base = document.createElement('canvas'); t.base.width = t.base.height = SLOT; }
-        const ctx = t.base.getContext('2d'), x0 = t.win.x0 + 1, y0 = t.win.y0 + 1;     // (the canvas's pixel 0, 0 on the planet W px wide)
+        const ctx = t.base.getContext('2d', TILE_CTX), x0 = t.win.x0 + 1, y0 = t.win.y0 + 1;     // (the canvas's pixel 0, 0 on the planet W px wide)
         ctx.putImageData(this.tileImage, -1, -1);                               // (the window's outer pixel the hillshade's neighbours only)
         ctx.globalCompositeOperation = 'source-atop';
         // (the planet's rivers, crisp: a hairline as wide on the screen at every zoom, and as wide as its channel — its

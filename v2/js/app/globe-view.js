@@ -45,7 +45,7 @@ vec3 patchPx(sampler2D tab, vec4 R, vec4 G, vec2 tc) {                // (the pl
     if (dx >= R.z || dy < 0.0 || dy >= R.w) return vec3(0.0);
     float tx = R.x + floor(dx), ty = floor(Y);
     vec2 slot = vec2(mod(tx, G.y), mod(ty, G.z));
-    vec4 k = floor(texture2D(tab, (slot + 0.5) / G.yz) * 255.0 + 0.5);    // (the tile the slot holds: its column modulo 65536, its row; a ≥ 128: one)
+    vec4 k = floor(textureLod(tab, (slot + 0.5) / G.yz, 0.0) * 255.0 + 0.5);    // (level 0: read in the region's loops; the tile the slot holds: its column modulo 65536, its row; a ≥ 128: one)
     if (k.a < 128.0 || k.r + 256.0 * k.g != mod(tx, 65536.0) || k.b + 256.0 * (k.a - 128.0) != ty) return vec3(0.0);
     vec2 px = (slot * uPatchSlot + 1.0 + vec2(fract(dx), fract(Y)) * (uPatchSlot - 2.0)) / (G.yz * uPatchSlot);
     float e = min(min(dx, R.z - dx) / R.z, min(dy, R.w - dy) / R.w);
@@ -560,7 +560,13 @@ void main() {
         this.map = frame ? { frame, centerLon, projection, projOpts, bounds, shape } : null;
         this.controls.enabled = !frame;
         if (frame && this._mapFrame !== frame) this.wireMapFrame(frame);
-        if (frame && !this.mapScene) {
+        if (frame) this.makeMapScene();
+        this._dirty = true;
+    }
+
+    /** The map's scene and shader, made once (prewarmMap makes it ahead, so the switch to the map doesn't compile). */
+    makeMapScene() {
+        if (!this.mapScene) {
             this.mapScene = new THREE.Scene();
             this.mapScene.background = this.space ? new THREE.Color(window.orogenTheme?.token('desk') || '#0B1420') : new THREE.Color(0x000000);
             const u = projectionUniforms();
@@ -633,7 +639,15 @@ void main() {
             this.mapQuad.frustumCulled = false;
             this.mapScene.add(this.mapQuad);
         }
-        this._dirty = true;
+    }
+
+    /** The map's shader compiled in the background once the globe is up: compiled on the switch it stalled the GPU
+     *  process (and the desktop with it) for seconds (docs/view-performance.md). */
+    prewarmMap() {
+        if (this._mapWarm) return;
+        this._mapWarm = true;
+        const go = () => { this.makeMapScene(); this.renderer.compileAsync(this.mapScene, this.camera).catch(() => {}); };
+        (window.requestIdleCallback || setTimeout)(go, { timeout: 3000 });
     }
 
     /** The map's box in client pixels: the frame's, letterboxed to the projection's shape (2 : 1 equirectangular). */
@@ -819,6 +833,7 @@ void main() {
         if (!zoomed && !moved && !this._dirty) return false;
         this.renderer.render(this.scene, this.camera);
         this._dirty = false;
+        this.prewarmMap();
         return true;
     }
 

@@ -10,7 +10,11 @@
 // count (js/region-lines.js readAt does the same for the pick). The coast is the one drawn: the zoomed tiles' (patchSea,
 // globe-view.js) where they are, else the picture's sea share of the four ≥ ½, as the map is painted (finish-view.js
 // rasterAt); land drawn past the grid's takes the nearest land texel's valley. A valley's rim: 1.5 px from another valley.
-export const REGION_GLSL = `uniform sampler2D uRegionId, uRegionState, uRegionGeo, uRegionLine; uniform vec4 uRegionSize; uniform float uRegionHover, uRegionOn;
+// The loops' bounds are × uRegionN (always 1): on Windows (ANGLE → D3D11) fxc unrolls every loop with a constant bound,
+// and these nested ones, inlined five times, took 42 s to compile — the GPU process stalled and froze the whole desktop
+// app on the switch to the map (2026-11-20). With bounds it can't know, ~2 s. Reads in them use textureLod (no
+// derivatives), else fxc unrolls them anyway. See docs/view-performance.md.
+export const REGION_GLSL = `uniform sampler2D uRegionId, uRegionState, uRegionGeo, uRegionLine; uniform vec4 uRegionSize; uniform float uRegionHover, uRegionOn; uniform int uRegionN;
 vec4 regionBytes(sampler2D t, vec2 i) {
     i.x = mod(i.x, uRegionSize.x);
     return floor(textureLod(t, (i + 0.5) / uRegionSize.xy, 0.0) * 255.0 + 0.5);   // (level 0: no mips, and read in loops)
@@ -42,16 +46,16 @@ vec4 regionSpline(float t) {                                          // (the cu
 float regionSmooth(vec2 i, vec2 f) {                                  // (the land valley with the most spline weight of the 4 × 4)
     vec4 wx = regionSpline(f.x), wy = regionSpline(f.y);
     float id[16], wt[16];
-    for (int k = 0; k < 16; k++) {
+    for (int k = 0; k < 16 * uRegionN; k++) {
         int kx = k - 4 * (k / 4), ky = k / 4;
         id[k] = regionTexel(i + vec2(float(kx - 1), float(ky - 1)));
         wt[k] = id[k] > 0.5 ? wx[kx] * wy[ky] : 0.0;
     }
     float best = 0.0, top = -1.0;
-    for (int a = 0; a < 16; a++) {
+    for (int a = 0; a < 16 * uRegionN; a++) {
         if (wt[a] <= 0.0) continue;
         float s = 0.0;
-        for (int b = 0; b < 16; b++) if (id[b] == id[a]) s += wt[b];
+        for (int b = 0; b < 16 * uRegionN; b++) if (id[b] == id[a]) s += wt[b];
         if (s > top) { top = s; best = id[a]; }
     }
     return best;
@@ -67,7 +71,7 @@ float regionAt(vec2 tc) {
     bool lines = n.y >= 0.0 && n.y < uRegionSize.y && regionBytes(uRegionLine, n).r > 0.5;
     if (!lines && dot(land, land) > 0.0) return regionSmooth(i, f) - 1.0;
     vec4 S[9];                                                        // (the lines the 3 × 3 texels round the place keep)
-    for (int k = 0; k < 9; k++) {
+    for (int k = 0; k < 9 * uRegionN; k++) {
         vec2 t = n + vec2(float(k - 3 * (k / 3) - 1), float(k / 3 - 1));
         vec4 g = regionBytes(uRegionGeo, t);
         bool on = lines && t.y >= 0.0 && t.y < uRegionSize.y && regionBytes(uRegionLine, t).r > 0.5;
@@ -75,7 +79,7 @@ float regionAt(vec2 tc) {
     }
     vec2 q0 = i, q1 = i + vec2(1.0, 0.0), q2 = i + vec2(0.0, 1.0), q3 = i + vec2(1.0, 1.0);
     vec4 ok = land;
-    for (int k = 0; k < 9; k++) {
+    for (int k = 0; k < 9 * uRegionN; k++) {
         if (regionCut(p, q0, S[k])) ok.x = 0.0;
         if (regionCut(p, q1, S[k])) ok.y = 0.0;
         if (regionCut(p, q2, S[k])) ok.z = 0.0;
@@ -84,11 +88,11 @@ float regionAt(vec2 tc) {
     if (dot(ok, ok) > 0.0) return regionMost(a, b, c, d, ok * w) - 1.0;
     float near = 1e9, u = 0.0;                                        // (none of the four on its side, or land the tiles draw past
                                                                       // the grid's coast, up to ~2 texels: the nearest land of the 7 × 7)
-    for (int m = 0; m < 49; m++) {
+    for (int m = 0; m < 49 * uRegionN; m++) {
         vec2 t = n + vec2(float(m - 7 * (m / 7) - 3), float(m / 7 - 3));
         float v = regionTexel(t), e = dot(t - p, t - p);
         bool clear = v > 0.5 && e < near;
-        for (int k = 0; k < 9; k++) if (regionCut(p, t, S[k])) clear = false;
+        for (int k = 0; k < 9 * uRegionN; k++) if (regionCut(p, t, S[k])) clear = false;
         if (clear) { near = e; u = v; }
     }
     return u - 1.0;
@@ -103,7 +107,11 @@ vec3 withRegion(vec3 base, vec2 tc, vec2 gx, vec2 gy) {
     float u = regionAt(tc);
     bool hov = u >= 0.0 && u == uRegionHover, cho = regionChosenAt(u);
     if (!hov && !cho) return base;
-    bool rim = regionAt(tc + 1.5 * gx) != u || regionAt(tc - 1.5 * gx) != u || regionAt(tc + 1.5 * gy) != u || regionAt(tc - 1.5 * gy) != u;
+    bool rim = false;                                                 // (the four taps a loop: regionAt inlined once, not five times)
+    for (int j = 0; j < 4 * uRegionN; j++) {
+        vec2 o = 1.5 * (j < 2 ? gx : gy) * (j == 0 || j == 2 ? 1.0 : -1.0);
+        if (regionAt(tc + o) != u) rim = true;
+    }
     vec3 c = base;                                                    // (linear light: the old sRGB tints' values)
     if (cho) { c = mix(c, vec3(0.83, 0.045, 0.64), 0.38); if (rim) c = mix(c, vec3(0.19, 0.003, 0.155), 0.9); }
     if (hov) { c = mix(c, vec3(1.0), 0.22); if (rim) c = mix(c, vec3(1.0), 0.9); }
@@ -113,7 +121,7 @@ vec3 withRegion(vec3 base, vec2 tc, vec2 gx, vec2 gy) {
 /** The uniforms REGION_GLSL reads, before any valleys are sent. */
 export function regionUniforms(THREE) {
     return { uRegionId: { value: null }, uRegionState: { value: null }, uRegionGeo: { value: null }, uRegionLine: { value: null },
-        uRegionSize: { value: new THREE.Vector4(1, 1, 1, 1) }, uRegionHover: { value: -2 }, uRegionOn: { value: 0 } };
+        uRegionSize: { value: new THREE.Vector4(1, 1, 1, 1) }, uRegionHover: { value: -2 }, uRegionOn: { value: 0 }, uRegionN: { value: 1 } };
 }
 
 /** A byte texture of W × H texels, read texel by texel (or null for no data). */

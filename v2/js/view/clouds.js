@@ -310,8 +310,9 @@ vec4 cloudLayers(vec3 p, vec2 uv, float px, float fast, float lit, out float vei
     float ss = smoothstep(0.5, uCloudWindFull, speed) * mix(uCloudStreakLat.x, 1.0, smoothstep(uCloudStreakLat.y, uCloudStreakLat.z, abs(degrees(lat))));
     float flowLat = mix(uCloudFlowLat.x, uCloudFlowLat.y, smoothstep(10.0, 45.0, abs(degrees(lat))));
     // (the storms: the point turned about each centre, more the nearer — Rodrigues' rotation — and cloudier there)
-    for (int i = 0; i < ${MAX_STORMS}; i++) {
-        if (i >= uCloudStorms) break;
+    // (bound by the uniform, not ${MAX_STORMS}: fxc unrolls a constant bound — compile time, region-glsl.js)
+    for (int i = 0; i < uCloudStorms; i++) {
+        if (i >= ${MAX_STORMS}) break;
         // (each storm where the drift has carried it — cloudStormsAt, on the CPU once a frame)
         // (its reach 2.2 of its sizes — the largest's ~33°: past it, none; its turn and cloud fading to nothing there)
         vec3 C = uCloudStorm[i].xyz; float dt = dot(C, p);
