@@ -28,10 +28,11 @@ building) holds its settings, with **Build this world** and **Load planet…**:
 | End as | Wherever the history has got to · A supercontinent · A supercontinent breaking up · Continents dispersed | Wherever the history has got to | The history runs on past its length until the planet is in that stage (at most 1000 Myr further) |
 | Temperature | −30 – +30 W/m² | 0 | Warms or cools the whole planet, through the climate's physics |
 | Precipitation | ±50 % | 0 | Speeds up or slows down the water cycle |
+| Lakes | None – Lake district (−1 – 1) | ±0 | How readily hollows hold water on a detailed moment: [lakes-slider.md](lakes-slider.md) |
 | Quality | Fast · Balanced · Best · Custom | Balanced | How finely the history is simulated and drawn while you watch. Fast: 20K plate cells, terrain 160K. Balanced: 40K, 160K. Best: 80K, 640K. Custom: Plates (20K–160K cells) and Terrain detail (160K–2.5M) |
 
 Temperature and Precipitation change the climate only: previews are worked out again when shown, and a detailed moment
-says it was made with the old ones.
+says it was made with the old ones. Lakes changes only Add detail.
 
 ## Watch and scrub
 

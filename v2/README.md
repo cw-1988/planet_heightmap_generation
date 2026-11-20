@@ -38,7 +38,7 @@ it always did, so a link shared before builds its world again), starting contine
 history length, ending, the planet's **Temperature** (−30…+30 W/m²) and **Precipitation** (±50 %) — the climate's
 options (`greenhouseWm2`: a radiative forcing in the energy balance; `precipScale`: the evaporation in the rain budget — so the ice, winds, currents and rain answer them), for the preview climate and Add detail alike; they change the climate only, so
 previews are worked out again when shown and a detailed moment says it was made with the old ones (in the link: `greenhouse=`,
-`rain=`) — and **Quality** (Fast 20K plates / 160K terrain · Balanced 40K / 160K · Best 80K / 640K · Custom,
+`rain=`), and **Lakes** (−1…1, Add detail only: docs/lakes-slider.md; `lakes=`) — and **Quality** (Fast 20K plates / 160K terrain · Balanced 40K / 160K · Best 80K / 640K · Custom,
 which shows the two resolutions), with Build this world and **Load planet…** (a planet file saved from the Export panel —
 or drop one anywhere on the page) — then the **context card**, and **Stats**. The view's
 settings sit in the **view strip** above the layer tabs, folded behind the arrow at their left (`js/view-strip.js`, shared with Generate and Import): Globe |

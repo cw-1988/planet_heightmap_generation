@@ -26,6 +26,7 @@ import { FARMING_LAYERS } from './farming-view.js';
 import { FRAME_FIELDS } from '../terrain/terrain-pool.js';
 import { STAGES as FINISH_STAGES } from '../finish/finish.js';
 import { stageWords } from '../finish/stage-words.js';   // (Add detail's stages, as the loading screen and the card say them)
+import { lakesLabel } from '../finish/lake-amount.js';
 import { initEvolutionExport } from './export.js';
 import { createLoading } from './loading.js';
 import { savePlanet, planetBytes, openPlanet } from '../save/planet-file.js';
@@ -48,7 +49,7 @@ const $ = id => document.getElementById(id);
 const ui = { canvas: $('canvas'), map: $('mapCanvas'), cont: $('sCont'), len: $('sLen'), ending: $('ending'), sim: $('simCells'), terrain: $('terrainCells'),
     seed: $('seedCode'), build: $('generate'), status: $('buildStatus'), timeline: $('timeline'), play: $('playBtn'), time: $('timeSlider'),
     timeLabel: $('timeLabel'), rate: $('rate'), extend: $('extendBtn'), hover: $('hoverInfo'), panel: $('ui'), stats: $('stats'), info: $('info'),
-    railBuilt: $('railBuilt'), railShown: $('railShown'), ticks: $('timeTicks'), quality: $('quality'), world: $('worldSection'), tmp: $('sTmp'), prc: $('sPrc') };
+    railBuilt: $('railBuilt'), railShown: $('railShown'), ticks: $('timeTicks'), quality: $('quality'), world: $('worldSection'), tmp: $('sTmp'), prc: $('sPrc'), lk: $('sLk') };
 
 // ── settings ──
 ui.ending.innerHTML = ENDINGS.map(e => `<option value="${e.id}">${e.label}</option>`).join('');
@@ -59,10 +60,13 @@ if (url.get('len')) ui.len.value = url.get('len');
 // (Greenhouse, W/m²; an older link's temp= was the same slider in °C steps of 1)
 if (url.get('greenhouse')) ui.tmp.value = url.get('greenhouse'); else if (url.get('temp')) ui.tmp.value = 2 * Number(url.get('temp'));
 if (url.get('rain')) ui.prc.value = url.get('rain');
+if (url.get('lakes')) ui.lk.value = url.get('lakes');
 // The planet's Temperature and Precipitation (as Generate's): the climate's options, for the preview climate and for Add
-// detail — they change the climate only, not the history (plans/V1_NEW_CLIMATE_PLAN.md, phase 7)
-const climateOptions = () => ({ greenhouseWm2: Number(ui.tmp.value), precipScale: Math.max(0, 1 + 0.5 * Number(ui.prc.value)) });
+// detail — they change the climate only, not the history (plans/V1_NEW_CLIMATE_PLAN.md, phase 7). Lakes (lake-amount.js)
+// changes Add detail only: the previews' climates are keyed without it (climateKey), a detailed moment with it (detailKey)
+const climateOptions = () => ({ greenhouseWm2: Number(ui.tmp.value), precipScale: Math.max(0, 1 + 0.5 * Number(ui.prc.value)), lakes: Number(ui.lk.value) });
 const climateKey = () => `${Number(ui.tmp.value)}|${Number(ui.prc.value)}`;
+const detailKey = () => `${climateKey()}|${Number(ui.lk.value)}`;
 // (a phone builds on 20K plates by default: a 1200 Myr history takes ~40 s on a desktop at 20K, ~85 s at 40K, and a phone's
 // cores are several times slower — plans/V2_FULL_PLANET_PLAN.md, step A)
 if (IS_TOUCH) ui.sim.value = '20000';
@@ -92,15 +96,16 @@ function labels() {
     const t = Number(ui.tmp.value), p = Math.round(50 * Number(ui.prc.value));
     $('vTmp').textContent = t ? `${t > 0 ? '+' : '−'}${Math.abs(t)} W/m²` : '±0 W/m²';
     $('vPrc').textContent = p ? `${p > 0 ? '+' : '−'}${Math.abs(p)}%` : '±0%';
+    const lk = Number(ui.lk.value); $('vLk').textContent = lakesLabel(lk);
     $('worldSummary').textContent = `Seed ${seedShown()} · ${ui.len.value} Myr · ${QUALITY_WORDS[ui.quality.value]}` +
-        (t ? ` · temperature ${$('vTmp').textContent}` : '') + (p ? ` · ${$('vPrc').textContent} rain` : '');
+        (t ? ` · temperature ${$('vTmp').textContent}` : '') + (p ? ` · ${$('vPrc').textContent} rain` : '') + (lk ? ` · lakes ${lakesLabel(lk)}` : '');
     // (the plates' resolution is the one setting a history cannot change: it waits for a build)
     $('worldPending').hidden = !B?.simCells || B.simCells === Number(ui.sim.value);
 }
-for (const el of [ui.cont, ui.len, ui.seed, ui.tmp, ui.prc]) el.addEventListener('input', labels);
+for (const el of [ui.cont, ui.len, ui.seed, ui.tmp, ui.prc, ui.lk]) el.addEventListener('input', labels);
 // (a new Temperature or Precipitation: the previews' climates are worked out again when shown; a detailed moment keeps
-// its old climate — its rivers, ice and Satellite were sculpted by it — until detail is added again)
-for (const el of [ui.tmp, ui.prc]) el.addEventListener('change', () => { saveUrl(); labels(); dirty = true; updateClimateUi(); });
+// its old climate — its rivers, ice and Satellite were sculpted by it — until detail is added again; Lakes likewise)
+for (const el of [ui.tmp, ui.prc, ui.lk]) el.addEventListener('change', () => { saveUrl(); labels(); dirty = true; updateClimateUi(); });
 // ── tooltips (the "?" marks): drawn over the page — V1's own sit inside the panel, which scrolls and so clips what spills
 // out of it (developer: "the tooltips are hidden inside the sidebar if they appear towards the right"); to the right of
 // the mark where there is room, else above it (always above on a narrow screen: the bottom sheet); a tap shows one ──
@@ -153,7 +158,7 @@ $('loadFile').addEventListener('change', e => { const f = e.target.files[0]; e.t
 ui.terrain.addEventListener('change', () => setTerrainDetail());
 // (more: how far the history was kept going — a link rebuilds the same history, run on as far)
 const saveUrl = () => history.replaceState(null, '', `?seed=${encodeURIComponent(seedShown())}&cont=${ui.cont.value}&len=${ui.len.value}&end=${ui.ending.value}&sim=${ui.sim.value}&terrain=${ui.terrain.value}` +
-    (Number(ui.tmp.value) ? `&greenhouse=${ui.tmp.value}` : '') + (Number(ui.prc.value) ? `&rain=${ui.prc.value}` : '') + (B?.moreTo ? `&more=${B.moreTo}` : ''));
+    (Number(ui.tmp.value) ? `&greenhouse=${ui.tmp.value}` : '') + (Number(ui.prc.value) ? `&rain=${ui.prc.value}` : '') + (Number(ui.lk.value) ? `&lakes=${ui.lk.value}` : '') + (B?.moreTo ? `&more=${B.moreTo}` : ''));
 let linkedMore = Number(url.get('more')) || 0;          // (the first build only: a new world starts at its length)
 // Keep going: the history runs on in pieces this long, until stopped (a multiple of the step grid and of the snapshot
 // interval — pieces of the one history, the same as a single run: tectonics/simulate.js, resume)
@@ -475,7 +480,7 @@ async function loadPlanet(file) {
         seed: s.seed, seedText: s.seedText ?? null, contPct: s.cont, ending: s.ending, moreTo: s.more || 0, simMyr: m.history.simMyr, steps: m.history.steps, stopped: m.history.stopped });
     // its settings, and the link to them (the same history again, built here)
     ui.seed.value = s.seedText ?? String(s.seed); ui.cont.value = s.cont; ui.len.value = s.len; setIf(ui.ending, s.ending); setIf(ui.sim, String(s.sim));
-    setIf(ui.terrain, String(terrainCells)); ui.tmp.value = s.greenhouse; ui.prc.value = s.rain;
+    setIf(ui.terrain, String(terrainCells)); ui.tmp.value = s.greenhouse; ui.prc.value = s.rain; ui.lk.value = s.lakes ?? 0;
     ui.quality.value = Object.keys(QUALITY).find(k => QUALITY[k].sim === ui.sim.value && QUALITY[k].terrain === ui.terrain.value) ?? 'custom';
     $('customGroup').hidden = ui.quality.value !== 'custom';
     clearView(m.history.toMyr, { play: false, label: 'Opening…' });
@@ -495,6 +500,8 @@ async function loadPlanet(file) {
         // without its record — until a replay that matches brings the record in)
         b.lacking = new Set(lacking); b.noGeology = GEO_FRAME_FIELDS.some(k => b.lacking.has(k));
         const shown = b.frames[m.detail?.frame ?? 0] ?? b.frames[0];
+        // (a file saved before Lakes keyed its moment "greenhouse|rain": Lakes ±0, as it was made)
+        if (detail?.moment.climateKey?.split('|').length === 2) detail.moment.climateKey += '|0';
         if (detail) { b.finishes.set(b.frames[detail.frame], detail.moment); b.finishOk = true; b.finishNote = `Opened from ${name}`; }
         // (a moment left in the file — too old to read, or more than a phone can show: this moment, ready to be detailed again)
         else if (m.detail) {
@@ -643,7 +650,7 @@ async function finishMoment(again = null) {
     setPlaying(false);
     // (the timeline held on the moment taken: in playback it has run ahead of the one drawn, and would move on from it)
     if (!again) { playTime = frame.time; ui.time.value = playTime; dirty = true; rail(); }
-    const final = Number($('finishCells').value), key = climateKey(), had = b.finishes.get(frame);
+    const final = Number($('finishCells').value), key = detailKey(), had = b.finishes.get(frame);
     // (a moment shown at a coarser pass — a ladder cancelled — goes on from the next pass up, not from the first)
     const passes = again?.passes ?? finishPasses(final, had && had.climateKey === key ? had.cells : 0);
     // (each pass's share of the bar: its cost)
@@ -772,14 +779,14 @@ function updateCard() {
         : 'This is a preview. Add detail sculpts it again, finely: rivers and lakes, glaciers, its own climate, the Satellite view and its geology — ready to export.';
     showIf($('detailGroup'), !!frame && !job);
     showIf($('waterGroup'), isDet && !job);
-    const again = $('cardAgain'), stale = isDet && fin.climateKey !== climateKey();
+    const again = $('cardAgain'), stale = isDet && fin.climateKey !== detailKey();
     if (showIf(again, isDet && !job && (fin.cells !== cells || stale))) again.textContent = stale ? 'Add detail again with the new climate' : `Add detail again at ${cellsWords(cells)}`;
     if (showIf($('cardDetailed'), !!detFrame && !isDet)) {
         $('cardDetailed').innerHTML = (job ? `Replaces the detailed ${dt} Myr once it is done.` : `Replaces the detailed ${dt} Myr — one moment is kept in detail.`) +
             ` <a href="#" data-t="${detFrame.time}">Go to ${dt} Myr</a>`;
     }
     const note = b?.problem ? b.problem
-        : stale && !job ? 'Detailed with the Temperature and Precipitation as they were — its rivers, ice and Satellite view too.'
+        : stale && !job ? 'Detailed with the Temperature, Precipitation and Lakes as they were — its rivers, ice and Satellite view too.'
         : b?.finishNote && (isDet || !b.finishOk) ? b.finishNote
         : b?.loadNote && frame === b.loadFrame && !job ? b.loadNote : null;
     if (showIf($('cardNote'), !!note)) $('cardNote').textContent = note;
@@ -831,9 +838,9 @@ const planetFile = {
     save: async ({ frame, fin }, progress) => {
         const b = B;
         if (b.finishes.get(frame) !== fin) throw new Error('this moment is no longer the detailed one');
-        const [greenhouse, rain] = fin.climateKey.split('|').map(Number);
+        const [greenhouse, rain, lakes = 0] = fin.climateKey.split('|').map(Number);
         const { blob } = await savePlanet({
-            settings: { seed: b.seed, ...(b.seedText ? { seedText: b.seedText } : {}), cont: b.contPct, len: b.lengthMyr, ending: b.ending, sim: b.simCells, terrain: b.terrainCells, greenhouse, rain, more: b.moreTo || 0 },
+            settings: { seed: b.seed, ...(b.seedText ? { seedText: b.seedText } : {}), cont: b.contPct, len: b.lengthMyr, ending: b.ending, sim: b.simCells, terrain: b.terrainCells, greenhouse, rain, lakes, more: b.moreTo || 0 },
             history: { frames: b.frames, simMesh: b.simMesh, simMyr: b.simMyr, steps: b.steps, stopped: b.stopped ?? null, snapshotMyr: SNAPSHOT_MYR, omit: [...(b.lacking ?? [])] },
             detail: { frame, fin }, onProgress: progress });
         return { blob, name: fileName(['orogen', b.seedText ?? b.seed, `${Math.round(frame.time)}Myr`], 'orogen') };

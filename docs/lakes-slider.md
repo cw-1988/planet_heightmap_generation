@@ -1,9 +1,15 @@
 # The Lakes slider
 
-A slider in Generate's and Import's Climate section, −1 to 1 (default 0). It sets how readily the land's hollows hold
-water, from a world without lakes to a lake district. Asked for by the owner, 2026-11-20 ("maybe he actually wants a
-swamp world or one entirely without lakes"). Code: `v2/js/finish/lake-amount.js`. Back to
-[generate.md](generate.md) · [import.md](import.md).
+A slider in Generate's and Import's Climate section and Evolution's World section, −1 to 1 (default 0). It sets how
+readily the land's hollows hold water, from a world without lakes to a lake district. Asked for by the owner, 2026-11-20
+("maybe he actually wants a swamp world or one entirely without lakes"). Code: `v2/js/finish/lake-amount.js`. Back to
+[generate.md](generate.md) · [import.md](import.md) · [evolution.md](evolution.md).
+
+## On Evolution
+
+It changes Add detail only: the previews' climates are keyed without it, a detailed moment with it (`detailKey` in
+`evolution-main.js`, "greenhouse|rain|lakes"). A changed Lakes marks the detailed moment stale, so Add detail again
+re-finishes it. The link carries `&lakes=`, a planet file's settings `lakes`; an older file's moment reads as Lakes 0.
 
 ## What it moves
 
@@ -32,4 +38,3 @@ characters (`js/planet-code.js`, `LAKES_LEN`). Older codes decode with Lakes 0.
   water table high. That is the land-cover model's job, not more lakes. At +1 you get many small lakes and ponds, not a
   swamp.
 - Not rain. More water comes from Precipitation; the Lakes slider changes which hollows keep the water they get.
-- Not on Evolution yet: its page has no Lakes slider.
