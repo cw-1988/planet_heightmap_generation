@@ -6,6 +6,7 @@
 import { riverParts, pushSegments, LINE, CHANNEL, BED, bedKm } from '../finish/river-valleys.js';
 import { bendSegment, MEANDER_PAD_KM } from '../finish/river-meander.js';
 import { fadeFor } from '../finish/pixel-fade.js';
+import { drawContrasted, casingWidth, pxOf, RIVER_LOOKS, MIN_CORE_PX, SLIM, SLIM_ALPHA } from './river-contrast.js';
 
 /** How a river is drawn at discharge q (m³/s) above the density's threshold q0 — a flow map (the lab's Drainage layer:
  *  developer, "much thinner and closer to the flow mapmode"): hairlines whose strength grows with the log of the discharge,
@@ -87,22 +88,29 @@ function riverSegments(fin, q0) {
     return S;
 }
 
-/** A river bucket's stroke on a context: the rivers' blue or its regime's colour, `widthScale` times as thick. Its dashes, or null. */
-function riverStyle(ctx, b, byRegime, widthScale) {
-    const st = REGIME_STYLE[b.regime];
-    // (coloured by regime, the colour tells it: not faded as well)
-    ctx.strokeStyle = byRegime ? st.rgb : RIVER_RGB;
-    ctx.globalAlpha = (byRegime ? 1 : st.alpha) * STRENGTH_ALPHA[b.strength]; ctx.lineWidth = STRENGTH_WIDTH[b.strength] * widthScale; ctx.setLineDash(st.dash ? st.dash.map(v => v * widthScale) : []);
-    return st.dash;
+/** A river bucket's stroke on a context, for `pen` (river-contrast.js: a look, its casing or core): the rivers' blue or
+ *  its regime's colour, `widthScale` times as thick. Its dashes (or null), its alphas as a hairline and as a bed drawn
+ *  as wide as it is, and its width past the hairline (a casing's). */
+function riverStyle(ctx, b, byRegime, widthScale, pen) {
+    const st = REGIME_STYLE[b.regime], look = RIVER_LOOKS[pen.look], top = STRENGTH_ALPHA[STRENGTH_ALPHA.length - 1];
+    // (coloured by regime, the colour tells it: not faded as well. The look's gain lifts every river alike, so a brook
+    // stays fainter and thinner than the river it feeds — a floor on alpha or width drew every brook as loud as the
+    // trunk, a net of bright lines over the land (owner: "way too dominant"))
+    const alpha = a => Math.min(1, look.gain * (byRegime ? 1 : st.alpha) * a) * (pen.casing ? look.casingAlpha * (pen.slim ? SLIM_ALPHA : 1) : 1);
+    const core = STRENGTH_WIDTH[b.strength] * widthScale, extra = !pen.casing ? 0 : pen.slim ? SLIM * core : casingWidth(ctx);
+    ctx.strokeStyle = pen.casing ? look.casing : byRegime ? st.rgb : look.core ?? RIVER_RGB;
+    ctx.globalAlpha = alpha(STRENGTH_ALPHA[b.strength]); ctx.lineWidth = core + extra; ctx.setLineDash(st.dash ? st.dash.map(v => v * widthScale) : []);
+    return { dash: st.dash, hairAlpha: ctx.globalAlpha, bedAlpha: alpha(top), extra };
 }
 
 /** Draw a moment's rivers on a texture's context (scaled by the caller to a 2048-wide texture's coordinates), in the rivers'
- *  blue or coloured by regime — `widthScale` times as thick (a context scaled far: the patch of finer detail's, as thin). */
+ *  blue or coloured by regime — `widthScale` times as thick (a context scaled far: the patch of finer detail's, as thin) —
+ *  each cased to stand out from the ground under it (river-contrast.js). */
 export function drawRivers(ctx, paths, byRegime = false, widthScale = 1) {
-    ctx.save();
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    for (const b of paths) { riverStyle(ctx, b, byRegime, widthScale); ctx.stroke(b.path); }
-    ctx.restore();
+    drawContrasted(ctx, (g, pen) => {
+        g.lineCap = 'round'; g.lineJoin = 'round';
+        for (const b of paths) { riverStyle(g, b, byRegime, widthScale, { ...pen, slim: true }); g.stroke(b.path); }
+    });
 }
 
 /**
@@ -117,9 +125,9 @@ export function drawRiversWindow(ctx, fin, q0, byRegime, W, x0, y0, w, h, widthS
     const S = riverSegments(fin, q0), k = W / 2048, G = S.grid ??= segmentGrid(S), KM = 2 * Math.PI * 6371 / 2048;
     // (each segment bent by its meanders, as this window's pixels hold them — the valley under it bends alike)
     const pxKm = KM / k, fade = fadeFor(pxKm);
-    const line = (i, t0, move) => {
+    const line = (g, i, t0, move) => {
         let first = move;
-        bendSegment(S.g, LINE * i, t0, 1, pxKm, fade, (x, y) => { if (first) { first = false; ctx.moveTo(x, y); } else ctx.lineTo(x, y); }, move);
+        bendSegment(S.g, LINE * i, t0, 1, pxKm, fade, (x, y) => { if (first) { first = false; g.moveTo(x, y); } else g.lineTo(x, y); }, move);
     };
     // (how far past the window a segment's middle may lie and still touch it: half the longest segment, half the widest
     // line, a pixel's anti-aliasing, the farthest a meander moves it (0.3: a latitude's narrower pixels) — in the
@@ -133,8 +141,7 @@ export function drawRiversWindow(ctx, fin, q0, byRegime, W, x0, y0, w, h, widthS
         const o = LINE * i, c = bedKm((S.g[o + 4] + S.g[o + 5]) / 2) / KM;
         return c > hair ? hair * 2 ** (Math.round(8 * Math.log2(c / hair)) / 8) : hair;
     };
-    ctx.save();
-    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    const turns = [];
     for (const turn of [-1, 0, 1]) {                                      // (a window across the date line: the rivers either side)
         const xa = Math.max(0, Math.floor((x0 / k - turn * 2048 - m) / G.C)), xb = Math.min(G.GW - 1, Math.floor(((x0 + w) / k - turn * 2048 + m) / G.C));
         if (xa > xb || ya > yb) continue;
@@ -145,28 +152,38 @@ export function drawRiversWindow(ctx, fin, q0, byRegime, W, x0, y0, w, h, widthS
         n = 0;
         for (let gy = ya; gy <= yb; gy++) for (let j = G.count[gy * G.GW + xa]; j < G.count[gy * G.GW + xb + 1]; j++) near[n++] = G.items[j];
         near.sort();
-        ctx.setTransform(k, 0, 0, k, turn * W - x0, -y0);
-        for (const b of S.order) {
-            const dash = riverStyle(ctx, S.buckets[b], byRegime, widthScale), period = dash ? (dash[0] + dash[1]) * widthScale : 0;
-            const hair = STRENGTH_WIDTH[S.buckets[b].strength] * widthScale;
-            // (a bed drawn as wide as it is is water filling it: as solid as the strongest line, not a faint flow-map hairline)
-            const hairAlpha = ctx.globalAlpha, bedAlpha = hairAlpha / STRENGTH_ALPHA[S.buckets[b].strength] * STRENGTH_ALPHA[STRENGTH_ALPHA.length - 1];
-            let last = -1, lw = -1, open = false;
-            for (const i of near) {
-                if (S.bucket[i] !== b) continue;
-                const wi = widthOf(i, hair), on = S.joined[i] && S.prev[i] === last && wi === lw;
-                if (!on) {
-                    // (a stroke begun here — a line's start in this window, or another width: its dashes from where the whole
-                    // line's stand there (measured along the unbent line, so a meander's extra length shifts them a little
-                    // between windows)
-                    if (open) ctx.stroke();
-                    ctx.beginPath(); ctx.lineWidth = lw = wi; ctx.globalAlpha = wi > hair ? bedAlpha : hairAlpha; ctx.lineDashOffset = period ? S.along[i] % period : 0; open = true;
-                }
-                line(i, 0, !on);
-                last = i;
+        turns.push({ near, at: new DOMMatrix([k, 0, 0, k, turn * W - x0, -y0]) });
+    }
+    if (!turns.length) return;
+    // (each cased to stand out from the ground under it: river-contrast.js — every casing, then every core)
+    drawContrasted(ctx, (g, pen) => { for (const t of turns) strokeWindow(g, pen, S, t, byRegime, line, widthOf, widthScale); });
+}
+
+/** drawRiversWindow's strokes for one pen (a look's casings or cores) and one turn of the date line, on g (the caller's
+ *  transform its base, then `at`: the window's). */
+function strokeWindow(ctx, pen, S, { near, at }, byRegime, line, widthOf, widthScale) {
+    ctx.save();
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.setTransform(ctx.getTransform().multiply(at));
+    for (const b of S.order) {
+        const { dash, hairAlpha, bedAlpha, extra } = riverStyle(ctx, S.buckets[b], byRegime, widthScale, pen), period = dash ? (dash[0] + dash[1]) * widthScale : 0;
+        const hair = Math.max(STRENGTH_WIDTH[S.buckets[b].strength] * widthScale, MIN_CORE_PX * pxOf(ctx));
+        // (a bed drawn as wide as it is is water filling it: as solid as the strongest line, not a faint flow-map hairline)
+        let last = -1, lw = -1, open = false;
+        for (const i of near) {
+            if (S.bucket[i] !== b) continue;
+            const wi = widthOf(i, hair), on = S.joined[i] && S.prev[i] === last && wi === lw;
+            if (!on) {
+                // (a stroke begun here — a line's start in this window, or another width: its dashes from where the whole
+                // line's stand there (measured along the unbent line, so a meander's extra length shifts them a little
+                // between windows); a casing as much wider as at every width)
+                if (open) ctx.stroke();
+                ctx.beginPath(); lw = wi; ctx.lineWidth = wi + extra; ctx.globalAlpha = wi > hair ? bedAlpha : hairAlpha; ctx.lineDashOffset = period ? S.along[i] % period : 0; open = true;
             }
-            if (open) ctx.stroke();
+            line(ctx, i, 0, !on);
+            last = i;
         }
+        if (open) ctx.stroke();
     }
     ctx.restore();
 }

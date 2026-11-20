@@ -29,6 +29,7 @@ import { createGraticuleFrame } from '../../../js/graticule-frame.js';
 import { inSpace } from '../../../js/stage.js';
 import { openLeft, openShift, onOpenArea, planetWidthFrom, planetChanged } from '../../../js/open-area.js';
 import { createMapBand, navHeight } from '../../../js/map-band.js';
+import { installViewScale } from './view-scale.js';
 // (the zoomed tiles' canvases kept in memory, not on the GPU: uploading a GPU-backed 2D canvas into the patch texture cost
 // ~9 ms of GPU a tile — readback through the shared GPU — and lagged every pan and zoom; docs/view-performance.md)
 const TILE_CTX = { willReadFrequently: true };
@@ -111,6 +112,7 @@ export class PlanetView {
         this.cloudsShown = { on: null, C: undefined, season: null };
         this.satPrep = null; this.satPrepFailed = new WeakSet();
         this.wire();
+        installViewScale(this);                         // (the km bar and the C key's copied place: view/view-scale.js)
     }
 
     // ── the controls: the layer bar and the view strip ──
