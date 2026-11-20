@@ -4,7 +4,8 @@
 //   Split: Ctrl-click the pieces, then drag a line across them; each selected piece the line divides becomes two,
 //   each flooded or raised on its own. Undo (Ctrl+Z) takes back the last stroke or split.
 //   While a tool is on, the left button belongs to it; the right button still turns the globe. The tools are the
-//   Terrain tab's alone: the bar hides on every other layer.
+//   Terrain tab's own row under the layer tabs (#subBar, as Climate's and Geology's are: layer-bar.js data-for-layer),
+//   so they stay clear of the hover readout at the bottom; on every other layer the row hides and Look takes over.
 import { applyStroke, pointAt, arcKm } from './terrain-brush.js';
 import { mountMarks, viewKey } from './edit-marks.js';
 import { stepByWheel } from '../v2/js/view/wheel-step.js';
@@ -21,11 +22,14 @@ export function mountEditTools(pv, hooks) {
     const ed = { strokes: [], cuts: [], ops: [], tool: 'look' };
     const bar = document.createElement('div');
     bar.className = 'terrain-tools';
-    bar.innerHTML = TOOLS.map(([id, name]) => `<button data-tool="${id}" aria-pressed="${id === 'look'}">${name}</button>`).join('')
+    bar.dataset.forLayer = 'terrain';
+    bar.innerHTML = TOOLS.map(([id, name]) => `<button type="button" data-tool="${id}" aria-pressed="${id === 'look'}">${name}</button>`).join('')
         + '<label>Size <input type="range" data-k="size" min="20" max="1500" step="10" value="300"><output>300 km</output></label>'
         + '<label>Strength <input type="range" data-k="str" min="1" max="100" value="20"><output>20</output></label>'
-        + '<button data-undo disabled title="Ctrl+Z">Undo</button>';
-    document.body.append(bar);
+        + '<button type="button" data-undo disabled title="Ctrl+Z">Undo</button>';
+    const onTerrainNow = pv.view.layer === 'terrain';
+    document.getElementById('subBar').append(bar);
+    pv.bar.showRows(pv.view.layer);                    // (the layer was shown before this row existed)
     const size = bar.querySelector('[data-k="size"]'), str = bar.querySelector('[data-k="str"]'), undoBtn = bar.querySelector('[data-undo]');
     size.addEventListener('input', () => { size.nextElementSibling.textContent = `${size.value} km`; });
     str.addEventListener('input', () => { str.nextElementSibling.textContent = str.value; });
@@ -55,11 +59,12 @@ export function mountEditTools(pv, hooks) {
     }
     // (each frame the view moves — a zoom easing in, a turn gliding on — the marks follow, so the ring stays under the
     // pointer and grows and shrinks with the zoom; a new Size eases in the same way)
-    // (the tools are the Terrain tab's: on any other layer the bar hides and Look takes over)
+    // (the tools are the Terrain tab's: on any other layer the row hides — layer-bar.js — and Look takes over)
+    let wasTerrain = onTerrainNow;
     (function tick() {
         requestAnimationFrame(tick);
         const onTerrain = pv.view.layer === 'terrain';
-        if (onTerrain === bar.hidden) { bar.hidden = !onTerrain; if (!onTerrain) { pick('look'); drag = null; at = null; } }
+        if (onTerrain !== wasTerrain) { wasTerrain = onTerrain; if (!onTerrain) { pick('look'); drag = null; at = null; } }
         if (ed.tool === 'look' || !at) return;
         const goal = +size.value, easing = Math.abs(goal - shownKm) > 0.5, key = viewKey(pv);
         shownKm = easing ? shownKm + (goal - shownKm) * 0.25 : goal;

@@ -219,7 +219,17 @@ export class LayerBar {
         const more = $('climateMore'), inMore = !!more.querySelector(`option[value="${layer}"]`);
         more.value = inMore ? layer : ''; more.classList.toggle('active', inMore);
         $('mobileViewSwitch').value = layer;
-        $('subBar').hidden = !CLIMATE_SUB.has(layer) && !SEASONAL_LAYERS.has(layer) && !geo && !farm;
+        this.showRows(layer);
+        this.onLayer(layer);
+    }
+
+    /** The rows under the tabs for a layer (setLayer's; again when a page adds its own row after the layer was set). */
+    showRows(layer) {
+        const $ = this.$, geo = GEOLOGY_LAYERS.has(layer), farm = FARMING_LAYERS.has(layer);
+        // (a page's own row for a layer — Generate's edit tools under Terrain: an element in #subBar with data-for-layer)
+        const own = [...document.querySelectorAll('#subBar [data-for-layer]')];
+        for (const r of own) r.hidden = r.dataset.forLayer !== layer;
+        $('subBar').hidden = !CLIMATE_SUB.has(layer) && !SEASONAL_LAYERS.has(layer) && !geo && !farm && own.every(r => r.hidden);
         $('climateTabs').hidden = $('climateMore').hidden = !CLIMATE_SUB.has(layer);
         $('geologyTabs').hidden = !geo;
         $('farmingTabs').hidden = !farm;
@@ -227,6 +237,5 @@ export class LayerBar {
         $('depositPick').hidden = layer !== 'geoDeposits';
         $('agePick').hidden = $('ageRes').hidden = layer !== 'geoAges';
         $('cityReach').hidden = layer !== 'farmCity';
-        this.onLayer(layer);
     }
 }
