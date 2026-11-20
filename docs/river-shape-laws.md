@@ -35,5 +35,7 @@ Up close, a river's channel, bends and valley come from laws measured on real ri
   gorges the erosion cut.
 - The meanders are smaller: a bend swings about 12 % of its length to each side, not 20 %.
 
+Bends have no angle limit but a tightest radius, so a river never turns at a corner: [river-no-corners.md](river-no-corners.md).
+
 `v2/tools/check-river-joins.mjs` checks the channel against the law. It also checks that a steep river loses its own
 bends but keeps its swing, and that the confluences still join.

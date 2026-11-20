@@ -3,20 +3,24 @@
 //     (bendSegment) and the valley's (meanderAt) — river-meander.js pinAt — while the waves are still there mid-reach;
 //   · by the laws (river-hydraulics.js): the channel as wide and deep as hydraulic geometry gives, the shortest bend 10.9
 //     widths, and a river steeper than Leopold & Wolman's threshold without bends of its own.
+//   · no corners: the main stem turns 90° at the confluence on its points, its drawn line no more than CORNER_DEG between
+//     any two of its steps (river-valleys.js joinAt, river-meander.js curveAt).
 // Two tributaries meet and run on to the sea. Usage: node v2/tools/check-river-joins.mjs
 
 import { riverParts, pushSegments, LINE, carveValleys } from '../js/finish/river-valleys.js';
 import { bendSegment, meanderAt } from '../js/finish/river-meander.js';
 import { channelKm, channelDepthKm, braidSlope, meanderShare } from '../js/finish/river-hydraulics.js';
 
-// (three reaches on a 2048-wide texture's degrees: A and B meet at (10, 20); C runs on from there to the sea, all gentle)
+// (three reaches, [lon, lat]: A — the main stem — and B meet at (10, 20); C runs on from there to the sea, turning 90°
+// off A's line on the planet's points, all gentle)
+const CORNER_DEG = 15, KM_PX = 2 * Math.PI * 6371 / 2048;
 const pts = (from, to, n) => Array.from({ length: n + 1 }, (_, k) => [from[0] + (to[0] - from[0]) * k / n, from[1] + (to[1] - from[1]) * k / n]);
-const reaches = [pts([9, 21], [10, 20], 30), pts([11.2, 21.3], [10, 20], 30), pts([10, 20], [12, 18], 60)];
-const tops = [[0.12, 0.1], [0.115, 0.1], [0.1, 0]];
+const reaches = [pts([9, 21], [10, 20], 30), pts([9.2, 18.8], [10, 20], 30), pts([10, 20], [12, 22], 60)];
+const tops = [[0.12, 0.1], [0.115, 0.1], [0.1, 0]], flows = [900, 800, 2000];
 const R = { start: [], lat: [], lon: [], q: [], z: [] };
 for (const [k, r] of reaches.entries()) {
     R.start.push(R.lat.length);
-    for (const [j, [lon, lat]] of r.entries()) { R.lat.push(lat); R.lon.push(lon); R.q.push(k === 2 ? 2000 : 800); R.z.push(tops[k][0] + (tops[k][1] - tops[k][0]) * j / (r.length - 1)); }
+    for (const [j, [lon, lat]] of r.entries()) { R.lat.push(lat); R.lon.push(lon); R.q.push(flows[k]); R.z.push(tops[k][0] + (tops[k][1] - tops[k][0]) * j / (r.length - 1)); }
 }
 const starts = [...R.start, R.lat.length], fade = () => 1, pxKm = 0.05;
 let worst = 0, fails = 0;
@@ -41,6 +45,24 @@ for (let k = 0; k < reaches.length; k++) {
 const gap = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
 for (const [a, b] of [[ends[0].last, ends[2].first], [ends[1].last, ends[2].first]]) worst = Math.max(worst, gap(a, b));
 if (worst > 1e-6) fail(`a confluence's drawn lines ${worst.toFixed(4)} px apart`);
+
+// (the main stem A then C, drawn without meanders at a mid window and the finest: its sharpest turn between steps the
+// pixels show, 2 px long or more — finer ones are drawn as pixels, not lines)
+let corner = 0;
+for (const px of [0.25, 0.05]) {
+    const line = [];
+    for (const k of [0, 2]) {
+        const g = [];
+        for (const p of riverParts(R, starts[k], starts[k + 1], 1)) pushSegments(g, p);
+        for (let o = 0; o < g.length; o += LINE) bendSegment(g, o, 0, 1, px, () => 0, (x, y) => line.push([x, y]), !line.length);
+    }
+    for (let i = 1; i + 1 < line.length; i++) {
+        const cl = Math.cos((0.5 - line[i][1] / 1024) * Math.PI), a = [(line[i][0] - line[i - 1][0]) * cl, line[i][1] - line[i - 1][1]], b = [(line[i + 1][0] - line[i][0]) * cl, line[i + 1][1] - line[i][1]];
+        if (Math.min(Math.hypot(...a), Math.hypot(...b)) * KM_PX < 2 * px) continue;
+        corner = Math.max(corner, Math.abs(Math.atan2(a[0] * b[1] - a[1] * b[0], a[0] * b[0] + a[1] * b[1])) * 180 / Math.PI);
+    }
+}
+if (corner > CORNER_DEG) fail(`the main stem turns ${corner.toFixed(1)}° between two drawn steps (a corner)`);
 
 // (the laws: Moody & Troutman's 1,000 m³/s ~228 m wide, ~3.9 m deep; a bend's waves on a gentle river, none on a steep one)
 const w = channelKm(1000), d = channelDepthKm(1000);
@@ -69,5 +91,5 @@ for (let j = row0 + Math.ceil(channelKm(q) / pk) + 1; j < row0 + rim; j++) steep
 if (Math.abs(at2(row0) - floor) > 0.01) fail(`valley floor ${at2(row0).toFixed(3)} km, by the river's ground ${floor.toFixed(3)}`);
 if (steepest > 0.7 * 1.1) fail(`valley wall ${steepest.toFixed(2)} steep, above the threshold hillslope 0.7`);
 if (Math.abs(at2(row0 + rim)) > 1e-4 || Math.abs(at2(row0 - rim)) > 1e-4) fail(`land past the valley cut: ${at2(row0 + rim)}, ${at2(row0 - rim)} km`);
-console.log(fails ? `FAIL (${fails})` : `PASS: confluences joined (gap ${worst.toExponential(1)} px); channel, bends, braiding and valley by the laws`);
+console.log(fails ? `FAIL (${fails})` : `PASS: confluences joined (gap ${worst.toExponential(1)} px), no corner (${corner.toFixed(1)}° a step at most); channel, bends, braiding and valley by the laws`);
 process.exit(fails ? 1 : 0);

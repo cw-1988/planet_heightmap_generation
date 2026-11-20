@@ -10,7 +10,7 @@
 // the picture's pixels blur away), its walls at the hillslopes' threshold angle. (Before: 8 m · q^0.4 deep at most 300 m,
 // 0.4 … 1 by the slope, sides 0.04, all set by eye.)
 
-import { meanderAt, meanderSwing, MEANDER_PAD_KM } from './river-meander.js';
+import { meanderAt, meanderSwing, MEANDER_PAD_KM, endTurns, curveAt, curveMaxKm } from './river-meander.js';
 import { CHANNEL, channelKm, channelDepthKm, VALLEY_LAW } from './river-hydraulics.js';
 
 export { CHANNEL, channelKm };
@@ -55,10 +55,24 @@ export function riverParts(R, i0, i1, q0, extra = () => 0) {
         if (!into.length) into.head ??= i === i0 ? 'reach' : 'gap';
         into.push(p);
     }
-    const out = [];
+    // (a confluence is smoothed as any other point of the river that runs on through it — the biggest reach into it and
+    // the one out — with the neighbour's next point as a ghost, each reach then cut at the one point both share, joinAt;
+    // a smaller tributary ends there too, at its own angle. Pinned, each reach kept its raw corner: 90°, drawn)
+    const J = joinsOf(R), k = J.byStart.get(i0), u = k === undefined ? -1 : J.up[k], d = k === undefined ? -1 : J.down[k];
+    const drawn = r => r >= 0 && R.q[J.starts[r + 1] - 1] >= q0, mu = d >= 0 ? J.up[d] : -1;
+    const intoOut = d >= 0 && drawn(mu) && R.q[i1 - 1] >= q0 && R.q[J.starts[d]] >= q0 && J.starts[d + 1] - J.starts[d] >= 2;
+    const out = [], first = parts.find(p => p.length >= 2), last = parts.findLast(p => p.length >= 2);
     for (let pts of parts) {
         if (pts.length < 2) continue;
         const head = pts.head, tail = !!pts.tail;
+        const inJoin = pts === first && head === 'reach' && drawn(u) ? joinAt(R, J.starts[u + 1] - 2, i0, i0 + 1) : null;
+        const outJoin = pts === last && !tail && intoOut ? joinAt(R, J.starts[mu + 1] - 2, i1 - 1, J.starts[d] + 1) : null;
+        const runOn = outJoin && mu === k, ghost = (p, i) => { const g = p.slice(), x = (R.lon[i] + 180) / 360 * TEX_W; g[0] = x - TEX_W * Math.round((x - p[0]) / TEX_W); g[1] = (90 - R.lat[i]) / 180 * TEX_H; return g; };
+        const M0 = inJoin && [inJoin[0], inJoin[1], ...pts[0].slice(2)];
+        const M1 = outJoin && [outJoin[0], outJoin[1], ...pts[pts.length - 1].slice(2)];
+        if (inJoin) pts.unshift(ghost(pts[0], J.starts[u + 1] - 2));
+        if (runOn) pts.push(ghost(pts[pts.length - 1], J.starts[d] + 1));
+        else if (outJoin) pts[pts.length - 1] = M1;                    // (a tributary: ends where the river runs on)
         for (let it = 0; it < 2; it++) {
             const nx = [pts[0]];
             for (let i = 0; i < pts.length - 1; i++) {
@@ -67,6 +81,8 @@ export function riverParts(R, i0, i1, q0, extra = () => 0) {
             }
             nx.push(pts[pts.length - 1]); pts = nx;
         }
+        // (the ghosts' side cut off at the shared point: it lies halfway along the 6th segment from that end, twice smoothed)
+        if (inJoin || runOn) pts = [...(inJoin ? [M0] : []), ...pts.slice(inJoin ? 6 : 0, runOn ? pts.length - 6 : pts.length), ...(runOn ? [M1] : [])];
         // (each point's normal, km east and south, unit: the meanders' sideways — the line's direction through it)
         for (let k = 0; k < pts.length; k++) {
             const a = pts[Math.max(0, k - 1)], b = pts[Math.min(pts.length - 1, k + 1)], cl = Math.max(0.05, Math.cos((0.5 - pts[k][1] / TEX_H) * Math.PI));
@@ -77,6 +93,30 @@ export function riverParts(R, i0, i1, q0, extra = () => 0) {
         out.push(pts);
     }
     return out;
+}
+
+/** Each reach's next one downstream (the reach starting at its last point; −1 at a mouth) and the biggest one running
+ *  into it (the one carrying most among those ending at its first point; −1 at a source), cached on the rivers. */
+function joinsOf(R) {
+    if (R._joins) return R._joins;
+    const starts = [...R.start, R.lat.length], n = starts.length - 1, key = i => R.lat[i] + ',' + R.lon[i], at = new Map(), byStart = new Map();
+    for (let k = 0; k < n; k++) { at.set(key(starts[k]), k); byStart.set(starts[k], k); }
+    const down = new Int32Array(n).fill(-1), up = new Int32Array(n).fill(-1);
+    for (let k = 0; k < n; k++) {
+        const e = starts[k + 1] - 1, d = at.get(key(e));
+        if (d === undefined || d === k || starts[k + 1] - starts[k] < 2) continue;
+        down[k] = d;
+        if (up[d] < 0 || R.q[e] > R.q[starts[up[d] + 1] - 1]) up[d] = k;
+    }
+    return (R._joins = { starts, byStart, down, up });
+}
+
+/** The point a river running on through confluence `iV` (raw) passes, from raw point `iP` before it to `iN` after (on
+ *  the 2048-wide texture): where Chaikin's two passes cut the corner, halfway along — the same for every reach there. */
+function joinAt(R, iP, iV, iN) {
+    const X = i => (R.lon[i] + 180) / 360 * TEX_W, Y = i => (90 - R.lat[i]) / 180 * TEX_H, xv = X(iV);
+    const near = x => x - TEX_W * Math.round((x - xv) / TEX_W);
+    return [0.75 * xv + 0.125 * (near(X(iP)) + near(X(iN))), 0.75 * Y(iV) + 0.125 * (Y(iP) + Y(iN))];
 }
 
 /** A segment's entries in the lines' array: x0 y0 x1 y1 (2048-wide texture), q0 q1, s0 s1 (km along), n0x n0y n1x n1y,
@@ -145,8 +185,9 @@ export function cropLines(lines, { W, x0, y0, w, h }, mPx) {
     for (const turn of [-1, 0, 1]) {
         const xa = x0 / k - turn * TEX_W - pad, xb = (x0 + w) / k - turn * TEX_W + pad;
         for (let s = 0; s < lines.length; s += LINE) {
-            const ax = lines[s], ay = lines[s + 1], bx = lines[s + 2], by = lines[s + 3];
-            if (Math.max(ax, bx) < xa || Math.min(ax, bx) > xb || Math.max(ay, by) < ya || Math.min(ay, by) > yb) continue;
+            // (out to its curve's bulge too: a third of its length at most, river-meander.js curveMaxKm)
+            const ax = lines[s], ay = lines[s + 1], bx = lines[s + 2], by = lines[s + 3], cb = 0.3 * Math.hypot(bx - ax, by - ay);
+            if (Math.max(ax, bx) + cb < xa || Math.min(ax, bx) - cb > xb || Math.max(ay, by) + cb < ya || Math.min(ay, by) - cb > yb) continue;
             out.push(ax + turn * TEX_W, ay, bx + turn * TEX_W, by);
             for (let e = 4; e < LINE; e++) out.push(lines[s + e]);
         }
@@ -162,7 +203,7 @@ export function cropLines(lines, { W, x0, y0, w, h }, mPx) {
  */
 export function carveValleys(D, lines, { hb, seaB, W, X0, Y0, ew, eh, pxKm, cosLa, fade }) {
     if (!lines || !lines.length) return;
-    const N = ew * eh, cut = new Float32Array(N), flat = new Float32Array(N), levS = new Float32Array(N), levN = new Float32Array(N), levW = new Float32Array(N), k = W / TEX_W, swing = meanderSwing(fade), mo = [0, 0];
+    const N = ew * eh, cut = new Float32Array(N), flat = new Float32Array(N), levS = new Float32Array(N), levN = new Float32Array(N), levW = new Float32Array(N), k = W / TEX_W, swing = meanderSwing(fade), mo = [0, 0], turn = [0, 0], cv = [0, 0];
     for (let s = 0; s < lines.length; s += LINE) {
         // (faded in by the flow where each pixel's nearest point is, below: by the segment's larger end, two segments meeting
         // faded unlike, and the deepest cut stepped across the valley at every point of the line — a fringe of spurs)
@@ -176,12 +217,15 @@ export function carveValleys(D, lines, { hb, seaB, W, X0, Y0, ew, eh, pxKm, cosL
         const sa = lines[s + 6], sb = lines[s + 7], n0x = lines[s + 8], n0y = lines[s + 9], n1x = lines[s + 10], n1y = lines[s + 11], seed = lines[s + 12];
         const sHead = lines[s + 15], sTail = lines[s + 16], sEnd = lines[s + 17];
         // (the segment's box, out to its valley's reach and its meanders' swing: east–west in pixels of this latitude)
-        const jMid = Math.min(eh - 1, Math.max(0, Math.round((ay + by) / 2))), cl = Math.max(0.05, cosLa[jMid]), reach = LEVEL_OUT * big.out + swing;
+        // (and the segment's own curve off its chord, river-meander.js curveAt: as the page draws it)
+        const jMid = Math.min(eh - 1, Math.max(0, Math.round((ay + by) / 2))), cl = Math.max(0.05, cosLa[jMid]);
+        const ex = (bx - ax) * cl, ey = by - ay, L2 = ex * ex + ey * ey, lenKm = Math.sqrt(L2) * pxKm;
+        endTurns(lines, s, cl, turn);
+        const bulge = curveMaxKm(turn[0], turn[1], lenKm), reach = LEVEL_OUT * big.out + swing + bulge;
         const rx = reach / (pxKm * cl) + 1, ry = reach / pxKm + 1;
         const i0 = Math.max(0, Math.floor(Math.min(ax, bx) - rx)), i1 = Math.min(ew - 1, Math.ceil(Math.max(ax, bx) + rx));
         const j0 = Math.max(0, Math.floor(Math.min(ay, by) - ry)), j1 = Math.min(eh - 1, Math.ceil(Math.max(ay, by) + ry));
         if (i0 > i1 || j0 > j1) continue;
-        const ex = (bx - ax) * cl, ey = by - ay, L2 = ex * ex + ey * ey, lenKm = Math.sqrt(L2) * pxKm;
         for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
             const p = j * ew + i;
             if (seaB[p]) continue;
@@ -195,11 +239,12 @@ export function carveValleys(D, lines, { hb, seaB, W, X0, Y0, ew, eh, pxKm, cosL
             // the head, a dip of 5 m 1 km upstream of the line)
             const q = qa + t * (qb - qa), v = reachOf(q, da + t * (db - da)), wide = LEVEL_OUT * v.out, sOn = sa + tr * (sb - sa);
             const fd = fade(2 * v.out) * smooth(0, v.out, sOn - sHead) * smooth(0, v.out, sTail - sOn);
-            if (!(fd > 0) || !(over < wide) || !(Math.abs(side) - swing < wide)) continue;
+            if (!(fd > 0) || !(over < wide) || !(Math.abs(side) - swing - bulge < wide)) continue;
             // (the distance from the bent line — the river as drawn, river-meander.js: its offset to the side there, eased by
             // how steeply it swings — a pixel read once per segment, not once per step of the bent line: a bend's every step
             // swept a box as wide as the valley, ~1,000× the pixels up close)
             meanderAt(sa + t * (sb - sa), sEnd, q, Sa + t * (Sb - Sa), seed, fade, mo);
+            curveAt(turn[0], turn[1], lenKm, t, cv); mo[0] += cv[0]; mo[1] += cv[1];
             // (the valley a clean profile about the drawn line, its width the flow's: no noise on its banks or its floor. Their
             // noises ran at a frequency set by the flow, times a place ~6,371 km from the centre — the flow's least change
             // along a river turned them thousands of waves: zigzag banks, and swirls on every slope a creek crossed; and the

@@ -18,6 +18,12 @@
 //     threshold (a braided river, a torrent) loses its own bends — the waves within a few of a bend's length — and keeps
 //     the longer ones, its valley's. (Before: waves down to 0.05 km · √q, each swinging 0.2 of its length, everywhere.)
 
+//   · No corners (2026-11-20): a river turns as far as it likes — a bend runs on past 180°, to an oxbow — but never at a
+//     point: its tightest bend is ~2–3 channel widths across (Leopold & Wolman 1960, Hickin & Nanson 1984). Each segment is
+//     a cubic through its two ends along each end's direction (curveAt, the same for the page's line and the valley's), not
+//     a chord: the chords turned at every point, up close a corner. Where a drawn river runs on through a confluence, both
+//     reaches share one direction there (river-valleys.js riverParts); a tributary meets it at its own angle.
+
 import { channelKm, MEANDER_LAW, meanderShare } from './river-hydraulics.js';
 
 const TEX_W = 2048, KM = 2 * Math.PI * 6371 / TEX_W;
@@ -83,10 +89,31 @@ export function meanderSwing(fade) {
     return d;
 }
 
+/** How far each end of segment `o` of the lines `g` turns off its chord (sine, + to its normal) into out[0], out[1]: the
+ *  chord east–west shrunk by `cl`, each end's direction square to its normal. */
+export function endTurns(g, o, cl, out) {
+    const ex = (g[o + 2] - g[o]) * cl, ey = g[o + 3] - g[o + 1], l = Math.hypot(ex, ey) || 1;
+    out[0] = -(g[o + 8] * ex + g[o + 9] * ey) / (l * (Math.hypot(g[o + 8], g[o + 9]) || 1));
+    out[1] = -(g[o + 10] * ex + g[o + 11] * ey) / (l * (Math.hypot(g[o + 10], g[o + 11]) || 1));
+    return out;
+}
+/** A segment `lenKm` long, its ends turned `sa`, `sb` (endTurns): how far its curve lies to the chord's side at t (km,
+ *  along the normal) into out[0], and how fast that changes (km per km) into out[1] — a cubic leaving each end along its
+ *  direction (moved along the end's own normal by `sa` per km, the line runs exactly along it). */
+export function curveAt(sa, sb, lenKm, t, out) {
+    const u = 1 - t;
+    out[0] = lenKm * (sa * t * u * u - sb * t * t * u);
+    out[1] = sa * u * (1 - 3 * t) + sb * t * (3 * t - 2);
+    return out;
+}
+/** The farthest a segment's curve lies off its chord (km). */
+export const curveMaxKm = (sa, sb, lenKm) => 0.15 * lenKm * (Math.abs(sa) + Math.abs(sb));
+
 /** The step a window of `pxKm` pixels cuts a line of flow `q` into (km): ~24 to its shortest wave, no less than 1.5 px
  *  (fewer drew the meanders' bends as corners up close). */
 const stepKm = (q, pxKm) => Math.max(Math.max(bendKm(q), 6 * pxKm) / 24, 1.5 * pxKm);
 
+const turn = [0, 0], cv = [0, 0], CURVE_STEP = 6 * Math.PI / 180;
 /**
  * One segment's bent line on the 2048-wide texture, from t0 to t1 (0 … 1 along it): emit(x, y, q) at each point after
  * t0 (and at t0 too with `withStart`). `g` the lines' array, `o` the segment's first entry (river-valleys.js LINE:
@@ -94,13 +121,17 @@ const stepKm = (q, pxKm) => Math.max(Math.max(bendKm(q), 6 * pxKm) / 24, 1.5 * p
  */
 export function bendSegment(g, o, t0, t1, pxKm, fade, emit, withStart = false) {
     const ax = g[o], ay = g[o + 1], bx = g[o + 2], by = g[o + 3], qa = g[o + 4], qb = g[o + 5], sa = g[o + 6], sb = g[o + 7], seed = g[o + 12], end = g[o + 17], Sa = g[o + 18], Sb = g[o + 19];
-    const cl0 = Math.max(0.05, Math.cos((0.5 - (ay + by) / 2 / (TEX_W / 2)) * Math.PI)), lenKm = Math.hypot((bx - ax) * cl0, by - ay) * KM * (t1 - t0);
-    // (no wave the pixels hold — a coarse window: the segment as it is, its end alone)
-    const n = !(fade(MEANDER.top) > 0) ? 1 : Math.max(1, Math.min(4096, Math.ceil(lenKm / stepKm(Math.min(qa, qb), pxKm))));
+    const cl0 = Math.max(0.05, Math.cos((0.5 - (ay + by) / 2 / (TEX_W / 2)) * Math.PI)), full = Math.hypot((bx - ax) * cl0, by - ay) * KM, lenKm = full * (t1 - t0);
+    endTurns(g, o, cl0, turn);
+    // (no wave the pixels hold — a coarse window: the segment's curve alone, in as few steps as the pixels see it — off
+    // its chord by under half a pixel, and turning at most CURVE_STEP per step where its steps span 2 pixels or more)
+    const bulge = curveMaxKm(turn[0], turn[1], full), bend = Math.asin(Math.min(1, Math.abs(turn[0]))) + Math.asin(Math.min(1, Math.abs(turn[1])));
+    const n = !(fade(MEANDER.top) > 0) ? Math.max(1, Math.min(64, Math.ceil((t1 - t0) * Math.max(bulge > 0.5 * pxKm ? 4 * Math.sqrt(bulge / pxKm) : 1, full > 2 * pxKm ? bend / CURVE_STEP : 1))))
+        : Math.max(1, Math.min(4096, Math.ceil(lenKm / stepKm(Math.min(qa, qb), pxKm))));
     for (let k = withStart ? 0 : 1; k <= n; k++) {
         const t = t0 + (t1 - t0) * k / n, x = ax + t * (bx - ax), y = ay + t * (by - ay), q = qa + t * (qb - qa);
         let nx = g[o + 8] + t * (g[o + 10] - g[o + 8]), ny = g[o + 9] + t * (g[o + 11] - g[o + 9]);
-        const nl = Math.hypot(nx, ny) || 1, off = meanderOffset(sa + t * (sb - sa), end, q, Sa + t * (Sb - Sa), seed, fade) / nl;
+        const nl = Math.hypot(nx, ny) || 1, off = (meanderOffset(sa + t * (sb - sa), end, q, Sa + t * (Sb - Sa), seed, fade) + curveAt(turn[0], turn[1], full, t, cv)[0]) / nl;
         const cl = Math.max(0.05, Math.cos((0.5 - y / (TEX_W / 2)) * Math.PI));
         emit(x + nx * off / (KM * cl), y + ny * off / KM, q);
     }

@@ -65,6 +65,7 @@ showed out at sea as a 2.8 m step along a straight line. This change also applie
 `v2/js/finish/river-meander.js` bends each river's smoothed line (`riverParts` in river-valleys.js) to either side.
 
 - Channel, bends, braiding and valleys follow measured laws: [river-shape-laws.md](river-shape-laws.md).
+- Rivers turn in curves, never at a corner, confluences included: [river-no-corners.md](river-no-corners.md).
 - The bend is a sum of waves from 16 km down to the river's own bend (10.9 channel widths). Each wave swings by
   `MEANDER.share` of its length and fades in with the same `fadeFor` as the ground.
 - Its phase is the distance along the river, so it runs on continuously whatever the flow does. A shared point gets the

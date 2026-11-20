@@ -1,9 +1,14 @@
 # The Detail ladder: a new planet built coarse first, then finer step by step
 
-A new planet (Generate or Import) is shown at 5,000 Detail first. Then it is shown at four times as many cells each step
-(20,000, 80,000, 320,000, 1,280,000) while that is below the Detail chosen, and then at the Detail itself. Each step
+A new planet (Generate or Import) is shown at 5,000 Detail first. Then it is shown at twice as many cells each step
+(10,000, 20,000, 40,000 … 1,280,000) while that is below the Detail chosen, and then at the Detail itself. Each step
 replaces the last on screen, as if the Detail slider were slid from left to right while it builds. Asked for by the owner,
 2026-11-20. Back to [shared.md](shared.md); the rest of the load: [generate-load.md](generate-load.md).
+
+**Why ×2** (`RUNG_STEP`, the owner, 2026-11-20): ×4 the cells is ×2 the sharpness (cells per km grow as the square
+root), and that jumped too far between pictures. ×2 the cells is ×1.41 the sharpness: twice the pictures, each a smaller
+step. The cost: the coarse steps together cost about as much as the last one does (1/2 + 1/4 + … of it), where at ×4
+they cost a third of it.
 
 ## How
 
@@ -32,7 +37,9 @@ every finish stage, the saved files and Evolution: a change of direction.
 
 ## What it costs
 
-Measured in the app's browser pane, 2026-11-20:
+Measured in the app's browser pane, 2026-11-20, with the earlier ×4 steps (not yet measured at ×2: by the sum above the
+chosen Detail's picture comes about 2/3 of the last step's ground later — ~8 s more at 2,560,000 — while a new picture
+comes twice as often):
 
 | Detail | Steps shown at (s) | First picture of the chosen Detail |
 |---|---|---|
