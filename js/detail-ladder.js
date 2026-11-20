@@ -72,7 +72,7 @@ export async function groundOnMesh(present, m, plateIsOcean, seed, knobs, pool) 
 }
 
 /** A step of the ladder sent to the page: its mesh (Evolution's z-up frame), heights and hillshade, its Detail, and when
- *  (ms since the build began at `t0`); with `water` (rungJob: Rivers and lakes in each step) the finish's job for it. */
+ *  (ms since the build began at `t0`); with `water` (rungJob: with Progressive generation) the finish's job for it. */
 export function sendRung(mesh, r_xyz, heightKm, shade, n, of, t0, ms = null, water = null) {
     const tm = presentTerrainMesh(mesh, r_xyz), h = heightKm.slice(), s = shade.slice();
     const m = { numCells: tm.numCells, xyz: tm.xyz.slice(), adjOffset: tm.adjOffset.slice(), adjList: tm.adjList.slice() };
@@ -81,7 +81,7 @@ export function sendRung(mesh, r_xyz, heightKm, shade, n, of, t0, ms = null, wat
 }
 
 /**
- * A step's water (Rivers and lakes in each step, docs/progressive-detail.md): the finish's job for the step's own ground,
+ * A step's water (each step's water with Progressive, docs/progressive-detail.md): the finish's job for the step's own ground,
  * which the page runs to its terrain only (finish-worker.js terrainOnly) — its rivers, lakes and the valleys they cut, on
  * the step's mesh. `frame` the Frame on the history's clock (Generate's; null for an imported image: no rocks), `sim` the
  * sim mesh, `surface` the step's uncarved ground ({heightKm, carveIn, recCell, cues}). Copies, with their buffers.

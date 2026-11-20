@@ -1,9 +1,10 @@
 # Rivers and lakes in each step of the Detail ladder
 
-The switch "Rivers and lakes in each step" sits under Progressive generation on Generate and Import. It is on by
-default, remembered as `progressiveWater`, and greyed out while Progressive is off. With it on, each coarse step of the
-ladder ([progressive-detail.md](progressive-detail.md)) is shown with its own rivers, lakes and the valleys they cut, not
-as bare ground. Asked for by the owner, 2026-11-20: the water was what was missed most while a planet built.
+With Progressive generation on (Generate and Import), each coarse step of the ladder
+([progressive-detail.md](progressive-detail.md)) is shown with its own rivers, lakes and the valleys they cut, not as
+bare ground. Asked for by the owner, 2026-11-20: the water was what was missed most while a planet built. It had its own
+switch, "Rivers and lakes in each step"; the owner had it removed the same day, so the water now always comes with
+Progressive (`js/page-chrome.js` `progressiveSwitch`: `progressiveWater` is Progressive itself).
 
 ## How
 

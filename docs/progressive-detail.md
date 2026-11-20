@@ -17,8 +17,7 @@ last step at ×2), but nothing is shown until it is done. Which is better depend
 getting the final planet sooner. Measured in the browser pane, 2026-11-20, at 204,000 Detail on a new seed: 8.6 s to
 the button freed with it off, 17.8 s with it on (6 coarse steps).
 
-**Rivers and lakes in each step** (the switch under it, on by default): each step shown with its own water —
-[progressive-water.md](progressive-water.md).
+Each step is shown with its own water (no switch of its own): [progressive-water.md](progressive-water.md).
 
 ## How
 

@@ -1,7 +1,7 @@
 # Rebuild mid-build
 
 On Generate, the side panel stays live while a world is built. Asked for by the owner, 2026-11-20: change Progressive
-generation, Rivers and lakes in each step, or any slider while the build runs, then Rebuild to start over with them.
+generation or any slider while the build runs, then Rebuild to start over with them.
 Code: `js/main.js` (`generate`, `asked`, the panel's input listener). Back to [generate.md](generate.md).
 
 ## How it works

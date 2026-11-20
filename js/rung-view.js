@@ -1,7 +1,7 @@
 // The Detail ladder's steps on the page (js/detail-ladder.js; docs/progressive-detail.md): each coarser step of a world
 // being built shown in place of the last — over the old world too, on a Rebuild — until the world itself arrives.
 // Generate (js/main.js) and Import (js/import-main.js) share it.
-// With Rivers and lakes in each step, a step comes with its finish's job: run here to its terrain only (its rivers, lakes
+// With Progressive generation, a step comes with its finish's job: run here to its terrain only (its rivers, lakes
 // and the valleys they cut: finish-worker.js terrainOnly) on a finishing worker of its own, beside the build — the newest
 // step waiting while one runs, those passed over dropped. Once a step's water is shown, only steps with their water
 // follow (a bare finer step would take the water away); the last stays shown until the world's own terrain lands.

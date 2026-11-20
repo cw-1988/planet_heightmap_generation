@@ -37,19 +37,15 @@ export function detailWarning(detail, isTouch) {
     else warn.textContent = '';
 }
 
-/** The Progressive generation switch under the Detail slider and, under it, Rivers and lakes in each step
- *  (docs/progressive-detail.md): each remembered on this browser, on unless switched off; the second only with the
- *  first. Returns a reader of both for the build's message ({progressive, progressiveWater}). */
+/** The Progressive generation switch under the Detail slider (docs/progressive-detail.md): remembered on this browser,
+ *  on unless switched off. Each step comes with its rivers and lakes whenever it is on (their own switch removed, the
+ *  owner, 2026-11-20). Returns a reader for the build's message ({progressive, progressiveWater}). */
 export function progressiveSwitch() {
-    const box = $('progressive'), water = $('progressiveWater');
+    const box = $('progressive');
     if (!box) return () => ({ progressive: true, progressiveWater: false });
     box.checked = store.get('progressiveDetail') !== '0';
-    if (water) water.checked = store.get('progressiveWater') !== '0';
-    const sync = () => { if (water) { water.disabled = !box.checked; water.closest('label').classList.toggle('off', !box.checked); } };
-    box.addEventListener('change', () => { store.set('progressiveDetail', box.checked ? '1' : '0'); sync(); });
-    water?.addEventListener('change', () => store.set('progressiveWater', water.checked ? '1' : '0'));
-    sync();
-    return () => ({ progressive: box.checked, progressiveWater: box.checked && !!water?.checked });
+    box.addEventListener('change', () => store.set('progressiveDetail', box.checked ? '1' : '0'));
+    return () => ({ progressive: box.checked, progressiveWater: box.checked });
 }
 
 /** Ranges inside a <details> drawn again when it opens (a browser may not move a hidden slider's thumb). */
