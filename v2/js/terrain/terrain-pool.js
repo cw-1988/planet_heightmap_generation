@@ -6,7 +6,7 @@
 // have built, on a queue of its own, so the next frame's surface is built while this one is carved. Hillshading a frame
 // for the page needs its whole mesh too: one more worker (shade-worker.js) does that, so the page's thread never does.
 
-import { preparePlan, carveLadder, carveSettings, carveInputs, surfaceParts } from './synthesize.js';
+import { preparePlan, carveLadder, ladderCells, carveSettings, carveInputs, surfaceParts } from './synthesize.js';
 import { terrainMeshAsync } from './terrain-mesh.js';
 import { report } from '../core/progress.js';
 
@@ -113,8 +113,25 @@ export class TerrainPool {
 
     get size() { return this.workers.length; }
 
-    /** Let go of what the pool keeps for a mesh (its chunks, its sampler: ~0.3 GB at 10M cells). */
-    forget(tMesh) { this.meshes.delete(tMesh); }
+    /** Let go of what the pool keeps for a mesh (its chunks, its sampler: ~0.3 GB at 10M cells) — on its workers too, which
+     *  hold the chunks' positions and samplers (chunk ids carry the cell count: kept while another kept mesh shares it). */
+    forget(tMesh) {
+        if (!this.meshes.delete(tMesh)) return;
+        const n = tMesh.numCells;
+        if (![...this.meshes.keys()].some(m => m.numCells === n)) for (const w of this.workers) w.post({ type: 'forget', numCells: n });
+    }
+
+    /** Keep only what a ground on `tMesh` reads, on every worker: its chunks, the meshes its carving climbs, its shading's.
+     *  (Before, each worker kept a copy of every mesh it was ever sent: a Detail ladder to 2.56M left ~0.4 GB of earlier
+     *  steps' meshes on the carving, shading and synthesis workers. A mesh let go here is sent again if asked for.) */
+    keepOnly(tMesh) {
+        for (const m of [...this.meshes.keys()]) if (m !== tMesh) this.forget(m);
+        const keep = new Set([this.sim.numCells, ...ladderCells(this.sim.numCells, tMesh.numCells), tMesh.numCells]);
+        for (const slot of [...this.carvers, this.shader]) if (slot?.worker) for (const n of [...slot.sent]) if (!keep.has(n)) {
+            slot.worker.post({ type: 'forget', numCells: n });
+            slot.sent.delete(n);
+        }
+    }
 
     terminate() {
         if (!this.closed) { this.closed = true; this.failAll('the terrain pool was closed'); }

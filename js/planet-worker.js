@@ -37,11 +37,10 @@ let W = null;
 // the ground is drawn here, as before.
 let pool = null;
 const poolReady = TerrainPool.create(presentSimMesh()).then(p => { p.onBroken = () => { pool = null; }; return (pool = p); }, e => { console.warn('[terrain] no worker pool, the ground drawn on this thread:', e.message); return null; });
-/** The pool for a ground on `mesh`: what it keeps of earlier meshes let go. */
+/** The pool for a ground on `mesh`: what it and its workers keep of earlier meshes let go (each Detail step's, too). */
 async function poolFor(mesh, r_xyz) {
     await poolReady;
-    const tm = presentTerrainMesh(mesh, r_xyz);
-    if (pool) for (const m of [...pool.meshes.keys()]) if (m !== tm) pool.forget(m);
+    pool?.keepOnly(presentTerrainMesh(mesh, r_xyz));
     return pool;
 }
 

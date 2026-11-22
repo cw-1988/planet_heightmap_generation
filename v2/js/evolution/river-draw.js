@@ -3,7 +3,7 @@
 // On a window of a sharper picture each line bends by its meanders (river-meander.js) as the valley under it does — the
 // same waves, faded in by the same fade (pixel-fade.js) — so up close the drawn river winds in its own valley.
 
-import { riverParts, pushSegments, LINE, CHANNEL, BED, bedKm } from '../finish/river-valleys.js';
+import { riverParts, riverLines, pushSegments, LINE, CHANNEL, BED, bedKm } from '../finish/river-valleys.js';
 import { bendSegment, MEANDER_PAD_KM } from '../finish/river-meander.js';
 import { fadeFor } from '../finish/pixel-fade.js';
 
@@ -59,7 +59,11 @@ export function riverPaths(fin, q0) {
 function riverSegments(fin, q0) {
     fin.segments ??= new Map();
     if (fin.segments.has(q0)) return fin.segments.get(q0);
-    const R = fin.rivers, W = 2048, H = 1024, keys = new Map(), buckets = [], xy = [], bucket = [], prev = [], joined = [], along = [], g = [], starts = [...R.start, R.lat.length];
+    const R = fin.rivers, W = 2048, H = 1024, keys = new Map(), buckets = [], xy = [], bucket = [], prev = [], joined = [], along = [], starts = [...R.start, R.lat.length];
+    // (each segment's flow, distance along and normals — its meanders: the valleys' own lines (riverLines: the same parts in
+    // the same order, the regime aside), one array for both — 47 MB at 2.56M cells drawn twice before; without the picture,
+    // built here)
+    const lines = R._valleyLines?.get(q0) ?? (fin.raster?.heightM ? riverLines(R, q0, fin.raster) : null), g = lines ? null : [];
     let maxLen = 0;
     const add = (str, reg, x0, y0, x1, y1) => {
         const key = `${str}|${reg}`;
@@ -74,7 +78,7 @@ function riverSegments(fin, q0) {
         // (a reach below the threshold ends its line — a river that dries out is not bridged to where it flows again —
         // split where it crosses the map's edge, smoothed; the world map cuts its valleys along the same lines)
         for (const pts of riverParts(R, starts[r], starts[r + 1], q0, i => regimeAt(R, i))) {
-            pushSegments(g, pts);   // (each segment's flow, distance along and normals: its meanders, in the same order)
+            if (g) pushSegments(g, pts);
             for (let i = 0; i < pts.length - 1; i++) {
                 const a = pts[i], b = pts[i + 1];
                 add(riverStrength(a[2], q0), a[3], a[0], a[1], b[0], b[1]);
@@ -84,7 +88,8 @@ function riverSegments(fin, q0) {
     // (a segment across the map — riverParts splits there; check-river-joins.mjs — makes the windows' margin, half the
     // longest, take every river into each tile: the zoomed view lags)
     if (maxLen > W / 4) console.error(`[rivers] a drawn segment ${maxLen.toFixed(0)} px long: it crosses the map, every tile draws every river`);
-    const S = { count: bucket.length, xy: Float32Array.from(xy), bucket: Uint16Array.from(bucket), prev: Int32Array.from(prev), joined: Uint8Array.from(joined), along: Float32Array.from(along), g: Float64Array.from(g), maxLen,
+    const S = { count: bucket.length, xy: Float32Array.from(xy), bucket: Uint16Array.from(bucket), prev: Int32Array.from(prev), joined: Uint8Array.from(joined), along: Float32Array.from(along), g: lines ?? Float64Array.from(g), maxLen,
+    if (lines && lines.length !== LINE * bucket.length) console.error(`[rivers] the valleys' lines hold ${lines.length / LINE} segments, the drawn ${bucket.length}: their parts differ`);
         buckets: buckets.map(({ strength, regime }) => ({ strength, regime })), order: buckets.map((b, i) => i).sort((a, b) => buckets[a].strength - buckets[b].strength), grid: null };
     fin.segments.set(q0, S);
     return S;

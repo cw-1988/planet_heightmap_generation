@@ -27,6 +27,7 @@ function handle(msg) {
     try {
         if (msg.type === 'sim') state.sim = meshFromArrays(msg.mesh);
         else if (msg.type === 'chunks') for (const c of msg.chunks) state.chunks.set(c.id, { xyz: c.xyz, cells: null, weights: null, samplerKey: null });
+        else if (msg.type === 'forget') { for (const id of [...state.chunks.keys()]) if (id.startsWith(`${msg.numCells}:`)) state.chunks.delete(id); }
         else if (msg.type === 'peer') state.peers.push(msg.port);
         else if (msg.type === 'planner') listen(msg.port, got => { state.plans.set(got.jobId, got); ready(got.jobId); });
         else if (msg.type === 'job' && msg.frame) {

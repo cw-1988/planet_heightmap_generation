@@ -59,7 +59,9 @@ export class TerrainPlayer {
         this.workers = workers;
         this.resting = null;           // let go of the pool for a while (rest): { wake: a promise, resolve }
         this.rests = 0;
-        if (usePool) poolFor(simMesh, workers);
+        // (the page's pool keeps only this player's mesh on its workers: an earlier Detail's let go — an older player still
+        // building has its mesh sent again)
+        if (usePool) poolFor(simMesh, workers).then(p => p.keepOnly(tMesh), () => {});
     }
 
     /** The worker pool (a promise) — a new one if the last broke or was let go; none while resting. */

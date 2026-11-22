@@ -19,6 +19,7 @@ post({ type: 'ready' });                                   // (loaded: terrain-p
 function handle(msg) {
     try {
         if (msg.type === 'mesh') meshes.set(msg.mesh.numCells, msg.mesh);
+        else if (msg.type === 'forget') meshes.delete(msg.numCells);              // (terrain-pool.js keepOnly)
         else if (msg.type === 'shade') {
             const shade = hillshade(meshes.get(msg.numCells), msg.heightKm, msg.opts);
             post({ type: 'shaded', jobId: msg.jobId, shade }, [shade.buffer]);

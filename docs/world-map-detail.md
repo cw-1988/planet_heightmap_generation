@@ -22,6 +22,7 @@ valleys of their own.
   below the middle, so the planet's edge, a pole or a wide view no longer keeps the tiles off. A view's tiles first
   drop their prefetch margin before falling a level coarser; desktop holds 260 a view (`most`).
 - Each tile is drawn once per world and kept on disk; memory holds only the view's: [tile-disk.md](tile-disk.md).
+- What the page keeps at rest at 2.56M Detail, and what was cut: [page-memory.md](page-memory.md).
 - Before (2026-11-18): tiles waited for 1.6× the paused picture's 4,096 px, a view free of the planet's edge, the
   poles and 120° of longitude. Until then the 2,048 picture stood in, stretched up to 3.2–5× with no grain: one
   blurred zoom level. Measured on 9 × 9 samples like the page's: the desktop map now stretches at most 1.18× (the level

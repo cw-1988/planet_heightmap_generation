@@ -324,6 +324,7 @@ export function terrainPhase(spec) {
             old?.then(p => p.terminate());
         }
         const pool = poolReady ??= await poolPromise;
+        pool.keepOnly(tMesh);                             // (its workers: an earlier Detail's meshes let go)
         if (!built(frame, layer)) {
             // the surface — all on the pool: the page's thread only gathers the heights (and the components, for a layer
             // that shows them; the records are derived when a layer asks for them)

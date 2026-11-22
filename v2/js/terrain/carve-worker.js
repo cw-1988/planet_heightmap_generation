@@ -3,7 +3,7 @@
 // whole surface at once (rivers run across any split), so it is one job per frame; the chunk workers meanwhile build
 // the next frame's surface. Runs as a browser module worker or a Node worker thread; same result as carving in place.
 
-import { carveTerrain } from './carve.js';
+import { carveTerrain, forgetMesh } from './carve.js';
 import { meshFromArrays } from '../core/sim-mesh.js';
 
 const meshes = new Map();                                  // numCells → mesh
@@ -21,6 +21,10 @@ post({ type: 'ready' });                                   // (loaded: terrain-p
 function handle(msg) {
     try {
         if (msg.type === 'mesh') meshes.set(msg.mesh.numCells, meshFromArrays(msg.mesh));
+        else if (msg.type === 'forget') {                  // (terrain-pool.js keepOnly: the mesh and what the carving cached for it)
+            const m = meshes.get(msg.numCells);
+            if (m) { forgetMesh(m); meshes.delete(msg.numCells); }
+        }
         else if (msg.type === 'carve') {
             const started = performance.now();
             const C = carveTerrain(msg.ladder.map(n => meshes.get(n)), msg.fields, msg.settings);
