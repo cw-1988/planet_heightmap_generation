@@ -49,7 +49,8 @@ rivers 7.0 · water 4.2 · final climate 10.5 (since on workers: 3.6, [final-cov
 ([picture-workers.md](picture-workers.md)), its terrain look's rows too: 7.1 → 5.0
 ([terrain-look-workers.md](terrain-look-workers.md)); the surface's pool better balanced: 10.9 → 10.7
 ([terrain-pool-balance.md](terrain-pool-balance.md)); the carving's passes in cell order: rivers 7.8 → 6.6
-([carve-cell-order.md](carve-cell-order.md)); where the rest goes: [finish-profile.md](finish-profile.md).
+([carve-cell-order.md](carve-cell-order.md)); the finish's thread drawing picture bands too: 6.1 → 5.7, and
+workers for the picture at every Detail: 9.7 → 4.6 at 250K ([picture-shares.md](picture-shares.md)); where the rest goes: [finish-profile.md](finish-profile.md).
 
 In the page, while the history was still being simulated beside it: 160K on screen at 21 s, 2.5M done at 114 s (both
 slowed by the history's own worker).

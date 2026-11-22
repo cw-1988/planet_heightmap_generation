@@ -12,7 +12,7 @@ It now lives in `v2/js/finish/terrain-look.js`, split where the picture is read 
 - `lookRows` (per band of rows): the riverside (`riparian`: the segments stamped and the lake fringes, clipped to the
   band's rows) and every pixel's tints. A pixel reads only its own band's colours and the whole-picture arrays from the
   setup; the riverside is the most of what covers a pixel, so the order of stamping does not matter.
-- `terrainLook` is setup plus all rows at once: the path below 300K cells, with the same pixels.
+- `terrainLook` is setup plus all rows at once: the path below 1024 px, with the same pixels.
 
 `v2/js/finish/raster-workers.js` runs the rows as a second round on the same workers that drew the picture's bands,
 before they stop (`lookOnWorkers`): each worker gets the setup's arrays once (`lookShare`, and lets go of its mesh copy),

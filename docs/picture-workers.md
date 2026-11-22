@@ -1,18 +1,19 @@
 # The finished picture on workers
 
 The Finish's last step draws the planet as an equirectangular picture: heights, sea, water, the climate grid, rock and
-farming per pixel. Each row reads only the mesh and the cells' fields, so from 300K cells it is drawn on worker threads
+farming per pixel. Each row reads only the mesh and the cells' fields, so from 1024 px wide it is drawn on worker threads
 by bands of rows: `v2/js/finish/finish-raster.js` (`rasterBand`, `rasterFinish`), `v2/js/finish/raster-workers.js`
 (`finishRasterAsync`) and the worker `v2/js/finish/raster-worker.js`, spawned by `terrain-pool.js`'s `spawn`.
 
 - At most 4 workers, 4 bands each; each worker gets the mesh and the fields once (a copy, about 350 MB at 2.5M,
-  held only while the picture is drawn, then the workers stop), then bands, the next as soon as one is done.
+  held only while the picture is drawn, then the workers stop), then bands, the next as soon as one is done. The
+  finish's own thread draws bands too ([picture-shares.md](picture-shares.md)).
 - Band starts are multiples of the climate grid's step, so each band's climate rows are whole; the bands are joined in
   row order.
 - What reads the picture whole runs on the finish's thread after the join: the small lakes (`pondRaster`) and the
   terrain look's setup; the terrain look's rows go back to the same workers in a second round
   ([terrain-look-workers.md](terrain-look-workers.md)).
-- Below 300K cells, with reused cells (`located`), or where no worker starts, `finishRaster` draws it on the finish's
+- Below 1024 px (until 2026-11-22: below 300K cells, though the cost goes with the pixels), with reused cells (`located`), or where no worker starts, `finishRaster` draws it on the finish's
   own thread, and the result is the same.
 
 ## Measured
