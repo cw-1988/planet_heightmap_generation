@@ -42,7 +42,7 @@ export function runHistory({ list, scene, heights = {}, ending = 'none', start =
         let moreJob = null, dead = null;             // (a run-on under way: its promise's resolve / reject; the worker's end)
         const fail = err => { dead = err; worker.terminate(); if (moreJob) { moreJob.reject(err); moreJob = null; } else reject(err); };
         worker.onmessage = ({ data }) => {
-            if (data.type === 'frame') { const frame = new PackedFrame(data.frame); if (collect) frames.push(frame); onProgress(frame.time); onFrame?.(frame, count++); }
+            if (data.type === 'frame') { const frame = new PackedFrame(data.frame); if (collect) frames.push(frame); onProgress(frame.time); onFrame?.(frame, count); count++; }
             else if (data.type === 'done') {
                 const out = { frames, steps: data.steps, stopped: data.stopped, complete: !data.stopped && ending !== 'none', time: data.time, ms: data.ms, packMs: data.packMs };
                 if (!keep) worker.terminate();

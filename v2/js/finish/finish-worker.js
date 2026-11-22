@@ -24,7 +24,8 @@
 //              grid's fields, climate-fields.js, and raster {w, h, koppen, tAnnual (°C × 100), pAnnual (mm), stats} — the land's
 //              climate, at most 4096 px wide), stats, ms} · {type: 'error', id, message}
 
-import { finishPlanet, finishRaster, FARM_KEYS } from './finish.js';
+import { finishPlanet, FARM_KEYS } from './finish.js';
+import { finishRasterAsync } from './raster-workers.js';
 import { FINISH } from './finish-config.js';
 import { terrainConfig } from '../terrain/terrain-config.js';
 import { driverWidth, DRIVER_FIELDS } from './finish-drivers.js';
@@ -69,8 +70,8 @@ self.onmessage = async ({ data }) => {
         // (the terrain, as soon as it is final: its picture of heights, sea and lakes, its rivers and drain — copies; the
         // pixels' cells kept for the finished picture, up to LOCATED_WIDTH: wider, their memory outweighs the second saved)
         const located = earlyTerrain && width <= LOCATED_WIDTH ? {} : null;
-        const onTerrain = earlyTerrain ? t => {
-            const raster = finishRaster(t.mesh, t.z, t.ocean, width, null, t.lake, t.lakeLevel, null, null, null, located);
+        const onTerrain = earlyTerrain ? async t => {
+            const raster = await finishRasterAsync(t.mesh, t.z, t.ocean, width, null, t.lake, t.lakeLevel, null, null, null, located, t.pond);
             // (and the valleys' lines the zoomed tiles cut, for the rivers the page draws — ~0.15 s off its thread; built on a
             // copy, so the rivers sent with 'done' carry no cache)
             const lines = valleyQ > 0 && valleyQ < Infinity ? riverLines({ ...t.rivers }, valleyQ, raster) : null;
@@ -94,7 +95,7 @@ self.onmessage = async ({ data }) => {
         if (out.terrainOnly) { self.postMessage({ type: 'done', id, terrainOnly: true, ms: out.ms }); return; }
         self.postMessage({ type: 'stage', id, stage: 'picture' });
         const t0 = performance.now();
-        const raster = finishRaster(out.mesh, out.z, out.ocean, width, share => self.postMessage({ type: 'progress', id, share }), out.lake, out.lakeLevel, out.climate.cell, out.geology, out.farming, located);
+        const raster = await finishRasterAsync(out.mesh, out.z, out.ocean, width, share => self.postMessage({ type: 'progress', id, share }), out.lake, out.lakeLevel, out.climate.cell, out.geology, out.farming, located, out.pond);
         const farm = raster.farming ? [...[...FARM_KEYS, 'kind'].map(k => raster.farming[k].buffer), ...Object.values(raster.farming.crops ?? {}).map(a => a.buffer)] : [];
         out.ms.picture = performance.now() - t0;
         // (the finished moment's climate: the grid's fields, and its own picture of the land's climate)

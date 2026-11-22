@@ -45,7 +45,8 @@ Node, seed 799224, 30 % continent, 290 Myr, 40K plate cells (`v2/tools/bench-lad
 
 Stages at 160K (s): mesh 0.3 · surface 2.8 · climate 6.2 · rivers 0.5 · ice age 0.8 · wind 1.1 · detail 0.8 ·
 final climate 1.8 — the climate's fixed cost is most of a coarse pass. At 2.5M: mesh 4.1 · surface 10.0 · climate 6.3 ·
-rivers 7.0 · water 4.2 · final climate 10.5 (since on workers: 3.6, [final-cover-workers.md](final-cover-workers.md)).
+rivers 7.0 · water 4.2 · final climate 10.5 (since on workers: 3.6, [final-cover-workers.md](final-cover-workers.md)); the picture on workers: 9.7 → 7.1
+([picture-workers.md](picture-workers.md)).
 
 In the page, while the history was still being simulated beside it: 160K on screen at 21 s, 2.5M done at 114 s (both
 slowed by the history's own worker).

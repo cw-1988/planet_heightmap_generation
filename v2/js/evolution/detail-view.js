@@ -95,7 +95,8 @@ export class DetailService {
             while (next < bands.length) {
                 const b = bands[next++], o = await this.run(src, b.win, signal), at = b.y * win.w;
                 out.h.set(o.h, at); out.sea.set(o.sea, at); out.wat.set(o.wat, at); if (out.lev && o.lev) out.lev.set(o.lev, at);
-                onBand?.(++done / bands.length);
+                done++;                                   // (not inside onBand?.(): with no onBand it never counts)
+                onBand?.(done / bands.length);
             }
         };
         await Promise.all(Array.from({ length: Math.min(n, bands.length) }, one));
