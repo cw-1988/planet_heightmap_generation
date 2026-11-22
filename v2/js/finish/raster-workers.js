@@ -9,12 +9,14 @@ import { spawn, defaultPoolSize } from '../terrain/terrain-pool.js';
 import { SphereIndex } from '../core/sphere-index.js';
 import { lookSetup, lookBand, lookRows } from './terrain-look.js';
 import { FastNoise } from '../core/fast-noise.js';
+import { SHARED, sharedAll } from '../core/shared-memory.js';
 
 /** From this width, the picture is drawn on workers: its cost goes with its pixels (9.7 s at 4096 px on one thread, at
  *  250K cells as at 2.5M), and the copies sent are small on a small mesh. */
 const WORKERS_FROM_WIDTH = 1024;
-/** At most this many: each holds its own copy of the mesh and fields while it draws. */
-const MAX_WORKERS = 4;
+/** At most this many where each holds its own copy of the mesh and fields while it draws; where memory is shared
+ *  (shared-memory.js), as many as the pool's. */
+const MAX_WORKERS = SHARED ? Infinity : 4;
 const BANDS_PER_WORKER = 4;
 
 /** finishRaster's picture, its rows drawn on workers — same arguments; `located` (reused cells) keeps it on this thread. */
@@ -38,6 +40,7 @@ async function lookOnWorkers(workers, C, heightM, w) {
     const views = [C.sat.year, C.sat.jan, C.sat.jul];
     let next = 0, done = 0;
     const noise = new FastNoise(C.mottleSeed);                          // (as each worker's)
+    const sharedL = sharedAll(L);                                       // (copied once for all, where memory is shared)
     await new Promise((resolve, reject) => {
         const take = () => (next < ranges.length ? next++ : -1);
         const band = i => { const [y0, y1] = ranges[i]; return { ...lookBand(C, y0, y1, true), mean: mean.slice(y0 * cw, y1 * cw), std: std.slice(y0 * cw, y1 * cw) }; };
@@ -55,15 +58,20 @@ async function lookOnWorkers(workers, C, heightM, w) {
                 give(wk);
             });
             wk.onCrash(m => reject(new Error(`raster worker stopped (${m})`)));
-            wk.post({ type: 'lookShare', L, seed: C.mottleSeed });
+            wk.post({ type: 'lookShare', L: sharedL, seed: C.mottleSeed });
             give(wk); give(wk);
         }
         alsoHere(take, i => { const B = band(i); lookRows(L, B, ranges[i][0], ranges[i][1], noise); got(i, B.sat); }, reject);
     });
 }
 
-/** What a worker needs of S: the mesh's arrays and its index's table (not rebuilt), and only the fields read per pixel. */
+/** What a worker needs of S: the mesh's arrays and its index's table (not rebuilt), and only the fields read per pixel.
+ *  Where memory is shared, over it: the mesh's kept from finish to finish, the fields copied once for all workers. */
 function workerShare(S) {
+    const { mesh, ...fields } = workerFields(S);
+    return { ...sharedAll(fields), mesh: sharedAll(mesh, true) };
+}
+function workerFields(S) {
     const { mesh, z, ocean, lake, lakeLevel, climate: C, geology: G, farming: F, pond } = S;
     const climate = C && { tAnnual: C.tAnnual, pAnnual: C.pAnnual, koppen: C.koppen, stats: C.stats, sat: C.sat, ripSat: C.ripSat, cover: C.cover, flow: C.flow, young: C.young, mottleSeed: C.mottleSeed };
     const farming = F && { ...Object.fromEntries([...FARM_KEYS, 'kind'].map(k => [k, F[k]])), ...(F.crops ? { crops: F.crops } : {}) };

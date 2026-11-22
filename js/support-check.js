@@ -22,6 +22,11 @@
         HTMLScriptElement.supports('importmap');
     var gl = null;
     try { var canvas = document.createElement('canvas'); gl = canvas.getContext('webgl2') || canvas.getContext('webgl'); } catch (e) { gl = null; }
+    // (the cross-origin isolation toggle, ?isolate=1, docs/shared-memory.md: on every page that runs the app's workers)
+    var isolate = document.createElement('script');
+    isolate.src = new URL('isolate.js', document.currentScript.src).href;
+    document.head.appendChild(isolate);
+
     if (!importMaps) window.orogenCantRun('This browser is too old to run it. Please update it: Chrome or Edge 105 or later, Firefox 114 or later, or Safari 16.4 or later (iOS 16.4 on iPhone and iPad).');
     else if (!gl) window.orogenCantRun('The 3D globe needs WebGL, which this browser or device has turned off or does not support. Try another browser, or turn on hardware acceleration in its settings.');
 })();
