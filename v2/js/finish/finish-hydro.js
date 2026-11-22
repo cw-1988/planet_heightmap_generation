@@ -38,7 +38,10 @@ export const Water = Object.freeze({ NONE: 0, FRESH: 1, SALT: 2, PAN: 3 });
  */
 export function openStraits(mesh, z, ocean, F) {
     const { adjOffset, adjList, numCells: n, xyz } = mesh;
-    const { fill, parent, rank } = spillFlood(mesh, z, ocean);
+    const flood = spillFlood(mesh, z, ocean), { parent, rank } = flood;
+    // (flooded until every cell below sea level is reached: the bodies' cells and the ways out of them, all the loop reads
+    // — a cell cut below sea level on the way is on a way out, reached)
+    for (let c = 0; c < n; c++) if (!ocean[c] && z[c] < 0) flood.reach(c);
     // each body below sea level the ocean does not reach: its way out from the cell the flood reached first
     const seen = new Uint8Array(n);
     let opened = 0, cut = 0;
@@ -71,7 +74,10 @@ export function openStraits(mesh, z, ocean, F) {
 }
 
 /** The way water would spill to the sea from every cell (a priority flood from the ocean, water below sea level standing
- *  at it): each cell's spill level (km, ≥ 0), the cell it was reached from, and its order (-2: the ocean). */
+ *  at it): each cell's spill level (km, ≥ 0), the cell it was reached from, and its order (-2: the ocean). Flooded only
+ *  as far as asked — reach(c): until cell c is reached; upTo(level): every cell spilling at `level` or lower — the same
+ *  values, for the cells reached, as the whole flood's (the same pops in the same order, stopped early); a cell not
+ *  reached holds rank -1 and, if it was touched, a level above the one flooded to. */
 function spillFlood(mesh, z, ocean) {
     const { adjOffset, adjList, numCells: n } = mesh;
     const fill = new Float32Array(n), parent = new Int32Array(n).fill(-1), rank = new Int32Array(n).fill(-1), heap = new MinHeap(1 << 16);
@@ -81,9 +87,9 @@ function spillFlood(mesh, z, ocean) {
         rank[c] = -2;
         for (let k = adjOffset[c]; k < adjOffset[c + 1]; k++) { const nb = adjList[k]; if (!ocean[nb] && parent[nb] === -1) { parent[nb] = c; fill[nb] = Math.max(0, z[nb]); heap.push(fill[nb], nb); } }
     }
-    while (heap.size) {
+    const step = () => {
         const c = heap.pop();
-        if (rank[c] !== -1) continue;
+        if (rank[c] !== -1) return;
         rank[c] = count++;
         for (let k = adjOffset[c]; k < adjOffset[c + 1]; k++) {
             const nb = adjList[k];
@@ -91,8 +97,12 @@ function spillFlood(mesh, z, ocean) {
             const level = Math.max(fill[c], Math.max(0, z[nb]));
             if (parent[nb] === -1 || level < fill[nb]) { parent[nb] = c; fill[nb] = level; heap.push(level, nb); }
         }
-    }
-    return { fill, parent, rank };
+    };
+    return {
+        fill, parent, rank,
+        reach(c) { while (heap.size && rank[c] === -1) step(); },
+        upTo(level) { while (heap.size && heap.peekKey() <= level) step(); },
+    };
 }
 
 /**
@@ -104,7 +114,9 @@ function spillFlood(mesh, z, ocean) {
  */
 export function fillSeaBasins(mesh, z, ocean, F) {
     const { adjOffset, adjList, numCells: n } = mesh, EPS = 1e-4, cellKm2 = 4 * Math.PI * R * R / n;
-    const { fill } = spillFlood(mesh, z, ocean), basin = new Uint8Array(n), seen = new Uint8Array(n);
+    // (the flood on the ground as it was — z is levelled body by body — and only as far as a remnant's rim: its level and
+    // a hair above, so every cell at its level is reached and any other holds a level well clear of it)
+    const flood = spillFlood(mesh, z.slice(), ocean), { fill } = flood, basin = new Uint8Array(n), seen = new Uint8Array(n);
     for (let s = 0; s < n; s++) {
         if (seen[s] || basin[s] || ocean[s] || !(z[s] < 0)) continue;
         // (the body below sea level: big and deep enough to be a remnant of the sea — a smooth weight in km² and km)
@@ -118,7 +130,9 @@ export function fillSeaBasins(mesh, z, ocean, F) {
         const sea = smooth(F.seaBasinKm2[0], F.seaBasinKm2[1], below.length * cellKm2) * smooth(F.seaBasinDeepKm[0], F.seaBasinDeepKm[1], -deepest);
         if (sea < 0.5) continue;
         const L = fill[s], cells = [s];
+        flood.reach(s);
         basin[s] = 1;
+        flood.upTo(L + 2e-6);
         for (let i = 0; i < cells.length; i++) for (let k = adjOffset[cells[i]]; k < adjOffset[cells[i] + 1]; k++) {
             const nb = adjList[k];
             if (!basin[nb] && !ocean[nb] && fill[nb] > z[nb] + EPS && Math.abs(fill[nb] - L) < 1e-6) { basin[nb] = 1; cells.push(nb); }

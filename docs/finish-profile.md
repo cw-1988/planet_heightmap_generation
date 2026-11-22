@@ -52,6 +52,9 @@ cache: [surface-visit-order.md](surface-visit-order.md).
 `oceanMask` was moved to a typed queue (exactly the same order): measured alone at 2.5M, 280–360 → 230–315 ms a call;
 the rest of its time is the walk over the cells' neighbours itself.
 
+`spillFlood` (0.6 s in each of the sea stage's two calls) now floods only as far as they read:
+[sea-flood-lazy.md](sea-flood-lazy.md).
+
 ## Water (5.1 s)
 
 Hydrology in `finish-hydro.js`. It was being changed by another session at the time, so only `riverYears` (untouched

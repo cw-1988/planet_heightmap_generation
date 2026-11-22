@@ -329,7 +329,8 @@ export function biasTowardClimate(sat, koppen, lat, lon, use, grid, seed = 0, K 
         for (let f = 0; f < 9; f++) sums[f][g] += off[f];
         count[g]++;
     }
-    const fields = sums.map(S => { const m = new Float32Array(S.length); for (let g = 0; g < S.length; g++) m[g] = count[g] ? S[g] / count[g] : NaN; return grid.blur(m, K.climateBiasKm); });
+    // (blurred together: the nine have values in the same grid cells — blurMany, the same values as nine blurs)
+    const fields = grid.blurMany(sums.map(S => { const m = new Float32Array(S.length); for (let g = 0; g < S.length; g++) m[g] = count[g] ? S[g] / count[g] : NaN; return m; }), K.climateBiasKm);
     const { w: gw, h: gh, step } = grid;
     // how deep inside its climate each place is: the grid's main class per grid cell, the distance (km) to the nearest
     // grid cell of another (chamfer: rows narrower toward the poles; the sea passed over, never a climate of its own),
