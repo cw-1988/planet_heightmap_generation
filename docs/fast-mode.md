@@ -45,6 +45,12 @@ mix and compares, cell for cell on the same mesh, against the limits in `v2/tool
 The temperature's tail is judged at 99 %, not at its worst cell: a carved valley a cell over moves that cell's height by
 hundreds of metres, and the lapse rate (6.5 °C per km) takes its temperature with it.
 
+The per-cell limits are stricter than a Detail step on the land (the 640K finish is 0.3 km RMS from the 2.5M one), so
+a part is also judged against that step: `v2/tools/finish-kind.mjs --a ref-2500000 --b <run>,ref-640000 --yard
+ref-640000` (runs kept by `finish-similar.mjs --save`). It compares climate areas, 10° zones, distributions and Köppen
+within a few cells. A part passes when it is no more than twice the yardstick on every measure. For the land and the
+rivers this check is the one that counts; the per-cell table above still applies to the climate.
+
 ## The parts tried
 
 See [fast-mode-trials.md](fast-mode-trials.md): what each part changed, what it saved, and which were kept.

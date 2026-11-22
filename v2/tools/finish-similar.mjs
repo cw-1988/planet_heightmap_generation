@@ -5,7 +5,8 @@
 //   node --max-old-space-size=16000 v2/tools/finish-similar.mjs --cells 2500000 --fast <part,part…>
 //
 // Same moment as v2/out/hash-finish.mjs (its cached frame), the meshes built ahead as the page builds them. Prints each
-// measure against its limit (LIMITS) and the finish's time; exits 1 when any is out.
+// measure against its limit (LIMITS) and the finish's time; exits 1 when any is out. For a trial not (yet) a fast part:
+// `--climate '{"gridStepDeg":2}'` (the climate's options); `--save <name>` keeps the run for finish-kind.mjs.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -25,6 +26,7 @@ setDelaunator(Delaunator);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
 const CELLS = Number(arg('--cells', 2500000)), REF = process.argv.includes('--ref'), FAST = REF ? '' : arg('--fast', '1');
+const CLIMATE = JSON.parse(arg('--climate', '{}')), SAVE = arg('--save', null);
 const dir = path.join(ROOT, 'v2', 'out', 'similar'), refFile = path.join(dir, `ref-${CELLS}.bin`);
 if (!REF && !fs.existsSync(refFile)) throw new Error(`no reference for ${CELLS} cells: run with --ref first`);
 
@@ -32,13 +34,14 @@ const { frame } = v8.deserialize(fs.readFileSync(path.join(ROOT, 'v2', 'out', 'f
 const simMesh = buildSimMesh(40000, 12345), pool = await TerrainPool.create(simMesh);
 for (const c of [...ladderCells(simMesh.numCells, CELLS), CELLS]) terrainMesh(c);
 const t0 = performance.now();
-const fin = await finishPlanet({ frame, simMesh, seed: 799224, cells: CELLS, pool, closePool: true, fast: fastParts(FAST) });
+const fin = await finishPlanet({ frame, simMesh, seed: 799224, cells: CELLS, pool, closePool: true, fast: fastParts(FAST), climateOptions: CLIMATE });
 const secs = (performance.now() - t0) / 1000;
 
 // (what is compared: the ground, the sea, the rivers' drainage, the lakes, the climate the cells end with)
 const keep = { z: fin.z, ocean: fin.ocean, area: fin.drain.area, lakeLevel: fin.lakeLevel, koppen: fin.climate.cell.koppen,
     tAnnual: fin.climate.cell.tAnnual, pAnnual: fin.climate.cell.pAnnual, secs, ms: fin.ms };
 const stages = Object.entries(fin.ms).map(([k, v]) => `${k} ${(v / 1000).toFixed(1)}`).join(' · ');
+if (SAVE) { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, `${SAVE}-${CELLS}.bin`), v8.serialize(keep)); }
 if (REF) {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(refFile, v8.serialize(keep));
