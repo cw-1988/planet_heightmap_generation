@@ -631,31 +631,31 @@ export const Regime = Object.freeze({ STEADY: 0, FLOOD: 1, SEASONAL: 2, EPHEMERA
  */
 function riverYears(ctx, F, G) {
     const { n, count, order, hollow, hollows, recv, rank, lakeKind, stepKm, own, cells } = G, { pet, rain } = ctx, monthsAt = ctx.months.at;
-    const P = cells.length, qm = new Float32Array(12 * P), M = 4, acc = Array.from({ length: M }, () => new Float32Array(n)), sh = new Float32Array(M), ar = new Float32Array(M);
+    const P = cells.length, qm = new Float32Array(12 * P), M = 4, acc = new Float32Array(M * n), sh = new Float32Array(M), ar = new Float32Array(M);
     const dryMark = new Int32Array(n);
     hollows.forEach((h, i) => { if (h.dryOrder) for (const c of h.dryOrder) dryMark[c] = i + 1; });
     for (let m0 = 0; m0 < 12; m0 += M) {
-        for (const a of acc) a.fill(0);
+        acc.fill(0);                                   // (a cell's M months side by side: one cache line, not M)
         for (const h of hollows) h.inM = h.lake ? new Float64Array(M) : null;
         for (let i = count - 1; i >= 0; i--) {
             const c = order[i], h = hollow[c] >= 0 ? hollows[hollow[c]] : null, r0 = 12 * own(c);
             monthsAt(c, m0, M, sh, ar);
-            for (let j = 0; j < M; j++) acc[j][c] += r0 * sh[j];
+            for (let j = 0; j < M; j++) acc[M * c + j] += r0 * sh[j];
             if (h && h.lake) {
-                for (let j = 0; j < M; j++) h.inM[j] += acc[j][c];
+                for (let j = 0; j < M; j++) h.inM[j] += acc[M * c + j];
                 if (c !== h.outlet) continue;
                 // (a lake passes on its year's outflow, shaped by its inflow's months — evened out by its storage)
                 const lam = F.lakeRegulation;
-                for (let j = 0; j < M; j++) acc[j][c] = h.outflow > 0 && h.inflow > 0 ? h.outflow * ((1 - lam) * h.inM[j] / h.inflow + lam) : 0;
+                for (let j = 0; j < M; j++) acc[M * c + j] = h.outflow > 0 && h.inflow > 0 ? h.outflow * ((1 - lam) * h.inM[j] / h.inflow + lam) : 0;
                 if (!(h.outflow > 0)) continue;
             }
             // (the bed loses water by the month's own dryness: most in the dry season, none while frozen)
             const r = recv[c], pass = r >= 0 && rank[r] >= 0;
             for (let j = 0; j < M; j++) {
-                let out = acc[j][c];
+                let out = acc[M * c + j];
                 if (ar[j] > 0 && out > 0) out = Math.max(0, out - F.bedLossMPerYear * ar[j] * F.riverWidthPerSqrtQ * Math.sqrt(out) * stepKm[c] * 1000 / SEC_PER_YEAR);
-                acc[j][c] = out;
-                if (pass) acc[j][r] += out;
+                acc[M * c + j] = out;
+                if (pass) acc[M * r + j] += out;
             }
         }
         // (a basin's dry ground, down to its water or its gorge — as the year's routing)
@@ -665,10 +665,10 @@ function riverYears(ctx, F, G) {
             const id = hollow[h.outlet] + 1;
             for (let i = ord.length - 1; i >= 0; i--) {
                 const c = ord[i], r = recv[c];
-                if (dryMark[r] === id) for (let j = 0; j < M; j++) acc[j][r] += acc[j][c];
+                if (dryMark[r] === id) for (let j = 0; j < M; j++) acc[M * r + j] += acc[M * c + j];
             }
         }
-        for (let p = 0; p < P; p++) for (let j = 0; j < M; j++) qm[12 * p + m0 + j] = acc[j][cells[p]];
+        for (let p = 0; p < P; p++) for (let j = 0; j < M; j++) qm[12 * p + m0 + j] = acc[M * cells[p] + j];
     }
     // ── regimes ──
     const regime = new Uint8Array(P), floodFrom = new Uint8Array(P), floodTo = new Uint8Array(P), farFed = new Uint8Array(P), months = qm;

@@ -54,4 +54,5 @@ the rest of its time is the walk over the cells' neighbours itself.
 
 ## Water (5.1 s)
 
-Hydrology in `finish-hydro.js`. It was being changed by another session at the time, so it was left alone.
+Hydrology in `finish-hydro.js`. It was being changed by another session at the time, so only `riverYears` (untouched
+there) was changed: [river-years-interleaved.md](river-years-interleaved.md).
