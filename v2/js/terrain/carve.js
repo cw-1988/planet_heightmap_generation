@@ -26,7 +26,7 @@
 //     surface plus the carving found on the coarser one, so big rivers are settled where the whole continent is seen.
 // Heights in km, distances in km, time in Myr.
 
-import { MinHeap, spreadKm } from '../core/min-heap.js';
+import { MinHeap, spreadKm, backEntry } from '../core/min-heap.js';
 import { locate } from '../core/mesh-locate.js';
 import { part, report } from '../core/progress.js';
 
@@ -49,8 +49,12 @@ function infoOf(mesh) {
     let I = infos.get(mesh);
     if (I) return I;
     const { xyz, adjOffset, adjList, numCells } = mesh, dist = new Float32Array(adjList.length);
+    // (each edge once, from its lower cell, and copied to the higher cell's entry back: the same value — the differences
+    // only flip sign — at half the asin and hypot)
     for (let c = 0; c < numCells; c++) for (let k = adjOffset[c]; k < adjOffset[c + 1]; k++) {
-        const n = adjList[k], dx = xyz[3 * n] - xyz[3 * c], dy = xyz[3 * n + 1] - xyz[3 * c + 1], dz = xyz[3 * n + 2] - xyz[3 * c + 2];
+        const n = adjList[k], j = n < c ? backEntry(adjOffset, adjList, n, c) : -1;
+        if (j >= 0) { dist[k] = dist[j]; continue; }
+        const dx = xyz[3 * n] - xyz[3 * c], dy = xyz[3 * n + 1] - xyz[3 * c + 1], dz = xyz[3 * n + 2] - xyz[3 * c + 2];
         dist[k] = 2 * R * Math.asin(Math.min(1, 0.5 * Math.hypot(dx, dy, dz)));
     }
     I = { dist, area: 4 * Math.PI * R * R / numCells };

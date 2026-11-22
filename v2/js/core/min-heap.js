@@ -79,6 +79,12 @@ export function spreadKm(mesh, dist, { canEnter = null, onReach = null, maxKm = 
     return dist;
 }
 
+/** The adjacency entry of cell `from` that leads to `to` (−1 if none): an edge's way back, to reuse what was found on its way there. */
+export function backEntry(adjOffset, adjList, from, to) {
+    for (let j = adjOffset[from]; j < adjOffset[from + 1]; j++) if (adjList[j] === to) return j;
+    return -1;
+}
+
 /** Each adjacency entry's length in km (the arc from the cell to that neighbour), once per mesh — as spreadKm had it. */
 const edgeKms = new WeakMap();
 /** Let go of a mesh's cached edge lengths (the finish's 10M mesh: ~240 MB). */
@@ -88,10 +94,14 @@ function edgeKmOf(mesh) {
     if (e) return e;
     const { adjOffset, adjList, xyz } = mesh, n = adjOffset.length - 1, R = 6371;
     e = new Float64Array(adjList.length);
+    // (each edge once, from its lower cell, and copied to the higher cell's entry back: the same dot product, its terms
+    // in the same order — at half the acos)
     for (let c = 0; c < n; c++) {
         const cx = xyz[3 * c], cy = xyz[3 * c + 1], cz = xyz[3 * c + 2];
         for (let k = adjOffset[c]; k < adjOffset[c + 1]; k++) {
-            const nb = adjList[k], dot = cx * xyz[3 * nb] + cy * xyz[3 * nb + 1] + cz * xyz[3 * nb + 2];
+            const nb = adjList[k], j = nb < c ? backEntry(adjOffset, adjList, nb, c) : -1;
+            if (j >= 0) { e[k] = e[j]; continue; }
+            const dot = cx * xyz[3 * nb] + cy * xyz[3 * nb + 1] + cz * xyz[3 * nb + 2];
             e[k] = Math.acos(Math.min(1, dot)) * R;
         }
     }

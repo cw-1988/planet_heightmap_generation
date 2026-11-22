@@ -7,6 +7,7 @@
 import { preparePlan, planToData, planFromData, surfaceRange, carveInputs, surfaceParts } from './synthesize.js';
 import { sampleRange } from './terrain-mesh.js';
 import { meshFromArrays } from '../core/sim-mesh.js';
+import { warpInPlace } from './surface-warp.js';
 
 // chunks: chunk id → { xyz, cells, weights, samplerKey }; peers: the ports this worker hands plans on; jobs / plans: a
 // job and its plan, whichever arrives first waiting for the other
@@ -26,7 +27,7 @@ post({ type: 'ready' });                                   // (loaded: terrain-p
 function handle(msg) {
     try {
         if (msg.type === 'sim') state.sim = meshFromArrays(msg.mesh);
-        else if (msg.type === 'chunks') for (const c of msg.chunks) state.chunks.set(c.id, { xyz: c.xyz, cells: null, weights: null, samplerKey: null });
+        else if (msg.type === 'chunks') for (const c of msg.chunks) state.chunks.set(c.id, { xyz: msg.warp ? warpInPlace(c.xyz, msg.warp) : c.xyz, cells: null, weights: null, samplerKey: null });
         else if (msg.type === 'forget') { for (const id of [...state.chunks.keys()]) if (id.startsWith(`${msg.numCells}:`)) state.chunks.delete(id); }
         else if (msg.type === 'peer') state.peers.push(msg.port);
         else if (msg.type === 'planner') listen(msg.port, got => { state.plans.set(got.jobId, got); ready(got.jobId); });

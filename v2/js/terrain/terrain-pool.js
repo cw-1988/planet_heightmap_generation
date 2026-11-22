@@ -259,7 +259,8 @@ export class TerrainPool {
             for (let i = 0; i < count; i++) chunks.push({ id: `${n}:${i}`, from: Math.floor(i * n / count), to: Math.floor((i + 1) * n / count) });
             this.workers.forEach((w, wi) => {
                 const mine = chunks.filter((_, i) => i % W === wi).map(c => ({ id: c.id, xyz: tMesh.xyz.slice(3 * c.from, 3 * c.to) }));
-                w.post({ type: 'chunks', chunks: mine }, mine.map(c => c.xyz.buffer));
+                // (tMesh.warp: positions the worker warps itself before anything reads them — the finish's: surface-warp.js)
+                w.post({ type: 'chunks', chunks: mine, warp: tMesh.warp ?? null }, mine.map(c => c.xyz.buffer));
             });
             this.meshes.set(tMesh, mesh = { chunks, sampler: null });
         }

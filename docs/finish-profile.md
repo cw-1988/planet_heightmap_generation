@@ -6,7 +6,8 @@ Each stage was timed with temporary timers, since removed. What each line led to
 
 ## Stages (s)
 
-finish ~50 · surface 10.7–11.3 · climate 6.6 · rivers 7.8 (now 7.1) · water 5.1 · picture 5.8 · mesh 5.1 (absent in the
+finish ~50 (now ~40) · surface 10.7–11.3 (now 9.3, [surface-warp-workers.md](surface-warp-workers.md)) · climate 6.6 ·
+rivers 7.8 (now 6.1–6.6) · water 5.1 · picture 5.8 · mesh 5.1 (absent in the
 page: prebuilt) · final climate 3.7 · sea 2.2 · detail 2.1 · coast 1.8 · ice age 1.7 · wind 1.3 · farming 1.1.
 
 ## Climate (6.6 s)

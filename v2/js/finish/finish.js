@@ -21,6 +21,7 @@ import { KOPPEN_ID } from '../climate/koppen.js';
 import { terrainMesh } from '../terrain/terrain-mesh.js';
 import { terrainConfig } from '../terrain/terrain-config.js';
 import { carveLadder, carveSettings } from '../terrain/synthesize.js';
+import { surfaceWarp } from '../terrain/surface-warp.js';
 import { carveTerrain, forgetMesh, meanOnCoarser, prepareCarve } from '../terrain/carve.js';
 import { forgetEdgeKm } from '../core/min-heap.js';
 import { planetClimate } from '../climate/climate.js';
@@ -75,6 +76,9 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     onStage = s => { said(s); reportTo(onProgress); };                // (each stage's reports from 0, over all of it)
     let t0 = performance.now();
     const lap = name => { const t = performance.now(); ms[name] = t - t0; t0 = t; };
+    // (the finished mesh's edge lengths, which most stages' spreads read: kept from stage to stage up to PREP_CELLS — at
+    // 2.5M ~0.15 s each time they were built anew — and let go between stages above it, where they are 240 MB at 10M)
+    const midEdgeKm = () => { if (n > PREP_CELLS) forgetEdgeKm(mesh); };
     onStage('mesh');
     const mesh = givenMesh ?? terrainMesh(cells), n = mesh.numCells, cellKm2 = 4 * Math.PI * R * R / n;
     lap('mesh');
@@ -84,7 +88,8 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     onStage('surface');
     // (memory: at 10M cells every array is 40 MB or more — each let go as soon as it is done with, the warped positions
     // and the sampler with the surface, the carving's inputs and caches with the carve)
-    let warped = surface ? null : { numCells: n, xyz: warpPositions(mesh, seed, F), edgeKm: mesh.edgeKm };
+    // (warped on the pool's workers, each its own chunks: terrain/surface-warp.js — ~1 s at 2.5M off this thread, before they start)
+    let warped = surface ? null : { numCells: n, xyz: mesh.xyz, edgeKm: mesh.edgeKm, warp: surfaceWarp(seed, F) };
     // (the carving's inputs at the finish's erosion strength: its stream power's k, its crests' hardness)
     const E = erosionAt(F, cfg), fade = lam => smooth(cfg.minWavesPerCell, cfg.fullWavesPerCell, lam / mesh.edgeKm);
     const surfDone = part(0, 0.9);                                    // (the pool's slices, as they come back: terrain-pool.js)
@@ -225,7 +230,7 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     const young = new Uint8Array(n);
     for (let c = 0; c < n; c++) young[c] = Math.round(255 * Math.max(0, Math.min(1, carveIn.hold[c])));
     carveIn = null;
-    forgetMesh(mesh); forgetEdgeKm(mesh);                             // (the carve's caches for this mesh: ~0.5 GB at 10M)
+    forgetMesh(mesh); midEdgeKm();                                    // (the carve's caches for this mesh: ~0.5 GB at 10M)
     // (the dissection deeper in soft rock; and where the rivers cut into bedded cover, its walls stepped)
     let soft = null;
     if (rocks0) { soft = new Float32Array(n); const [s0, s1] = F.lithDissect; for (let c = 0; c < n; c++) soft[c] = rocks0.rock[c] ? s0 + (s1 - s0) * rocks0.hard[c] : 1; }
@@ -261,7 +266,7 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     // ── F3: the last ice age ──
     onStage('ice age');
     const I = lastIceAge({ mesh, z: C.z, lat, lon, warmSl, rain: pAnn, grid, cellKm2, seed }, F);
-    forgetEdgeKm(mesh);
+    midEdgeKm();
     stats.iceKm2 = I.iceKm2; stats.iceSheets = I.sheets;
     lap('ice age');
 
@@ -282,7 +287,7 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     if (straits.opened) ocean = oceanMask(mesh, C.z);
     report(0.6);
     const seaBasin = fillSeaBasins(mesh, C.z, ocean, F);
-    forgetMesh(mesh); forgetEdgeKm(mesh);                             // (the carve's and the distances' caches for this mesh)
+    forgetMesh(mesh); midEdgeKm();                                    // (the carve's and the distances' caches for this mesh)
     lap('sea');
 
     // ── the sea's work on its coasts: waves, tides, the sand they move (finish-coast.js; docs/coast-processes.md) ──
@@ -311,7 +316,10 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     lap('water');
     // (the terrain is final from here — its heights, sea, lakes and rivers: the stages below change none of them — so a
     // page can show it now, while the climate's, the rocks' and the farming's layers follow)
-    if (await onTerrain?.({ mesh, z: C.z, ocean, lake: Hy.lake, lakeLevel: Hy.lakeLevel, pond, rivers: Hy.rivers, drain: drainOf(Hy, ocean, C.z) }) === true) return { mesh, z: C.z, ocean, ms, stats, terrainOnly: true };   // (true: the terrain was all that was asked)
+    if (await onTerrain?.({ mesh, z: C.z, ocean, lake: Hy.lake, lakeLevel: Hy.lakeLevel, pond, rivers: Hy.rivers, drain: drainOf(Hy, ocean, C.z) }) === true) {
+        forgetEdgeKm(mesh);                                           // (true: the terrain was all that was asked)
+        return { mesh, z: C.z, ocean, ms, stats, terrainOnly: true };
+    }
 
     // ── what the detail finer than the mesh is drawn from (finish-drivers.js; plans/V2_FINE_DETAIL_PLAN.md) ──
     onStage('detail');
@@ -328,7 +336,7 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
             local: { ...geo, erg: W.erg, loess: W.loess, loessShare: 1 / F.loessKm, till: I.till, glaciated: I.ice, lava: basalt, q: Hy.q, cues, lithoDz, column: true } });
         geology = { rock: Rk.rock, rec: Rk.rec, simCells: simMesh.numCells, cues };          // (cues: for the checks; not in the picture)
         stats.rocks = Array.from(Rk.shares, v => +v.toFixed(4)); stats.youngBy = Array.from(Rk.youngBy, v => +v.toFixed(4));
-        forgetEdgeKm(mesh);                                           // (the river plains' distances: their cache for this mesh)
+        midEdgeKm();                                                  // (the river plains' distances: their cache for this mesh)
         lap('geology');
     }
 
@@ -389,19 +397,6 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
 /** Where each cell's water goes, the land it drains (km²), its water (m³/s), height (km) and lake — copies, for the page. */
 function drainOf(Hy, ocean, z) {
     return { recv: Hy.recv.slice(), area: Hy.area.slice(), sea: ocean.slice(), q: Float32Array.from(Hy.q), z: Float32Array.from(z), lake: Hy.lake.slice() };
-}
-
-/** The mesh's positions displaced by a smooth noise field (km-sized waves, three octaves): a domain warp of everything read there. */
-function warpPositions(mesh, seed, F) {
-    const { xyz, numCells: n } = mesh, out = new Float32Array(3 * n), noise = new FastNoise((seed | 0) * 53 + 11), f = R / F.warpScaleKm, a = F.warpKm / R;
-    for (let c = 0; c < n; c++) {
-        const x = xyz[3 * c], y = xyz[3 * c + 1], w = xyz[3 * c + 2];
-        const dx = noise.fbm(x * f + 1.3, y * f + 7.1, w * f + 4.2, 3, 0.5), dy = noise.fbm(x * f + 9.4, y * f + 2.6, w * f + 6.8, 3, 0.5), dz = noise.fbm(x * f + 5.7, y * f + 8.3, w * f + 0.9, 3, 0.5);
-        let px = x + 1.6 * a * dx, py = y + 1.6 * a * dy, pz = w + 1.6 * a * dz;
-        const l = Math.hypot(px, py, pz); px /= l; py /= l; pz /= l;
-        out[3 * c] = px; out[3 * c + 1] = py; out[3 * c + 2] = pz;
-    }
-    return out;
 }
 
 /** The rivers' fine routing relief (added to the carve's micro-relief, which shapes the routing only): octaves from
