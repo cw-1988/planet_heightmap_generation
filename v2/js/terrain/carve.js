@@ -99,7 +99,7 @@ export function carveLevel(mesh, f, route, cfg) {
         rank[c] = count; order[count++] = c;
         for (let k = adjOffset[c]; k < adjOffset[c + 1]; k++) {
             const nb = adjList[k];
-            if (rank[nb] !== -1 || !land(nb)) continue;
+            if (rank[nb] !== -1) continue;                                // (the sea's cells hold −2: no land test needed)
             const level = Math.max(fill[c], route[nb]), fk = route[nb] <= fill[c] ? flatKm[c] + dist[k] : 0;
             if (parent[nb] === -1 || level < fill[nb] || (level === fill[nb] && fk < flatKm[nb])) { parent[nb] = c; fill[nb] = level; flatKm[nb] = fk; heap.push(flatKey(level, route[nb], fk), nb); }
         }

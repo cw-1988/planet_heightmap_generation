@@ -30,7 +30,7 @@ export function closedBasins(mesh, z, runoff, pet, rain, cellKm2, F, broad = nul
         done[c] = 1; order[count++] = c;
         for (let k = adjOffset[c]; k < adjOffset[c + 1]; k++) {
             const nb = adjList[k];
-            if (done[nb] || !(z[nb] > 0)) continue;
+            if (done[nb]) continue;                                       // (the sea's cells hold 2: no height test needed)
             const level = Math.max(fill[c], z[nb]);
             if (parent[nb] < 0 || level < fill[nb]) { parent[nb] = c; fill[nb] = level; heap.push(level, nb); }
         }

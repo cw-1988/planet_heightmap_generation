@@ -93,7 +93,7 @@ function spillFlood(mesh, z, ocean) {
         rank[c] = count++;
         for (let k = adjOffset[c]; k < adjOffset[c + 1]; k++) {
             const nb = adjList[k];
-            if (rank[nb] !== -1 || ocean[nb]) continue;
+            if (rank[nb] !== -1) continue;                                // (the ocean's cells hold −2)
             const level = Math.max(fill[c], Math.max(0, z[nb]));
             if (parent[nb] === -1 || level < fill[nb]) { parent[nb] = c; fill[nb] = level; heap.push(level, nb); }
         }

@@ -55,7 +55,8 @@ workers for the picture at every Detail: 9.7 → 4.6 at 250K ([picture-shares.md
 ([surface-warp-workers.md](surface-warp-workers.md)); the surface's points swept by longitude: about 0.7 s more
 ([surface-visit-order.md](surface-visit-order.md)); the rivers' months summed side by side: water about 0.4 s
 ([river-years-interleaved.md](river-years-interleaved.md)); the sea's flood only as far as needed: sea 2.2 → 1.8
-([sea-flood-lazy.md](sea-flood-lazy.md)); where the rest goes: [finish-profile.md](finish-profile.md).
+([sea-flood-lazy.md](sea-flood-lazy.md)); the floods' doubled sea tests dropped
+([flood-redundant-tests.md](flood-redundant-tests.md)); where the rest goes: [finish-profile.md](finish-profile.md).
 
 In the page, while the history was still being simulated beside it: 160K on screen at 21 s, 2.5M done at 114 s (both
 slowed by the history's own worker).
