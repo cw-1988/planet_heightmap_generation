@@ -61,6 +61,8 @@ workers for the picture at every Detail: 9.7 → 4.6 at 250K ([picture-shares.md
 
 A fast finish that may differ in detail, behind `?fast=…` and checked by measure, not hash: [fast-mode.md](fast-mode.md).
 
+How high a Detail can go, its time and memory, and how to measure a machine's ceiling: [finish-ceiling.md](finish-ceiling.md).
+
 In the page, while the history was still being simulated beside it: 160K on screen at 21 s, 2.5M done at 114 s (both
 slowed by the history's own worker).
 

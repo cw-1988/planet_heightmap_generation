@@ -4,6 +4,8 @@
 //
 //   node --max-old-space-size=16000 v2/tools/bench-ladder.mjs --cells 160000,640000,2500000 [--seed 799224] [--cont 30] [--time 290] [--sim 40000] [--width 4096: else the page's own]
 //
+// Each pass prints its time and the process's peak memory so far (docs/finish-ceiling.md: how high a Detail can go).
+//
 // The moment's frame comes from render-moment.mjs's cache (v2/out/frames/): run that once for the moment first.
 
 import fs from 'node:fs';
@@ -41,7 +43,9 @@ for (const cells of PASSES) {
     fin.ms.picture = performance.now() - r0;
     const secs = (performance.now() - p0) / 1000, at = (performance.now() - t0) / 1000;
     rows.push({ cells, secs, at, mesh: (fin.ms.mesh ?? 0) / 1000 });
-    console.log(`pass ${cells.toLocaleString()} cells: ${secs.toFixed(1)} s, on screen at ${at.toFixed(1)} s; stages s: ${Object.entries(fin.ms).map(([k, v]) => `${k} ${(v / 1000).toFixed(1)}`).join(' · ')}`);
+    // (peak memory so far: the whole process, its pool's workers included — what a Detail needs, docs/finish-ceiling.md)
+    const peakGB = process.resourceUsage().maxRSS / 1048576, nowGB = process.memoryUsage().rss / 1073741824;
+    console.log(`pass ${cells.toLocaleString()} cells: ${secs.toFixed(1)} s, on screen at ${at.toFixed(1)} s; memory peak ${peakGB.toFixed(2)} GB, after ${nowGB.toFixed(2)} GB; stages s:${Object.entries(fin.ms).map(([k, v]) => `${k} ${(v / 1000).toFixed(1)}`).join(' · ')}`);
 }
 console.log(`ladder ${PASSES.map(c => c / 1000 + 'K').join(' → ')}: ${rows.at(-1).at.toFixed(1)} s in all`);
 process.exit(0);

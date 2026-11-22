@@ -13,6 +13,7 @@ kept: the climate's coupled rounds from a pass within a Detail step. Back to [fa
 | **Kept: climate rounds from the 640K pass** (`climate`) | 2.5M | climate 4.5 → 2.0 s | per cell only Köppen same 0.964 and the land (as a Detail step); by kind within the yardstick on every measure |
 | Climate rounds from the 160K pass | 2.5M | climate 4.5 → 2.2 s | Köppen same 0.93, temperature p99 1.7 °C; by kind land rain p10 −4.4 % (yardstick 1.5 %) |
 | Climate: one round on from the 160K pass's rounds | 2.5M | climate 4.5 → 3.2 s | worse than none: worst zone 1.2 °C, Köppen same 0.83 |
+| Climate rounds on 2°, rain and clouds on 1° (four mixes) | 2.5M | climate 4.5 → 2.8–4.0 s | worst zone 1.2–6.6 °C: the cold land's snow and ice flip ([fast-mode-climate-split.md](fast-mode-climate-split.md)) |
 
 ## Moved, or another planet?
 
