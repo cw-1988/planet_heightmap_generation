@@ -30,6 +30,8 @@ import { lakesLabel } from '../finish/lake-amount.js';
 import { initEvolutionExport } from './export.js';
 import { createLoading } from './loading.js';
 import { savePlanet, planetBytes, openPlanet } from '../save/planet-file.js';
+import { worldKey, findWorld, keepWorld } from '../save/world-cache.js';
+import { pageFast } from '../finish/fast-mode.js';
 import { PackedFrame } from '../tectonics/frame-pack.js';
 import { SMALL_DEVICE } from '../core/device.js';
 import { seedOf, randomSeed, isWordSeed } from '../core/seed.js';
@@ -101,8 +103,16 @@ function labels() {
         (t ? ` · temperature ${$('vTmp').textContent}` : '') + (p ? ` · ${$('vPrc').textContent} rain` : '') + (lk ? ` · lakes ${lakesLabel(lk)}` : '');
     // (the plates' resolution is the one setting a history cannot change: it waits for a build)
     $('worldPending').hidden = !B?.simCells || B.simCells === Number(ui.sim.value);
+    // (a world kept in this browser by an earlier version of the code, its settings still the page's: Build new version)
+    const old = outdatedShown(), btn = $('rebuildBtn');
+    btn.textContent = old ? 'Build new version' : 'Build this world';
+    btn.title = old ? `This world was kept in this browser on ${new Date(B.outdated.savedAt).toLocaleString()}, built by an earlier version of the code — build it again with today's`
+        : 'Build the world of this seed with these settings';
 }
-for (const el of [ui.cont, ui.len, ui.seed, ui.tmp, ui.prc, ui.lk]) el.addEventListener('input', labels);
+/** Whether the world shown was kept by an earlier version of the history's code, and the settings still name it. */
+const outdatedShown = () => !!B?.outdated && B.outdated.key === worldKey({ seed: seedOf(ui.seed.value), cont: Number(ui.cont.value),
+    len: Number(ui.len.value), ending: ui.ending.value, sim: Number(ui.sim.value), more: B.moreTo });
+for (const el of [ui.cont, ui.len, ui.seed, ui.ending, ui.tmp, ui.prc, ui.lk]) el.addEventListener('input', labels);
 // (a new Temperature or Precipitation: the previews' climates are worked out again when shown; a detailed moment keeps
 // its old climate — its rivers, ice and Satellite were sculpted by it — until detail is added again; Lakes likewise)
 for (const el of [ui.tmp, ui.prc, ui.lk]) el.addEventListener('change', () => { saveUrl(); labels(); dirty = true; updateClimateUi(); });
@@ -134,7 +144,8 @@ document.addEventListener('click', e => {
 }, true);
 $('sidebarContent').addEventListener('scroll', hideTip, { passive: true });
 ui.build.addEventListener('click', () => { ui.seed.value = String(randomSeed()); build(); });   // (New world: a new seed)
-$('rebuildBtn').addEventListener('click', () => build());                                                         // (Settings: this seed, these settings)
+// (Settings: this seed, these settings — Build new version on a world kept by earlier code: built with today's)
+$('rebuildBtn').addEventListener('click', () => build(outdatedShown()));
 // Load planet…: a planet file saved from the Export panel (a phone's picker may not know .orogen: there it shows every file)
 if (IS_TOUCH) $('loadFile').removeAttribute('accept');
 $('loadBtn').addEventListener('click', () => $('loadFile').click());
@@ -243,12 +254,17 @@ function clearView(len, { play, label }) {
     updateCard();
 }
 
-async function build() {
-    leaveWorld();
+async function build(fresh = false) {
     const seed = seedOf(ui.seed.value), cont = Number(ui.cont.value) / 100, len = Number(ui.len.value), ending = ui.ending.value;
     const simCells = Number(ui.sim.value), terrainCells = Number(ui.terrain.value);
+    // (this world kept in this browser, by today's code: opened instead of built — docs/world-cache.md)
+    const ticket = ++buildTicket, key = worldKey({ seed, cont: Number(ui.cont.value), len, ending, sim: simCells, more: linkedMore });
+    const kept = fresh ? null : await findWorld(key, pageFast());
+    if (ticket !== buildTicket) return;
+    if (kept) { linkedMore = 0; loadPlanet(kept.blob, kept); return; }
+    leaveWorld();
     const b = B = newWorld({ simCells, endMyr: len, lengthMyr: len, moreTo: linkedMore, seedText: isWordSeed(ui.seed.value) ? ui.seed.value.trim() : null,
-        contPct: Number(ui.cont.value), ending });                       // (the settings it was built with, for its planet file)
+        contPct: Number(ui.cont.value), ending, cacheable: true });   // (the settings it was built with, for its planet file and the cache)
     linkedMore = 0;
     // (watching it build is playing it from the start, at the speed chosen — held at the newest moment built)
     clearView(len, { play: true, label: 'Starting…' });
@@ -286,7 +302,7 @@ async function build() {
         dirty = true;
         updateCard();
         if (b.moreTo > b.simMyr) keepGoing(b, b.moreTo);                  // (a link to a history that was kept going)
-        else b.moreTo = 0;
+        else { b.moreTo = 0; remember(b); }
     } catch (err) {
         if (err.name === 'AbortError' || B !== b) return;
         b.error = err;
@@ -336,6 +352,7 @@ async function keepGoing(b, until = Infinity) {
             (b.full ? ' — as long a history as this device can hold' : '');
     if (!b.retexturing) status(b.doneText, failed ? null : 1);
     if (failed) { b.problem = `Could not extend the history: ${String(failed.message).split('\n')[0]}`; updateCard(); }
+    else remember(b);
     updateCard(); dirty = true;
 }
 
@@ -465,24 +482,32 @@ async function setTerrainDetail() {
 const mb = n => (n / 2 ** 20).toFixed(0);
 // (a phone holds a detailed moment of its own size — ~60 MB at 2048 px — not a desktop's 4096 or 8192 px ones)
 const DETAIL_BYTES = IS_TOUCH ? 150e6 : Infinity;
-async function loadPlanet(file) {
-    const name = file.name || 'the planet file';
-    const refuse = why => { const text = `Could not open ${name}: ${why}`; status(text, null); loading.hide('open'); $('loadNote').textContent = text; $('loadNote').hidden = false; };
+/** A planet file opened — or (`kept`: findWorld's) the world the settings name, kept in this browser by today's code:
+ *  the settings as they are on the page, its detailed moment only if today's finish made it. */
+async function loadPlanet(file, kept = null) {
+    if (!kept) ++buildTicket;                                  // (a build still looking in the cache does not start after it)
+    const name = kept ? 'this world, kept in this browser' : file.name || 'the planet file';
+    // (a kept world that will not open: built instead, as were it not kept)
+    const refuse = why => { if (kept) { console.warn(`[world cache] could not open the kept world (${why}): building it`); build(true); return; } const text = `Could not open ${name}: ${why}`; status(text, null); loading.hide('open'); $('loadNote').textContent = text; $('loadNote').hidden = false; };
     let planet;
     try { planet = await openPlanet(file); } catch (err) { refuse(String(err.message).split('\n')[0]); console.error(err); return; }
     const m = planet.manifest, s = m.settings;
     if (planet.historyBytes > HISTORY_BYTES) { refuse(`its history (${mb(planet.historyBytes)} MB) is longer than this device can hold — open it on a desktop`); return; }
-    const withDetail = planet.detailBytes > 0 && planet.detailBytes <= DETAIL_BYTES;
-    // (the terrain drawn while scrubbing: as it was, but at most a phone's finest)
-    const terrainCells = IS_TOUCH ? Math.min(640000, s.terrain) : s.terrain;
+    const withDetail = planet.detailBytes > 0 && planet.detailBytes <= DETAIL_BYTES && (!kept || kept.finishOk);
+    // (the terrain drawn while scrubbing: as it was, but at most a phone's finest — a kept world's: the page's)
+    const terrainCells = kept ? Number(ui.terrain.value) : IS_TOUCH ? Math.min(640000, s.terrain) : s.terrain;
     leaveWorld();
-    const b = B = newWorld({ simCells: s.sim, endMyr: m.history.toMyr, lengthMyr: s.len, live: false, loading: true, opened: name,
-        seed: s.seed, seedText: s.seedText ?? null, contPct: s.cont, ending: s.ending, moreTo: s.more || 0, simMyr: m.history.simMyr, steps: m.history.steps, stopped: m.history.stopped });
-    // its settings, and the link to them (the same history again, built here)
-    ui.seed.value = s.seedText ?? String(s.seed); ui.cont.value = s.cont; ui.len.value = s.len; setIf(ui.ending, s.ending); setIf(ui.sim, String(s.sim));
-    setIf(ui.terrain, String(terrainCells)); ui.tmp.value = s.greenhouse; ui.prc.value = s.rain; ui.lk.value = s.lakes ?? 0;
-    ui.quality.value = Object.keys(QUALITY).find(k => QUALITY[k].sim === ui.sim.value && QUALITY[k].terrain === ui.terrain.value) ?? 'custom';
-    $('customGroup').hidden = ui.quality.value !== 'custom';
+    const b = B = newWorld({ simCells: s.sim, endMyr: m.history.toMyr, lengthMyr: s.len, live: false, loading: true, opened: name, cacheable: !!kept?.historyOk,
+        seed: s.seed, seedText: s.seedText ?? null, contPct: s.cont, ending: s.ending, moreTo: s.more || 0, simMyr: m.history.simMyr, steps: m.history.steps, stopped: m.history.stopped,
+        // (kept by an earlier version of the history's code: shown, not kept again, until Build new version)
+        outdated: kept && !kept.historyOk ? { key: kept.key, savedAt: kept.savedAt } : null });
+    // its settings, and the link to them (the same history again, built here) — a kept world's are the page's already
+    if (!kept) {
+        ui.seed.value = s.seedText ?? String(s.seed); ui.cont.value = s.cont; ui.len.value = s.len; setIf(ui.ending, s.ending); setIf(ui.sim, String(s.sim));
+        setIf(ui.terrain, String(terrainCells)); ui.tmp.value = s.greenhouse; ui.prc.value = s.rain; ui.lk.value = s.lakes ?? 0;
+        ui.quality.value = Object.keys(QUALITY).find(k => QUALITY[k].sim === ui.sim.value && QUALITY[k].terrain === ui.terrain.value) ?? 'custom';
+        $('customGroup').hidden = ui.quality.value !== 'custom';
+    }
     clearView(m.history.toMyr, { play: false, label: 'Opening…' });
     status(`Opening ${name}…`, 0);
     // (the loading screen until its moment is drawn)
@@ -502,12 +527,15 @@ async function loadPlanet(file) {
         const shown = b.frames[m.detail?.frame ?? 0] ?? b.frames[0];
         // (a file saved before Lakes keyed its moment "greenhouse|rain": Lakes ±0, as it was made)
         if (detail?.moment.climateKey?.split('|').length === 2) detail.moment.climateKey += '|0';
-        if (detail) { b.finishes.set(b.frames[detail.frame], detail.moment); b.finishOk = true; b.finishNote = `Opened from ${name}`; }
+        const older = b.outdated ? ' — built by an earlier version of the code: Build new version (under World) builds it with today’s' : '';
+        if (detail) { b.finishes.set(b.frames[detail.frame], detail.moment); b.finishOk = true; b.finishNote = kept ? `Kept in this browser from an earlier session${older}` : `Opened from ${name}`; }
         // (a moment left in the file — too old to read, or more than a phone can show: this moment, ready to be detailed again)
         else if (m.detail) {
             b.loadFrame = shown;
-            b.loadNote = detailNote ? `${detailNote} — add detail to see it again.` : `${name} holds this moment in detail, but at ${mb(planet.detailBytes)} MB it is more than a phone can show — add detail to see it at this device’s size.`;
+            b.loadNote = kept && !kept.finishOk ? 'This moment was detailed by an earlier version of the finish (or another fast mode) — add detail to see it with today’s.'
+                : detailNote ? `${detailNote} — add detail to see it again.` : `${name} holds this moment in detail, but at ${mb(planet.detailBytes)} MB it is more than a phone can show — add detail to see it at this device’s size.`;
         }
+        if (older && !detail) { b.loadFrame = shown; b.loadNote = `${b.loadNote ? `${b.loadNote} ` : ''}Kept in this browser from an earlier session${older}.`; }
         status(`Building the terrain at ${ui.terrain.selectedOptions[0]?.textContent.split(' ·')[0] ?? terrainCells}…`, null);
         loading.update('open', { label: `Building the terrain at ${ui.terrain.selectedOptions[0]?.textContent.split(' ·')[0] ?? terrainCells}…`, share: null });
         const tMesh = await terrainMeshAsync(terrainCells);
@@ -527,6 +555,7 @@ async function loadPlanet(file) {
         saveUrl(); labels(); updateCard(); dirty = true;
     } catch (err) {
         if (B !== b) return;
+        if (kept) { refuse(String(err.message).split('\n')[0]); return; }
         b.loading = false; b.error = err;
         b.problem = `Could not open ${name}: ${String(err.message).split('\n')[0]}`;
         status(b.problem, null);
@@ -701,6 +730,7 @@ async function finishMoment(again = null) {
             loading.hide('detail');
             updateClimateUi();
         }
+        remember(b);                                                            // (kept in this browser, with its history)
     } catch (err) {
         // (out of memory — every worker of a page shares one browser process: the finishing worker is let go, its memory
         // with it, and the finer details are named as the likely cause)
@@ -839,14 +869,38 @@ const planetFile = {
     save: async ({ frame, fin }, progress) => {
         const b = B;
         if (b.finishes.get(frame) !== fin) throw new Error('this moment is no longer the detailed one');
-        const [greenhouse, rain, lakes = 0] = fin.climateKey.split('|').map(Number);
-        const { blob } = await savePlanet({
-            settings: { seed: b.seed, ...(b.seedText ? { seedText: b.seedText } : {}), cont: b.contPct, len: b.lengthMyr, ending: b.ending, sim: b.simCells, terrain: b.terrainCells, greenhouse, rain, lakes, more: b.moreTo || 0 },
-            history: { frames: b.frames, simMesh: b.simMesh, simMyr: b.simMyr, steps: b.steps, stopped: b.stopped ?? null, snapshotMyr: SNAPSHOT_MYR, omit: [...(b.lacking ?? [])] },
-            detail: { frame, fin }, onProgress: progress });
+        const { blob } = await savePlanet({ ...planetOf(b, frame, fin), onProgress: progress });
         return { blob, name: fileName(['orogen', b.seedText ?? b.seed, `${Math.round(frame.time)}Myr`], 'orogen') };
     },
 };
+/** A world's planet file's parts (savePlanet's): its settings, its history, and its detailed moment if `fin`. */
+function planetOf(b, frame, fin) {
+    const [greenhouse, rain, lakes = 0] = (fin?.climateKey ?? detailKey()).split('|').map(Number);
+    return {
+        settings: { seed: b.seed, ...(b.seedText ? { seedText: b.seedText } : {}), cont: b.contPct, len: b.lengthMyr, ending: b.ending, sim: b.simCells, terrain: b.terrainCells, greenhouse, rain, lakes, more: b.moreTo || 0 },
+        history: { frames: b.frames, simMesh: b.simMesh, simMyr: b.simMyr, steps: b.steps, stopped: b.stopped ?? null, snapshotMyr: SNAPSHOT_MYR, omit: [...(b.lacking ?? [])] },
+        detail: fin ? { frame, fin } : null };
+}
+// ── the world cache (docs/world-cache.md): a world built here, its history done, kept in this browser's IndexedDB as its
+// planet file — again with its detailed moment once one is done — so the same settings open it next session instead of
+// building it, while the code is the same (build(), findWorld) ──
+let buildTicket = 0;
+async function remember(b) {
+    if (!b.cacheable || b.live || b.going || !b.frames.length) return;
+    if (b.remembering) { b.rememberAgain = true; return; }
+    b.remembering = true;
+    try {
+        do {
+            b.rememberAgain = false;
+            const [frame, fin] = detailedOf(b) ?? [], started = performance.now();
+            const { blob } = await savePlanet(planetOf(b, frame, fin));
+            const key = worldKey({ seed: b.seed, cont: b.contPct, len: b.lengthMyr, ending: b.ending, sim: b.simCells, more: b.moreTo });
+            if (await keepWorld(key, blob, { detail: fin ? { time: frame.time, cells: fin.cells } : null, fast: pageFast() })) {
+                console.info(`[world cache] kept ${key}${fin ? ` with ${frame.time.toFixed(0)} Myr at ${cellsWords(fin.cells)}` : ''}: ${mb(blob.size)} MB in ${((performance.now() - started) / 1000).toFixed(1)} s`);
+            }
+        } while (b.rememberAgain);
+    } catch (err) { console.warn('[world cache] could not keep this world', err); } finally { b.remembering = false; }
+}
 const exportPanel = initEvolutionExport({
     moment: () => { const frame = painted, fin = frame && B?.finishes.get(frame); if (!fin) return null; setPlaying(false); return { frame, fin, seed: B.seedText ?? B.seed, cloudSeed: B.seed }; },
     look: () => ({ lut: heightLutOf(view.palette), exaggeration: pv.SHADING.exaggeration, water: view.water, riverQ: view.riverQ, byRegime: view.byRegime, deposit: view.deposit }),

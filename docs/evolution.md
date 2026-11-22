@@ -156,3 +156,6 @@ it opening (the history, the detailed moment, the terrain) until its moment is d
 history itself, so it opens exactly as it was saved, in any browser. **Extend history** on an opened planet first runs the
 history again from its seed (as long as it took to build), then goes on from where the file ends, if it comes out the
 same in this browser.
+
+The page also keeps the last three worlds it built in the browser, so the same settings open them in seconds next time
+(after a code change, Build this world reads Build new version): [world-cache.md](world-cache.md).

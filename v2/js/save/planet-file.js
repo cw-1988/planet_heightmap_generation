@@ -49,12 +49,12 @@ export function planetBytes(frames, fin) {
  * `settings`: the world's ({seed, cont, len, ending, sim, terrain, greenhouse, rain, lakes, more}); `history`: {frames,
  * simMesh, simMyr, steps, stopped, snapshotMyr, omit (fields not to save: those a history opened from an older file lacked,
  * read there as zeros — so this file says it lacks them too)}; `detail`: {frame (one of the frames), fin (the page's
- * finished moment)}; `onProgress(share, text)`.
+ * finished moment), or none: a history alone}; `onProgress(share, text)`.
  * @returns {Promise<{blob: Blob, bytes: number}>} bytes: before compression
  */
 export async function savePlanet({ settings, history, detail, onProgress = () => {} }) {
-    const { frames, simMesh } = history, at = frames.indexOf(detail.frame), moment = momentOf(detail.fin), omit = new Set(history.omit ?? []);
-    if (at < 0) throw new Error('the detailed moment is not one of this history’s');
+    const { frames, simMesh } = history, at = detail ? frames.indexOf(detail.frame) : -1, moment = detail ? momentOf(detail.fin) : null, omit = new Set(history.omit ?? []);
+    if (detail && at < 0) throw new Error('the detailed moment is not one of this history’s');
     // the parts, encoded (their arrays referenced, not copied); the event log once, each frame's own copy as how much of
     // it there was, and any entry it holds otherwise (none, while the log is only ever added to)
     const packed = frames.map(packedOf), log = packed.at(-1).meta.events ?? [], logJson = log.map(e => JSON.stringify(e));
@@ -65,7 +65,7 @@ export async function savePlanet({ settings, history, detail, onProgress = () =>
         const kept = omit.size ? Object.fromEntries(Object.entries(fields).filter(([k]) => !omit.has(k))) : fields;
         parts.push([frameName(i), encodeTree({ meta: rest, fields: kept, events: events.length, eventsDiffer: differ })]);
     });
-    parts.push(['detail/moment', encodeTree(moment)]);
+    if (moment) parts.push(['detail/moment', encodeTree(moment)]);
     const total = parts.reduce((a, [, t]) => a + t.byteLength + t.json.length, 0);
     const manifest = {
         format: FORMAT, formatVersion: FORMAT_VERSION, frameVersion: FRAME_VERSION, finishVersion: FINISH_VERSION, frameCodec: FRAME_CODEC,
@@ -73,7 +73,7 @@ export async function savePlanet({ settings, history, detail, onProgress = () =>
         savedBy: typeof navigator !== 'undefined' ? navigator.userAgent : `Node ${globalThis.process?.version ?? ''}`,
         settings,
         history: { frames: frames.length, fromMyr: frames[0].time, toMyr: frames.at(-1).time, snapshotMyr: history.snapshotMyr, simMyr: history.simMyr, steps: history.steps, stopped: history.stopped ?? null, events: log.length },
-        detail: { frame: at, time: detail.frame.time, cells: moment.cells, width: moment.raster?.w ?? null, climateKey: moment.climateKey ?? null, secs: moment.secs ?? null },
+        detail: moment && { frame: at, time: detail.frame.time, cells: moment.cells, width: moment.raster?.w ?? null, climateKey: moment.climateKey ?? null, secs: moment.secs ?? null },
         bytes: total,
     };
     const zip = new ZipWriter();
