@@ -226,6 +226,7 @@ js/
   planet-code.js        Planet code encode/decode (seed + sliders + edits → base36)
   detail-stops.js       The Detail stops every page shares and each page's machine-dependent top stop
   build-error.js        A failed build or import shown in the build overlay, with a Close button; the controls held during a build (Generate leaves its panel live)
+  build-gate.js         Every tab's builds share the memory budget (a build waits for room); a tab closed mid-build lowers its slider
   view-strip.js         The view strip above the layer tabs (every page), folded behind an arrow: Globe | Map and what applies,
                         the projection picker; in the sheet on phones
   stage.js              The stage round the globe (the theme's desk, or space with Stars), the air, map colours from tokens

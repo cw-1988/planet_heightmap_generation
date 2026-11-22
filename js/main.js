@@ -22,7 +22,8 @@ import { GEOLOGY_LAYERS } from '../v2/js/evolution/geology-view.js';
 import { FARMING_LAYERS } from '../v2/js/evolution/farming-view.js';
 import { encodePlanetCode, decodePlanetCode, SEED_MAX } from './planet-code.js';
 import { lakesLabel } from '../v2/js/finish/lake-amount.js';
-import { DETAIL_STOPS, nearestStop, fitSlider, stopWords, buildStarted, buildEnded } from './detail-stops.js';
+import { DETAIL_STOPS, nearestStop, fitSlider, stopWords } from './detail-stops.js';
+import { buildStarted, buildEnded, WAIT_WORDS } from './build-gate.js';
 import { showBuildError, describeFailure, holdControls } from './build-error.js';
 import { presentCrustLine } from './present-crust.js';
 import { plateColors, platesLegendHTML, INSPECT, inspectColors, drawPlateLines, platesMap } from './generate-plates.js';
@@ -102,11 +103,14 @@ let asked = null;            // the build under way: its seed and edits (a resta
 function generate(seed = Math.floor(Math.random() * SEED_MAX), toggledIndices = [], keepEdits = false) {
     // (a build under way: dropped — its worker and its steps' water — and the new one started in its place)
     if (building === 'generate') { worker.terminate(); startWorker(); rungs.clear(); }
-    building = 'generate'; finisher.cancel(); asked = { seed, toggledIndices, keepEdits };
+    building = 'generate'; finisher.cancel();
+    const mine = asked = { seed, toggledIndices, keepEdits };
     if (!keepEdits) tools.reset();
-    showBuildOverlay(); buildStarted('generate', DETAIL_STOPS[+$('sN').value]);   // (struck off when its finish ends: detail-stops.js)
+    showBuildOverlay();
     $('generate').disabled = true; $('generate').textContent = 'Building…'; $('generate').classList.remove('restart'); $('generate').classList.add('generating');
-    worker.postMessage({ cmd: 'generate', ...sliders(), ...progressive(), seed, toggledIndices, next: true, shared: true, cuts: tools.cuts, strokes: tools.strokes });
+    const job = { cmd: 'generate', ...sliders(), ...progressive(), seed, toggledIndices, next: true, shared: true, cuts: tools.cuts, strokes: tools.strokes };
+    // (it starts once every tab's builds fit the machine's memory, its place let go when its finish ends: build-gate.js)
+    buildStarted('generate', job.N, () => onProgress(0, WAIT_WORDS)).then(go => { if (go && building === 'generate' && asked === mine) worker.postMessage(job); });
 }
 function failed(message) {
     console.error('[generate] build failed:', message);

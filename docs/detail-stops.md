@@ -39,10 +39,8 @@ Each page's slider ends at the finest stop whose modelled peak memory fits the p
   | Generate, Import | 1.5 + 0.9·M | the measurement below (Import builds through the same worker and finish) |
   | Evolution | 3.1 + 0.33·M | the finish's 1.6 + 0.33·M in Node ([finish-ceiling.md](finish-ceiling.md)), plus the page |
 
-- **A closed tab lowers it.** A build writes `detailBuilding:<page>` to localStorage before it starts and removes it
-  when it ends or the page is left. If the key is still there at the next load, the browser closed the tab mid-build,
-  so that page's slider now ends one stop below (`detailCap:<page>`). A later build that succeeds above the cap removes
-  the cap.
+- **A closed tab lowers it** by one stop, and **every tab shares the budget**: a build waits while other tabs' builds
+  leave no room for it ([build-gate.md](build-gate.md)).
 - **Developer override:** `?maxdetail=<cells>` in the address bar sets the finest stop directly and ignores the cap.
 
 The warning under the slider uses the same model. Above 3/4 of the budget it is red: "Near this machine's memory —

@@ -32,7 +32,8 @@ import { createLoading } from './loading.js';
 import { savePlanet, planetBytes, openPlanet } from '../save/planet-file.js';
 import { worldKey, findWorld, keepWorld } from '../save/world-cache.js';
 import { pageFast } from '../finish/fast-mode.js';
-import { DETAIL_STOPS, nearestStop, maxStop, fitSlider, stopWords, buildStarted, buildEnded } from '../../../js/detail-stops.js';
+import { DETAIL_STOPS, nearestStop, maxStop, fitSlider, stopWords } from '../../../js/detail-stops.js';
+import { buildStarted, buildEnded, stopWaiting, WAIT_WORDS } from '../../../js/build-gate.js';
 import { PackedFrame } from '../tectonics/frame-pack.js';
 import { SMALL_DEVICE } from '../core/device.js';
 import { seedOf, randomSeed, isWordSeed } from '../core/seed.js';
@@ -683,7 +684,7 @@ async function finishMoment(again = null) {
     if (!b?.simMesh || !frame) return;
     // (the button cancels a finish under way — but not in its first moments: it turns into Cancel where Add detail was,
     // so a double click would otherwise start a finish and stop it at once)
-    if (b.finishJob) { if (performance.now() - b.finishJob.startedAt >= CANCEL_GRACE_MS) finisher.cancel(); return; }
+    if (b.finishJob) { if (performance.now() - b.finishJob.startedAt >= CANCEL_GRACE_MS) { stopWaiting('evolution'); finisher.cancel(); } return; }
     setPlaying(false);
     // (the timeline held on the moment taken: in playback it has run ahead of the one drawn, and would move on from it)
     if (!again) { playTime = frame.time; ui.time.value = playTime; dirty = true; rail(); }
@@ -692,8 +693,7 @@ async function finishMoment(again = null) {
     const passes = again?.passes ?? finishPasses(final, had && had.climateKey === key ? had.cells : 0);
     // (each pass's share of the bar: its cost)
     const costs = passes.map((c, i) => passCost(c, i === passes.length - 1)), weights = costs.map(c => c / costs.reduce((s, x) => s + x, 0));
-    const started = performance.now();
-    buildStarted('evolution', final);                                  // (a closed tab lowers the slider's end: detail-stops.js)
+    let started = performance.now();
     b.finishNote = null; b.finishOk = false;
     b.finishJob = { frame, cells: final, passes, pass: 0, stage: 'starting', share: 0, startedAt: performance.now() };
     loading.show('detail', { title: `Adding detail to ${frame.time.toFixed(0)} Myr`, label: 'Starting…', share: 0 });
@@ -714,6 +714,10 @@ async function finishMoment(again = null) {
         // holds its copies of the meshes, and a phone closes a tab at well under 2 GB — and the finishing worker let go after
         // unless its mesh takes long to build again)
         if (SMALL_DEVICE) b.player?.rest();
+        // (it starts once every tab's builds fit the machine's memory — Cancel drops the wait — and a closed tab lowers the
+        // slider's end: build-gate.js)
+        if (!await buildStarted('evolution', final, () => loading.update('detail', { label: WAIT_WORDS }))) throw new DOMException('Waiting cancelled', 'AbortError');
+        started = performance.now();                                            // (its time from here: the wait not counted)
         for (; pass < passes.length; pass++) {
             const cells = passes[pass], last = pass === passes.length - 1, width = passWidth(cells, last);
             base = weights.slice(0, pass).reduce((s, x) => s + x, 0); w = weights[pass];

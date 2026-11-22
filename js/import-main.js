@@ -16,7 +16,8 @@ import { initEvolutionExport } from '../v2/js/evolution/export.js';
 import { heightLutOf } from '../v2/js/evolution/looks.js';
 import { CLIMATE_LAYERS } from '../v2/js/evolution/climate-view.js';
 import { FARMING_LAYERS } from '../v2/js/evolution/farming-view.js';
-import { DETAIL_STOPS, fitSlider, stopWords, buildStarted, buildEnded } from './detail-stops.js';
+import { DETAIL_STOPS, fitSlider, stopWords } from './detail-stops.js';
+import { buildStarted, buildEnded, WAIT_WORDS } from './build-gate.js';
 import { showBuildError, describeFailure, holdControls } from './build-error.js';
 import { state } from './state.js';
 import { sliderTooltip, detailWarning, progressiveSwitch, redrawFoldedSliders, sidePanel, buildOverlay } from './page-chrome.js';
@@ -176,8 +177,9 @@ importBtn.addEventListener('click', () => {
     reapplyBtn.disabled = true; reapplyBtn.classList.remove('ready');
     overlay.show(); bar.start(); panel.collapse();
     const g = new Uint8Array(gray);                                 // (a copy: the worker is handed it)
-    buildStarted('import', DETAIL_STOPS[v('sN')]);                 // (struck off when its finish ends: detail-stops.js)
-    worker.postMessage({ cmd: 'importHeightmap', shared: true, N: DETAIL_STOPS[v('sN')], ...progressive(), jitter: +($('sJ')?.value ?? 0.75), grayscale: g, imageWidth: grayW, imageHeight: grayH, ...sculpt() }, [g.buffer]);
+    const job = { cmd: 'importHeightmap', shared: true, N: DETAIL_STOPS[v('sN')], ...progressive(), jitter: +($('sJ')?.value ?? 0.75), grayscale: g, imageWidth: grayW, imageHeight: grayH, ...sculpt() };
+    // (it starts once every tab's builds fit the machine's memory, its place let go when its finish ends: build-gate.js)
+    buildStarted('import', job.N, () => overlay.progress(0, WAIT_WORDS)).then(go => { if (go && building === 'import') worker.postMessage(job, [g.buffer]); });
 });
 { const img = new Image(); img.onload = () => { loadImage(img, 'Earth (default)'); importBtn.click(); }; img.src = 'assets/earth.png'; }
 

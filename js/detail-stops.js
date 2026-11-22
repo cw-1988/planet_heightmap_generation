@@ -1,7 +1,7 @@
 // Every Detail slider's stops and this machine's finest one (docs/detail-stops.md): Generate's and Import's Detail,
 // Evolution's Add detail and its history's Terrain detail. The stops run 5,000 to 10M cells, each about 1.5× the one
 // before (×2000^(1/19), rounded to two figures, the planet code's 1000s); a page's slider ends at the finest stop whose
-// modelled peak memory fits this machine, lowered further where a build at a stop once closed the tab.
+// modelled peak memory fits this machine, lowered further where a build at a stop once closed the tab (build-gate.js).
 
 /** The stops, in cells. */
 export const DETAIL_STOPS = [5e3, 8e3, 11e3, 17e3, 25e3, 37e3, 55e3, 82e3, 120e3, 180e3, 270e3, 410e3, 610e3, 910e3, 1.4e6, 2e6, 3e6, 4.5e6, 6.7e6, 10e6];
@@ -20,53 +20,38 @@ const PEAK_GB = {
 const TOUCH_CELLS = { generate: 610e3, import: 610e3, evolution: 610e3 };
 /** The memory a page may take, in GB: half the machine's (navigator.deviceMemory), as docs/finish-ceiling.md's "safe".
  *  A browser reports 8 at most where it hides more (Chrome's old cap): taken as 16 then, a crash lowering it after. */
-function budgetGb() {
+export function budgetGb() {
     const mem = typeof navigator !== 'undefined' ? navigator.deviceMemory : undefined;
     if (!mem) return 8;
     return (mem === 8 ? 16 : mem) / 2;
 }
+/** A build's peak memory in GB: `n` cells on `page`. */
+export const peakGb = (page, n) => PEAK_GB[page](n);
 /** The share of the page's memory budget a build of `n` cells takes at its peak (a warning near 1). */
 export const memoryShare = (page, n) => PEAK_GB[page](n) / budgetGb();
-const store = {
-    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
-    set(k, v) { try { localStorage.setItem(k, v); } catch { /* not remembered where the browser forbids it */ } },
-    drop(k) { try { localStorage.removeItem(k); } catch { /* likewise */ } },
-};
-// (a build under way is written down before it starts and struck off when it ends or the page is left: still there at
-// the next load, the tab was closed under it — the browser ran out of memory — and that page's slider ends below it)
-for (const page of Object.keys(PEAK_GB)) {
-    const n = Number(store.get(`detailBuilding:${page}`));
-    if (!n) continue;
-    store.drop(`detailBuilding:${page}`);
-    const cap = Math.max(...DETAIL_STOPS.filter(c => c < n), DETAIL_STOPS[0]);
-    if (cap < (Number(store.get(`detailCap:${page}`)) || Infinity)) store.set(`detailCap:${page}`, String(cap));
-}
-const building = new Set();
-if (typeof addEventListener === 'function') addEventListener('pagehide', () => { for (const page of building) store.drop(`detailBuilding:${page}`); });
+/** The cap a build that closed the tab left on `page` (build-gate.js), in cells; Infinity if none. */
+function crashCap(page) { try { return Number(localStorage.getItem(`detailCap:${page}`)) || Infinity; } catch { return Infinity; } }
 
 /** The finest stop's index on `page` ('generate', 'import', 'evolution'): what its memory fits, at most a crash's cap;
  *  ?maxdetail=<cells> — a developer's: that instead (and no cap). */
 export function maxStop(page) {
     const asked = Number(new URLSearchParams(globalThis.location?.search ?? '').get('maxdetail'));
     if (asked > 0) return Math.max(0, DETAIL_STOPS.filter(c => c <= asked).length - 1);
-    const cap = Math.min(Number(store.get(`detailCap:${page}`)) || Infinity, touch ? TOUCH_CELLS[page] : Infinity), budget = budgetGb();
+    const cap = Math.min(crashCap(page), touch ? TOUCH_CELLS[page] : Infinity), budget = budgetGb();
     const fit = DETAIL_STOPS.filter(c => c <= cap && (touch || PEAK_GB[page](c) <= budget)).length;
     return Math.max(0, fit - 1);
 }
-/** A build of `n` cells starts on `page`: written down until buildEnded (or the page is left). */
-export function buildStarted(page, n) { building.add(page); store.set(`detailBuilding:${page}`, String(n)); }
-/** The build ended (done, failed or dropped — not a closed tab). Done above a crash's cap, the cap goes. */
-export function buildEnded(page, ok = false) {
-    const n = Number(store.get(`detailBuilding:${page}`));
-    building.delete(page); store.drop(`detailBuilding:${page}`);
-    if (ok && n > (Number(store.get(`detailCap:${page}`)) || Infinity)) store.drop(`detailCap:${page}`);
-}
-/** A slider over the stops from index `min`: its max this machine's finest stop, its value kept in range. */
+/** A slider over the stops from index `min`: its max this machine's finest stop, its value kept in range — fitted again
+ *  when a crash's cap is found after the page loaded (build-gate.js's 'detail-cap'). */
 export function fitSlider(slider, page, min = 0) {
-    const max = Math.max(min, maxStop(page));
-    slider.min = String(min); slider.max = String(max);
-    if (Number(slider.value) > max) slider.value = String(max);
-    return max;
+    const fit = () => {
+        const max = Math.max(min, maxStop(page));
+        slider.min = String(min); slider.max = String(max);
+        if (Number(slider.value) > max) { slider.value = String(max); slider.dispatchEvent(new Event('input', { bubbles: true })); }
+        return max;
+    };
+    globalThis.addEventListener?.('detail-cap', fit);
+    return fit();
 }
 
 /** The spacing of `cells` cells on an Earth-sized planet, in km (hexagons: 1.075 × the square root of a cell's area). */
