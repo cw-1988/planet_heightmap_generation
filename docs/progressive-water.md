@@ -1,5 +1,10 @@
 # Rivers and lakes in each step of the Detail ladder
 
+**Off since 2026-11-22** (the owner: rivers "shouldn't" be made before the full Detail is reached). The coarse steps are
+shown as bare ground again, and the rivers come only with the world's own finish: `js/page-chrome.js`
+`progressiveSwitch` sends `progressiveWater: false`. The machinery below is left in place, unused, and runs again if that
+flag is set true. Turning it off also frees the extra finishing worker and its memory while a planet builds.
+
 With Progressive generation on (Generate and Import), each coarse step of the ladder
 ([progressive-detail.md](progressive-detail.md)) is shown with its own rivers, lakes and the valleys they cut, not as
 bare ground. Asked for by the owner, 2026-11-20: the water was what was missed most while a planet built. It had its own

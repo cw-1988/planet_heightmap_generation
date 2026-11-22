@@ -146,14 +146,12 @@ export class GpuPainter {
     get texture() { return this.target.texture; }
     get seaTexture() { return this.seaTarget.texture; }
 
-    /** The terrain mesh to draw (its triangles built once per mesh — a fraction of a second at the finest detail). */
+    /** The terrain mesh to draw (its triangles built once per mesh, when first drawn — a fraction of a second at the finest
+     *  detail, ~100 MB until they are sent to the GPU, so never built for a mesh not drawn). */
     setMesh(tMesh) {
         if (this.mesh === tMesh) return;
         this.mesh = tMesh;
-        if (this.drawn) { this.scene.remove(this.drawn); this.drawn.geometry.dispose(); }
-        this.drawn = new THREE.Mesh(sphereTriangles(tMesh), this.materials.heights);
-        this.drawn.frustumCulled = false;
-        this.scene.add(this.drawn);
+        if (this.drawn) { this.scene.remove(this.drawn); this.drawn.geometry.dispose(); this.drawn = null; }
         const n = tMesh.numCells, w = Math.min(4096, Math.ceil(Math.sqrt(n))), h = Math.ceil(n / w);
         this.heightData?.dispose(); this.colorData?.dispose();
         this.heightData = new THREE.DataTexture(new Float32Array(2 * w * h), w, h, THREE.RGFormat, THREE.FloatType);
@@ -231,6 +229,11 @@ export class GpuPainter {
 
     /** The mesh drawn onto the cube's six faces, seen from the planet's centre. */
     onCube(material) {
+        if (!this.drawn) {
+            this.drawn = new THREE.Mesh(sphereTriangles(this.mesh), material);
+            this.drawn.frustumCulled = false;
+            this.scene.add(this.drawn);
+        }
         this.drawn.material = material;
         const r = this.renderer, autoClear = r.autoClear;
         r.autoClear = true;

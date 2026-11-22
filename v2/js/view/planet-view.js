@@ -19,7 +19,8 @@ import { CLIMATE_LAYERS, FINISHED_ONLY_LAYERS, ARROW_LAYERS, paintClimate, paint
 import { prepareSatellite, satelliteReady } from '../evolution/sat-style.js';
 import { cloudFields, cloudStorms } from './clouds.js';
 import { paintFinished, paintWindow, riverPaths, drawRivers, drawRiversWindow, riverAt, finishedAt, REGIME_STYLE, riverYearWords } from '../evolution/finish-view.js';
-import { DetailService, DetailTiles, TileLayers, SLOT } from '../evolution/detail-view.js';
+import { DetailService, TileLayers, SLOT } from '../evolution/detail-view.js';
+import { DetailTiles } from '../evolution/detail-tiles.js';
 import { GEOLOGY_LAYERS, finishedGeologyColor, geologyLegendHTML, geologyLines, rockAt, rockLine, recAt, depositLines, ageLines, districtLines } from '../evolution/geology-view.js';
 import { stepByWheel } from './wheel-step.js';
 import { FARMING_LAYERS, finishedFarmingColor, farmingLegendHTML, farmingLines, farmChipClicked, farmOptionsKey } from '../evolution/farming-view.js';
@@ -105,7 +106,7 @@ export class PlanetView {
         // (a layer of tiles on the GPU at most this many across or down: its texture within the GPU's largest, and 8192 px)
         this.PATCH_SPAN = Math.floor(Math.min(8192, this.globe.renderer.capabilities.maxTextureSize) / SLOT);
         this.PATCH_BUDGET_MS = isTouch ? 4 : 6;         // (a frame paints and lays tiles for about this long: the rest come in the frames after)
-        this.tiles = new DetailTiles(this.detail, { ...(isTouch ? { keep: 64, most: 48, maxLevel: 12 } : { keep: 320, most: 260, maxLevel: 14 }), maxSpan: this.PATCH_SPAN });   // (~0.9 MB a tile; fork: level 14 is 9.5 m a pixel; 260 a view: at 150 a 2560 × 1440 screen fell a level coarser, docs/world-map-detail.md)
+        this.tiles = new DetailTiles(this.detail, { ...(isTouch ? { keep: 48, most: 48, maxLevel: 12 } : { keep: 260, most: 260, maxLevel: 14 }), maxSpan: this.PATCH_SPAN });   // (~0.9 MB a tile in memory, its whole 1.6 MB on disk: detail-tiles.js; fork: level 14 is 9.5 m a pixel; 260 a view: at 150 a 2560 × 1440 screen fell a level coarser, docs/world-map-detail.md)
         this.layers = new TileLayers(this.globe, this.PATCH_SPAN);
         this.patchLook = 0; this.patchLookKey = ''; this.patchClimate = null; this.viewSig = ''; this.wantedAt = 0;
         this.tileImage = null; this.tileColors = { look: -1, byWidth: new Map() };
@@ -496,7 +497,12 @@ export class PlanetView {
      *  (`extra`, their key: the region pick's valleys) laid over that again, as they change. */
     paintTile(fin, t, look, extra = null) {
         if (t.look === look && t.extra === extra) return extra === null ? t.base : t.canvas;
-        if (t.look !== look) this.paintTileBase(fin, t, look);
+        if (t.look !== look) {
+            const full = this.tiles.full(t);
+            if (!full) return null;                                             // (read back from disk: painted once it comes)
+            this.paintTileBase(fin, t, full, look);
+            this.tiles.painted(t);
+        }
         if (extra === null) { t.extra = null; return t.base; }
         if (!t.canvas) { t.canvas = document.createElement('canvas'); t.canvas.width = t.canvas.height = SLOT; }
         const ctx = t.canvas.getContext('2d', TILE_CTX), W = t.win.W, k = W / this.MAP_WIDTH;
@@ -507,19 +513,19 @@ export class PlanetView {
         t.extra = extra;
         return t.canvas;
     }
-    /** The tile's own picture for `look` (paintTile's base). */
-    paintTileBase(fin, t, look) {
+    /** The tile's own picture for `look` (paintTile's base), from its whole data (DetailTiles.full). */
+    paintTileBase(fin, t, data, look) {
         const view = this.view, W = t.win.W, lut = heightLutOf(view.layer === 'heightmap' ? 'heightmap' : view.palette), water = view.water && (view.layer === 'terrain' || view.layer === 'satellite');
         const C = CLIMATE_LAYERS.has(view.layer) ? fin.climate : null, geo = GEOLOGY_LAYERS.has(view.layer), farm = FARMING_LAYERS.has(view.layer), tc = this.tileColors;
         if (tc.look !== look) { tc.look = look; tc.byWidth.clear(); }
         if ((C || geo || farm) && !tc.byWidth.has(W)) tc.byWidth.set(W, geo ? finishedGeologyColor(view.layer, W, fin, view.deposit, view.age, view.ageRes) : farm ? finishedFarmingColor(view.layer, fin, W)
             : finishedClimateColor(view.layer, view.season, C, W, lut, fin));
         if (this.tileImage?.width !== t.win.w || this.tileImage.height !== t.win.h) this.tileImage = new ImageData(t.win.w, t.win.h);
-        paintWindow(t.data, t.win, this.tileImage.data, lut, { exaggeration: this.SHADING.exaggeration * (view.layer === 'satellite' ? 1.25 : 1), lakes: water || view.layer === 'satellite' || geo || farm, shaded: view.shaded,
+        paintWindow(data, t.win, this.tileImage.data, lut, { exaggeration: this.SHADING.exaggeration * (view.layer === 'satellite' ? 1.25 : 1), lakes: water || view.layer === 'satellite' || geo || farm, shaded: view.shaded,
             colorAt: C || geo || farm ? tc.byWidth.get(W) : null });
         // (its sea in the alpha, ½ there, 1 on land: the region pick's coast is the tile's own — region-glsl.js; every line
         // after drawn 'source-atop', so it keeps it)
-        const px = this.tileImage.data, sea = t.data.sea;
+        const px = this.tileImage.data, sea = data.sea;
         for (let i = 0, n = px.length >> 2; i < n; i++) px[4 * i + 3] = sea[i] ? 128 : 255;
         if (!t.base) { t.base = document.createElement('canvas'); t.base.width = t.base.height = SLOT; }
         const ctx = t.base.getContext('2d', TILE_CTX), x0 = t.win.x0 + 1, y0 = t.win.y0 + 1;     // (the canvas's pixel 0, 0 on the planet W px wide)

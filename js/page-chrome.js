@@ -38,14 +38,15 @@ export function detailWarning(detail, isTouch) {
 }
 
 /** The Progressive generation switch under the Detail slider (docs/progressive-detail.md): remembered on this browser,
- *  on unless switched off. Each step comes with its rivers and lakes whenever it is on (their own switch removed, the
- *  owner, 2026-11-20). Returns a reader for the build's message ({progressive, progressiveWater}). */
+ *  on unless switched off. The coarse steps are bare ground: rivers only at the chosen Detail (the owner, 2026-11-22,
+ *  reversing the per-step water of 2026-11-20: docs/progressive-water.md). Returns a reader for the build's message
+ *  ({progressive, progressiveWater}). */
 export function progressiveSwitch() {
     const box = $('progressive');
     if (!box) return () => ({ progressive: true, progressiveWater: false });
     box.checked = store.get('progressiveDetail') !== '0';
     box.addEventListener('change', () => store.set('progressiveDetail', box.checked ? '1' : '0'));
-    return () => ({ progressive: box.checked, progressiveWater: box.checked });
+    return () => ({ progressive: box.checked, progressiveWater: false });
 }
 
 /** Ranges inside a <details> drawn again when it opens (a browser may not move a hidden slider's thumb). */
