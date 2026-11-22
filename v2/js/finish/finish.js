@@ -13,7 +13,7 @@ import { lastIceAge } from './finish-ice.js';
 import { windWork } from './finish-wind.js';
 import { coastWork } from './finish-coast.js';
 import { detailDrivers } from './finish-drivers.js';
-import { fastParts } from './fast-mode.js';
+import { fastParts, roundsKey, keptRounds, keepRounds } from './fast-mode.js';
 import { hydrology, openStraits, fillSeaBasins, Water } from './finish-hydro.js';
 import { pondShare } from './small-lakes.js';
 import { biasTowardClimate, coverRain } from './finish-cover.js';
@@ -124,7 +124,11 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     onStage('climate');
     // (climateOptions: the page's Greenhouse and Precipitation — greenhouseWm2, precipScale)
     const climDone = part(0, 0.85);
-    let res = climate({ xyz: mesh.xyz, elevKm: z, axes: 'z-up' }, climateOptions);
+    // (fast `climate`: the coupled rounds a coarser pass of this moment solved — fast-mode.js)
+    const rKey = FP.has('climate') && climate === planetClimate ? roundsKey(frame, seed, climateOptions) : null;
+    const coupled = rKey && keptRounds(rKey, n);
+    let res = climate({ xyz: mesh.xyz, elevKm: z, axes: 'z-up' }, coupled ? { ...climateOptions, coupled } : climateOptions);
+    if (rKey && !coupled) keepRounds(rKey, n, res.stages.coupled);
     climDone();
     const { koppen, tAnnual: tAnn, pAnnual: pAnn, lat, lon } = res.cell, G = res.grid.size;
     for (let c = 0; c < n; c++) if (pAnn[c] > F.rainMaxMm) pAnn[c] = F.rainMaxMm;     // (the climate's rare wet hotspots)

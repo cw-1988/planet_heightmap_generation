@@ -6,7 +6,7 @@
 //
 // Same moment as v2/out/hash-finish.mjs (its cached frame), the meshes built ahead as the page builds them. Prints each
 // measure against its limit (LIMITS) and the finish's time; exits 1 when any is out. For a trial not (yet) a fast part:
-// `--climate '{"gridStepDeg":2}'` (the climate's options); `--save <name>` keeps the run for finish-kind.mjs.
+// `--climate '{"gridStepDeg":2}'` (the climate's options); `--save <name>` keeps the run for finish-kind.mjs; `--pass 160000` runs that pass first, as Add detail does.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -33,6 +33,10 @@ if (!REF && !fs.existsSync(refFile)) throw new Error(`no reference for ${CELLS} 
 const { frame } = v8.deserialize(fs.readFileSync(path.join(ROOT, 'v2', 'out', 'frames', 'frame-799224-30-40000-290.bin')));
 const simMesh = buildSimMesh(40000, 12345), pool = await TerrainPool.create(simMesh);
 for (const c of [...ladderCells(simMesh.numCells, CELLS), CELLS]) terrainMesh(c);
+// (`--pass <cells>`: a finish at those cells first, untimed, as Add detail's ladder runs one before — what the fast
+// `climate` keeps its rounds from)
+const PASS = Number(arg('--pass', 0));
+if (PASS) await finishPlanet({ frame, simMesh, seed: 799224, cells: PASS, pool, fast: fastParts(FAST), climateOptions: CLIMATE });
 const t0 = performance.now();
 const fin = await finishPlanet({ frame, simMesh, seed: 799224, cells: CELLS, pool, closePool: true, fast: fastParts(FAST), climateOptions: CLIMATE });
 const secs = (performance.now() - t0) / 1000;

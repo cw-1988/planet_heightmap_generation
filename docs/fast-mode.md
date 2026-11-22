@@ -9,8 +9,12 @@ measure against the exact finish (`v2/tools/finish-similar.mjs`), not by hash. B
 
 - Off by default. Planet codes (`js/planet-code.js`) reproduce on every machine only with the exact finish, so it stays
   the default; a fast finish is the user's choice in this browser.
-- No part has passed the check yet, so `FAST_PARTS` is empty and a fast finish is the exact one; the switch stays so
-  the next part (see "What is left") only needs its entry and its `FP.has(name)` in `finishPlanet`.
+- One part so far, `climate`: the climate's temperature ↔ winds ↔ ocean rounds (~2.5 s at 2.5M) kept from a pass of
+  the same moment at most 4× coarser, in the same worker (`roundsKey`, `keptRounds` in `fast-mode.js`). The rain and the
+  clouds' temperature still run on the finer surface. It pays where a finer pass follows a pass within a Detail step:
+  10M after Add detail's 2.5M pass, or a Detail raised one step on a moment already detailed. The default ladder to
+  2.5M (160K, then 2.5M) gains nothing: from 160K the rounds differ too much ([fast-mode-trials.md](fast-mode-trials.md)).
+- A new part needs its entry in `FAST_PARTS` and its `FP.has(name)` in `finishPlanet`.
 - `?fast=1` (all parts) or `?fast=a,b` (a comma list of parts) on any app page; this browser remembers it
   (`localStorage` `orogen.fast`), `?fast=0` forgets it. `v2/js/finish/fast-mode.js` holds the parts (`FAST_PARTS`),
   `fastParts(spec)` and `pageFast()`.
@@ -49,7 +53,9 @@ The per-cell limits are stricter than a Detail step on the land (the 640K finish
 a part is also judged against that step: `v2/tools/finish-kind.mjs --a ref-2500000 --b <run>,ref-640000 --yard
 ref-640000` (runs kept by `finish-similar.mjs --save`). It compares climate areas, 10° zones, distributions and Köppen
 within a few cells. A part passes when it is no more than twice the yardstick on every measure. For the land and the
-rivers this check is the one that counts; the per-cell table above still applies to the climate.
+rivers, and for the Köppen class, this check is the one that counts: a Detail step keeps only 87 % of cells' class, so
+`koppenSame` ≥ 0.97 fails a border moved by a cell. The per-cell temperature and rain limits still apply.
+`finish-similar.mjs --pass 640000` runs that pass first, untimed, as Add detail's ladder does.
 
 ## The parts tried
 

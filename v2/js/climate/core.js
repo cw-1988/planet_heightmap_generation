@@ -82,7 +82,13 @@ export function computeClimate(input, options = {}) {
         let winds = o.stages.winds ? o.stages.winds(sctx) : null;
         lap('winds');
         let temperature, circulation = null, ocean = null;
-        if (o.stages.circulation) {
+        if (o.stages.circulation && o.coupled) {
+            // (the rounds kept from a coarser finish of the same planet on the same grid — fast-mode.js, `climate`: the
+            // rain and the clouds' temperature below still read this surface)
+            ({ temperature, circulation, ocean } = o.coupled);
+            winds = circulation;
+            lap('temperature ↔ winds ↔ ocean (kept)');
+        } else if (o.stages.circulation) {
             // Temperature, winds and ocean need each other (winds carry heat and drive the currents; pressure comes
             // from temperature; the currents move heat): a few rounds settle them. The first temperature has the
             // given winds (or none) and no ocean heat; later ones the derived winds and the ocean's heat.
@@ -99,6 +105,7 @@ export function computeClimate(input, options = {}) {
             temperature = o.stages.temperature(sctx, winds);
             lap('temperature');
         }
+        const coupled = { temperature, circulation, ocean };   // (before the clouds: what `coupled` takes)
         let rain = o.stages.rain(sctx, winds, temperature);
         lap('rain');
         report(0.7);
@@ -110,7 +117,7 @@ export function computeClimate(input, options = {}) {
             if (o.rainAfterClouds) { rain = o.stages.rain(sctx, winds, temperature, rain.state ?? null); lap('rain again'); }
         }
         anchors = { T: Float32Array.from(temperature.T), P: rain.P };
-        stages = { winds, temperature, circulation, ocean, rain };
+        stages = { winds, temperature, circulation, ocean, rain, coupled };
     } else {
         anchors = o.anchorSource(sctx);
         lap('anchors');
