@@ -17,7 +17,10 @@ figures):
 | Evolution, Add detail | `#finishCells` | 120K | 3M |
 | Evolution, Terrain detail | `#terrainCells` (a menu) | its options | — options above the machine's finest are removed |
 
-The label reads, for example, "2M cells · 17 km": the cell count and the cell spacing on an Earth-sized planet.
+The label reads, for example, "2M cells" (Add detail adds its time: "2M cells · ~1 min"). How far apart the cells sit on
+an Earth-sized planet is in the tooltip, given at the slider's two ends (57 km at 180K, 8 km at 10M): beside the count,
+a km that shrank as the count grew read wrong (the owner, 2026-11-22). Evolution's Plates and Terrain detail menus do
+the same.
 Add detail's passes are picked from these stops too ([finish-ladder.md](finish-ladder.md)).
 
 The owner asked for it on 2026-11-22: "lets try 10m as max in the slider, can we do a stop slider, that 1.5x-es a tevery

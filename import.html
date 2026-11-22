@@ -95,7 +95,7 @@
                 <div class="import-hint">Black (0) = ocean. Brighter = higher elevation. Use a 2:1 equirectangular image.</div>
                 <div id="importExpect" class="import-expect" style="display:none">Your heightmap will be projected onto a 3D sphere with full climate simulation — wind patterns, precipitation, temperature, and biome classification — computed automatically.</div>
                 <div class="cg">
-                    <label>Detail <span class="tip" data-tip="Resolution of the sphere mesh — more detail means finer coastlines but takes longer to process. Each step is about 1.5× the one before; the slider ends at the finest this machine's memory holds">?</span> <span class="v" id="vN">180K cells · 57 km</span></label>
+                    <label>Detail <span class="tip" data-tip="Resolution of the sphere mesh — more detail means finer coastlines but takes longer to process. The planet is made of cells: the more there are, the closer together they sit — on an Earth-sized planet about 57 km apart at 180K, 8 km at 10M. Each step is about 1.5× the one before; the slider ends at the finest this machine's memory holds">?</span> <span class="v" id="vN">180K cells</span></label>
                     <input type="range" id="sN" min="0" max="19" step="1" value="9" aria-label="Detail">
                     <div class="slider-hint"><span>Coarse</span><span>Fine</span></div>
                     <div class="detail-warn" id="detailWarn"></div>

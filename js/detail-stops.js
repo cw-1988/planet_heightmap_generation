@@ -54,10 +54,9 @@ export function fitSlider(slider, page, min = 0) {
     return fit();
 }
 
-/** The spacing of `cells` cells on an Earth-sized planet, in km (hexagons: 1.075 × the square root of a cell's area). */
-export const cellKm = cells => 1.0746 * Math.sqrt(5.1e8 / cells);
 /** "2M", "610K", "8K". */
 export const cellsShort = cells => (cells >= 1e6 ? `${cells / 1e6}M` : `${cells / 1e3}K`);
 const minutes = s => (s < 90 ? `~${Math.max(10, Math.round(s / 10) * 10)} s` : `~${Math.round(s / 60)} min`);
-/** A slider's words: "2M cells · 17 km · ~1 min" (`secs`: a build's estimate there, if known). */
-export const stopWords = (cells, secs) => `${cellsShort(cells)} cells · ${Math.round(cellKm(cells))} km${secs ? ` · ${minutes(secs)}` : ''}`;
+/** A slider's words: "2M cells · ~1 min" (`secs`: a build's estimate there, if known). How far apart the cells sit is
+ *  the slider's tooltip's to say (docs/detail-stops.md): beside the count, a km that shrinks as the count grows read wrong. */
+export const stopWords = (cells, secs) => `${cellsShort(cells)} cells${secs ? ` · ${minutes(secs)}` : ''}`;

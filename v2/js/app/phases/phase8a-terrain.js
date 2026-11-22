@@ -26,16 +26,16 @@ import { ENDINGS, framesEnding } from '../../tectonics/ending.js';
 import { describeCell, recordedFrameAt, latLonOf, orogenyLegend } from './phase-kit.js';
 
 const RESOLUTIONS = [
-    { value: '160000', label: '160K cells · 61 km (quick)' },
-    { value: '640000', label: '640K cells · 30 km' },
-    { value: '2500000', label: '2.5M cells · 15 km (slow)' },
+    { value: '160000', label: '160K cells (quick)' },
+    { value: '640000', label: '640K cells' },
+    { value: '2500000', label: '2.5M cells (slow)' },
 ];
 const DEFAULT_CELLS = 640000;
 // the sim mesh the history runs on (the lab shell builds it from the `sim` setting; Phase 12)
 const SIM_RESOLUTIONS = [
-    { value: '40000', label: '40K cells · 121 km (quick)' },
-    { value: '80000', label: '80K cells · 86 km' },
-    { value: '160000', label: '160K cells · 61 km (slow)' },
+    { value: '40000', label: '40K cells (quick)' },
+    { value: '80000', label: '80K cells' },
+    { value: '160000', label: '160K cells (slow)' },
 ];
 // display settings (no re-synthesis) and terrain constants (terrain-config.js) the lab can change
 const VIEW_TUNABLES = [

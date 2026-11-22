@@ -160,20 +160,20 @@
                 </div>
                 <div id="customGroup" hidden>
                     <div class="cg">
-                        <label>Plates <span class="tip" data-tip="Resolution of the plate simulation — finer plates take longer to build. Applies when you build a world">?</span></label>
+                        <label>Plates <span class="tip" data-tip="Resolution of the plate simulation — finer plates take longer to build. The more cells, the closer together they sit: on an Earth-sized planet about 170 km apart at 20K, 60 km at 160K. Applies when you build a world">?</span></label>
                         <select id="simCells">
-                            <option value="20000">20K cells · 172 km (fastest)</option>
-                            <option value="40000" selected>40K cells · 121 km</option>
-                            <option value="80000">80K cells · 86 km</option>
-                            <option value="160000">160K cells · 61 km (slow)</option>
+                            <option value="20000">20K cells (fastest)</option>
+                            <option value="40000" selected>40K cells</option>
+                            <option value="80000">80K cells</option>
+                            <option value="160000">160K cells (slow)</option>
                         </select>
                     </div>
                     <div class="cg">
-                        <label>Terrain detail <span class="tip" data-tip="Resolution of the terrain drawn while you watch — finer detail takes longer to build each moment. Changing it redraws the same history straight away">?</span></label>
+                        <label>Terrain detail <span class="tip" data-tip="Resolution of the terrain drawn while you watch — finer detail takes longer to build each moment. The more cells, the closer together they sit: on an Earth-sized planet about 60 km apart at 160K, 15 km at 2.5M. Changing it redraws the same history straight away">?</span></label>
                         <select id="terrainCells">
-                            <option value="160000" selected>160K cells · 61 km</option>
-                            <option value="640000">640K cells · 30 km</option>
-                            <option value="2500000">2.5M cells · 15 km (slow)</option>
+                            <option value="160000" selected>160K cells</option>
+                            <option value="640000">640K cells</option>
+                            <option value="2500000">2.5M cells (slow)</option>
                         </select>
                     </div>
                 </div>
@@ -188,7 +188,7 @@
             <div class="evo-card-head"><span id="cardTitle">Starting…</span><span id="cardBadge" class="evo-badge" hidden></span></div>
             <div id="cardText" class="evo-card-text"></div>
             <div class="cg" id="detailGroup">
-                <label>Detail <span class="tip" data-tip="How finely Add detail sculpts the moment: warped and roughened, its rivers carving longer with the climate's rain, sediment laid down, an ice age's glaciers and fjords, the wind's sand seas and loess, and its own climate and Satellite view. Finer detail takes longer — 10M cells about three minutes the first time. Each step is about 1.5× the one before; the slider ends at the finest this machine's memory holds">?</span> <span class="v" id="vDetail">3M cells · 14 km</span></label>
+                <label>Detail <span class="tip" data-tip="How finely Add detail sculpts the moment: warped and roughened, its rivers carving longer with the climate's rain, sediment laid down, an ice age's glaciers and fjords, the wind's sand seas and loess, and its own climate and Satellite view. Finer detail takes longer — 10M cells about three minutes the first time. The more cells, the closer together they sit: on an Earth-sized planet about 70 km apart at 120K, 8 km at 10M. Each step is about 1.5× the one before; the slider ends at the finest this machine's memory holds">?</span> <span class="v" id="vDetail">3M cells</span></label>
                 <input type="range" id="finishCells" min="8" max="19" value="16" step="1" aria-label="Detail">
                 <div class="slider-hint"><span>Faster</span><span>Finer</span></div>
             </div>
