@@ -50,8 +50,7 @@ const PATCH_SETTLE_MS = 200;    // (a zoom on its way to another level of tiles 
     const canvas = document.createElement('canvas');
     canvas.width = width; canvas.height = width >> 1;
     const ctx = canvas.getContext('2d');
-    let image = null;
-    return { canvas, ctx, width, get image() { return (image ??= ctx.createImageData(width, width >> 1)); } };
+    return { canvas, ctx, image: ctx.createImageData(width, width >> 1), width };
 }
 
 export class PlanetView {

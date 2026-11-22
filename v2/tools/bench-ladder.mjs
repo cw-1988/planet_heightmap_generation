@@ -36,7 +36,9 @@ for (const cells of PASSES) {
     const fin = await finishPlanet({ frame, simMesh, seed: SEED, cells, pool, closePool: true });
     // (the page's picture widths unless --width: a coarse pass before the last at 2048, the rest at 4096, 10M at 8192)
     const width = W || (cells !== last && cells < 1e6 ? 2048 : cells >= 5e6 ? 8192 : 4096);
-    finishRaster(fin.mesh, fin.z, fin.ocean, width, null, fin.lake, fin.lakeLevel, fin.climate.cell, fin.geology, fin.farming);
+    const r0 = performance.now();
+    finishRaster(fin.mesh, fin.z, fin.ocean, width, null, fin.lake, fin.lakeLevel, fin.climate.cell, fin.geology, fin.farming, null, fin.pond);
+    fin.ms.picture = performance.now() - r0;
     const secs = (performance.now() - p0) / 1000, at = (performance.now() - t0) / 1000;
     rows.push({ cells, secs, at, mesh: (fin.ms.mesh ?? 0) / 1000 });
     console.log(`pass ${cells.toLocaleString()} cells: ${secs.toFixed(1)} s, on screen at ${at.toFixed(1)} s; stages s: ${Object.entries(fin.ms).map(([k, v]) => `${k} ${(v / 1000).toFixed(1)}`).join(' · ')}`);

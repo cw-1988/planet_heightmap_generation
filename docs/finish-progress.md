@@ -22,7 +22,7 @@ the page, the pool's workers) the calls do nothing. The worker sends at most eve
   runoff. **bedrock**: its rock pass, then the relief. **rivers**: each carve level's rounds, by cells × rounds, and
   inside a round its receivers, beds and the history's rivers. **ice age**, **wind**, **sea**, **sediment**: their
   phases. **water**: the flood (by its cells), receivers, hollows, cuts, the discharge (by its cells), rivers, their
-  year. **detail**: its rows. **geology**, **deposits**: their cells. **final climate**: its land cells. **farming**:
+  year. **detail**: its rows. **geology**, **deposits**: their cells. **final climate**: its cells (on workers: its ranges as they finish). **farming**:
   its phases. **picture**: its rows.
 
 Between two reports, and for a stage that reports nothing, the time fills in:

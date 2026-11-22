@@ -4,7 +4,7 @@
 // last ice age (F3), and the wind's work (F4). Runs in finish-worker.js (or Node): the terrain pool builds the surface in
 // slices, everything else runs here, on a mesh of any size — 10M cells included, which only this worker holds.
 
-import { FINISH, COVER } from './finish-config.js';
+import { FINISH } from './finish-config.js';
 import { LatLonGrid } from './finish-grid.js';
 import { closedBasins } from './finish-basins.js';
 import { depositSediment, creepByClimate, dissect } from './finish-sediment.js';
@@ -16,7 +16,8 @@ import { detailDrivers } from './finish-drivers.js';
 import { hydrology, openStraits, fillSeaBasins, Water } from './finish-hydro.js';
 import { pondShare } from './small-lakes.js';
 import { pondRaster } from './small-lakes-draw.js';
-import { landCover, coverRgb, newCover, biasTowardClimate, coverRain, coverRainScale, newVariety, placeVariety, placeGround, fineMottle, terrainLook } from './finish-cover.js';
+import { biasTowardClimate, coverRain, fineMottle, terrainLook } from './finish-cover.js';
+import { finalCover, corners } from './final-cover.js';
 import { KOPPEN_ID } from '../climate/koppen.js';
 import { terrainMesh } from '../terrain/terrain-mesh.js';
 import { terrainConfig } from '../terrain/terrain-config.js';
@@ -24,16 +25,15 @@ import { carveLadder, carveSettings } from '../terrain/synthesize.js';
 import { carveTerrain, forgetMesh, meanOnCoarser, prepareCarve } from '../terrain/carve.js';
 import { forgetEdgeKm } from '../core/min-heap.js';
 import { planetClimate } from '../climate/climate.js';
-import { CORE_DEFAULTS, cellClimate } from '../climate/core.js';
+import { CORE_DEFAULTS } from '../climate/core.js';
 import { pageClimate } from '../evolution/climate-fields.js';
-import { cellStatsCollector, STAT_KEYS } from '../climate/cell-stats.js';
+import { STAT_KEYS } from '../climate/cell-stats.js';
 import { FastNoise } from '../core/fast-noise.js';
 import { locate } from '../core/mesh-locate.js';
 import { classifyRocks } from '../geology/rocks.js';
-import { softFamilies, softFamilyGrid } from '../climate/koppen-soft.js';
-import { depositFields, climateTests, climateTestArrays, DEPOSITS, METALS } from '../geology/deposits.js';
+import { depositFields, DEPOSITS, METALS } from '../geology/deposits.js';
 import { reportTo, part, report } from '../core/progress.js';
-import { newFarmClimate, addFarmClimate, farmCells, encHarvests, decHarvests, hasHarvests } from '../farming/farming.js';
+import { farmCells, encHarvests, decHarvests, hasHarvests } from '../farming/farming.js';
 
 const DEPOSIT_IDS = DEPOSITS.map(d => d.id);
 
@@ -340,59 +340,19 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     // And the land's cover from each cell's twelve months (finish-cover.js; plans/V2_SATELLITE_PLAN.md): its colour as from
     // space for the year, January and July (sRGB, 3 bytes each), and its biome (bits 0–4) with snow in January (bit 5) and
     // in July (bit 6), for the readout.
+    // Each cell its own: on worker threads by cell range (final-cover.js) — with the measures beyond Köppen (cell-stats.js),
+    // the deposits' climate tests (geology/deposits.js), the farming's parts the months decide (farming/farming.js) and the
+    // climate as shares for the Satellite view's transitions (climate/koppen-soft.js).
     onStage('final climate');
     const land = new Uint8Array(n);
     for (let c = 0; c < n; c++) land[c] = ocean[c] ? 0 : 1;
-    const sat = [new Uint8Array(3 * n), new Uint8Array(3 * n), new Uint8Array(3 * n)], cover = new Uint8Array(n), cv = newCover();
-    // (and the riverside's colour: the cover again, well watered — where it is dry enough to differ; else the cover's own)
-    const ripSat = [new Uint8Array(3 * n), new Uint8Array(3 * n), new Uint8Array(3 * n)], cvWet = newCover(), PW = new Float64Array(12);
     // (the rain the cover reads: a little smoother, warped and roughened — from the climate stage's rain, its regional
     // pattern being all that is read)
-    const rainTarget = coverRain(pAnn, lat, lon, c => land[c] === 1, new LatLonGrid(0.5), seed), P12c = new Float64Array(12);
-    // (and its variety: tints between a few natural colours, by noise — its own stream)
-    const varyNoise = new FastNoise(((seed | 0) * 0x51f3 + 0x3a9) >>> 0), vy = newVariety(), xyz = mesh.xyz;
-    // (and its temperatures at its own full height — the climate takes only part of a place's height above its
-    // surroundings: tree and snow lines follow all of it — its surroundings' height as the climate has it, the 1° grid's
-    // mean land height)
-    const relief = COVER.fullLapse ? (1 - CORE_DEFAULTS.terrainRelief) * gamma : 0, hLand = gridClimate.surface.meanLandKm, T12c = new Float64Array(12);
-    // (and its measures beyond Köppen — cell-stats.js, one byte each — from the climate's own twelve months)
-    const cellStats = cellStatsCollector(n, c => lat[c] * Math.PI / 180, { bytes: true });
-    // (and the deposits' climate tests: bauxite, laterites, salt, peat, enriched copper — geology/deposits.js)
-    const clim = geo ? climateTestArrays(n) : null;
-    // (and the farming's parts the months decide — its growing season, what the climate makes of the soil — from the
-    // months and the cover as the land's cover reads them: farming/farming.js)
-    const farmC = newFarmClimate(n);
-    // (and the climate as shares, for the Satellite view's transitions — climate/koppen-soft.js: a few places a 0.35° cell)
-    const famGrid = softFamilyGrid(1024), famBuf = new Float64Array(10);
+    const rainTarget = coverRain(pAnn, lat, lon, c => land[c] === 1, new LatLonGrid(0.5), seed);
     report(0.02);
-    let nextReport = 0;                                               // (land cells only, in order: a report each 32K cells)
-    const cellsClimate = cellClimate(gridClimate, mesh.xyz, C.z, land, {}, (c, T12, P12) => {
-        if (c >= nextReport) { report(0.02 + 0.9 * c / n); nextReport = c + 0x8000; }
-        cellStats.add(c, T12, P12);
-        { const g = famGrid.wants(lat[c], lon[c]); if (g >= 0) famGrid.add(g, softFamilies(T12, P12, famBuf)); }
-        let T = T12;
-        if (relief) {
-            corners(climGrid, lat[c], lon[c], bi, bw);
-            let s = 0, k = 0;
-            for (let j = 0; j < 4; j++) { const v = hLand[bi[j]]; if (v === v) { s += bw[j] * Math.max(0, v); k += bw[j]; } }
-            const dT = k > 0 ? relief * (Math.max(0, C.z[c]) - s / k) : 0;
-            for (let m = 0; m < 12; m++) T12c[m] = T12[m] - dT;
-            T = T12c;
-        }
-        if (clim) climateTests(T, P12, c, clim);
-        landCover(T, coverRainScale(P12, rainTarget[c], P12c), cv, F, COVER, lat[c]);
-        addFarmClimate(farmC, c, T, P12c, cv);
-        placeVariety(xyz[3 * c], xyz[3 * c + 1], xyz[3 * c + 2], varyNoise, vy);
-        placeGround(vy, W.erg[c], W.loess[c] / F.loessKm, basalt[c] / 255, COVER, Rk ? Rk.rock[c] : 0);
-        for (let v = 0; v < 3; v++) coverRgb(cv, v, sat[v], 3 * c, undefined, vy);
-        if (cv.wetness < COVER.ripWetness) {
-            const k = COVER.ripWetness / Math.max(0.02, cv.wetness);
-            for (let m = 0; m < 12; m++) PW[m] = P12c[m] * k;
-            landCover(T, PW, cvWet, F, COVER, lat[c]);
-            for (let v = 0; v < 3; v++) coverRgb(cvWet, v, ripSat[v], 3 * c, undefined, vy);
-        } else for (let v = 0; v < 3; v++) { const S = sat[v], D = ripSat[v], o = 3 * c; D[o] = S[o]; D[o + 1] = S[o + 1]; D[o + 2] = S[o + 2]; }
-        cover[c] = cv.biome | (cv.snow[1] >= 0.5 ? 32 : 0) | (cv.snow[2] >= 0.5 ? 64 : 0);
-    });
+    const fc = await finalCover({ xyz: mesh.xyz, z: C.z, land, lat, lon, rainTarget, erg: W.erg, loess: W.loess, basalt, rock: Rk?.rock ?? null },
+        { grid: gridClimate.grid, meanLandKm: gridClimate.surface.meanLandKm, months: gridClimate.months }, { seed, F, clim: !!geo });
+    const { sat, ripSat, cover, clim } = fc, cellsClimate = fc, farmC = fc.farm;
     // (and toward each climate's own colours, regionally — on a coarser grid: the correction is smooth, ~100 km)
     biasTowardClimate(sat, cellsClimate.koppen, lat, lon, c => land[c] === 1 && cellsClimate.koppen[c] > 0, new LatLonGrid(0.5), seed);
     lap('final climate');
@@ -424,8 +384,8 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     for (let c = 0; c < n; c++) flow[c] = Math.log10(Math.max(1, Hy.area[c]));
     // (drain: where each cell's water goes, the land it drains (km²), its water (m³/s), height (km) and lake, for the region pick's valleys — js/region-basin.js)
     return { mesh, z: C.z, ocean, lake: Hy.lake, lakeLevel: Hy.lakeLevel, pond, rivers: Hy.rivers, drain: drainOf(Hy, ocean, C.z), drivers, ms, stats, geology, farming,
-        climate: { page: pageC, cell: { koppen: cellsClimate.koppen, tAnnual: cellsClimate.tAnnual, pAnnual: cellsClimate.pAnnual, sat, cover, stats: cellStats.stats, mottleSeed: ((seed | 0) * 0x2f71 + 0x6d) >>> 0,
-            flow, young, rivers: Hy.rivers, ripSat, families: famGrid.done() } },
+        climate: { page: pageC, cell: { koppen: cellsClimate.koppen, tAnnual: cellsClimate.tAnnual, pAnnual: cellsClimate.pAnnual, sat, cover, stats: fc.stats, mottleSeed: ((seed | 0) * 0x2f71 + 0x6d) >>> 0,
+            flow, young, rivers: Hy.rivers, ripSat, families: fc.families } },
         layers: debug ? { ice: I.ice, sink: B.sink, erg: W.erg, loess: W.loess, basalt, koppen, before, rain: pAnn, lat, lon, q: Hy.q, terminal: Hy.terminal } : null };
 }
 
@@ -530,16 +490,6 @@ function runoffMonths(months, G, F) {
         }
     }
     return { share: out, arid };
-}
-
-/** The four grid points around (lat, lon) and their bilinear weights (as bilinear). */
-function corners(g, lat, lon, bi, bw) {
-    const { w, h } = g, step = 180 / h;
-    const x = (lon + 180) / step - 0.5, y = Math.max(0, Math.min(h - 1, (90 - lat) / step - 0.5));
-    const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
-    const i0 = ((x0 % w) + w) % w, i1 = i0 + 1 === w ? 0 : i0 + 1, j1 = y0 + 1 < h ? y0 + 1 : y0;
-    bi[0] = y0 * w + i0; bi[1] = y0 * w + i1; bi[2] = j1 * w + i0; bi[3] = j1 * w + i1;
-    bw[0] = (1 - fx) * (1 - fy); bw[1] = fx * (1 - fy); bw[2] = (1 - fx) * fy; bw[3] = fx * fy;
 }
 
 function bilinear(g, field, lat, lon) {

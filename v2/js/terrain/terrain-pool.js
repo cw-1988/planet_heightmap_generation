@@ -20,7 +20,8 @@ export const FRAME_FIELDS = ['time', 'owner', 'type', 'flags', 'terrane', 'forme
     'crustCells', 'crustType', 'crustBelt', 'crustReach', 'rootKm', 'upliftKm', 'baseKm', 'rugged', 'prevRugged', 'volcWornKm', 'riverIncKm', 'riverKm2', 'fzU',
     'farWork', 'farDist', 'farFold', 'farDir'];
 
-async function spawn(file = './terrain-worker.js') {
+/** A worker of `file` (relative to this file), once it says it is ready — {post, listen, onCrash, terminate, hold}. */
+export async function spawn(file = './terrain-worker.js') {
     const url = new URL(file, import.meta.url);
     if (IS_NODE) {
         const { Worker } = await import('node:worker_threads');
