@@ -21,6 +21,7 @@ if (IS_NODE) {                                             // Node worker thread
     post = (msg, transfer) => self.postMessage(msg, transfer);
     self.onmessage = e => handle(e.data);
 }
+post({ type: 'ready' });                                   // (loaded: terrain-pool.js spawn waits for this)
 
 function handle(msg) {
     try {

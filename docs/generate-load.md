@@ -15,7 +15,8 @@ with a ~440 ms freeze. Measured 2026-11-20 on the owner's Windows laptop, Genera
 3. **The first picture** (~8.4 s at 204,000; ~4 s before the ladder) — the present-day world's ground at the Detail
    chosen, the ladder's last step. Its surface is drawn on a pool of worker
    threads (`v2/js/terrain/terrain-pool.js`, made when the planet worker starts, on the fixed sim mesh): the same ground,
-   bit for bit, as drawn on one thread (`node v2/tools/check-present-pool.mjs` checks it).
+   bit for bit, as drawn on one thread (`node v2/tools/check-present-pool.mjs` checks it). A pool whose workers can't
+   start (the app's browser pane) is refused at once: [worker-pool-start.md](worker-pool-start.md).
 4. **The terrain** (~13 s into the finish) — the finish (`v2/js/finish/finish.js`) knows the final heights, sea, lakes,
    rivers and drain once its water stage is done, ~60 % of the way through. It hands them over then (`onTerrain`); the
    finish worker draws their picture and the rivers' valley lines for the tiles, and sends them as `terrain`. The page

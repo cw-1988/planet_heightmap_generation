@@ -36,7 +36,7 @@ let W = null;
 // worker, so it is ready by the time a Frame is; the same ground, bit for bit. Without one (a pool that failed or broke)
 // the ground is drawn here, as before.
 let pool = null;
-const poolReady = TerrainPool.create(presentSimMesh()).then(p => { p.onBroken = () => { pool = null; }; return (pool = p); }, () => null);
+const poolReady = TerrainPool.create(presentSimMesh()).then(p => { p.onBroken = () => { pool = null; }; return (pool = p); }, e => { console.warn('[terrain] no worker pool, the ground drawn on this thread:', e.message); return null; });
 /** The pool for a ground on `mesh`: what it keeps of earlier meshes let go. */
 async function poolFor(mesh, r_xyz) {
     await poolReady;

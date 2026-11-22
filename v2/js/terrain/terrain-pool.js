@@ -25,14 +25,23 @@ async function spawn(file = './terrain-worker.js') {
     if (IS_NODE) {
         const { Worker } = await import('node:worker_threads');
         const w = new Worker(url);
+        await new Promise((ok, no) => { w.on('message', function on(m) { if (m?.type === 'ready') { w.off('message', on); ok(); } }); w.once('error', no); });
         w.unref();                                        // (idle workers never keep a Node process alive; a job holds them)
         return { post: (m, t) => w.postMessage(m, t), listen: fn => w.on('message', fn), onCrash: fn => w.on('error', err => fn(err.message)),
             terminate: () => w.terminate(), hold: on => (on ? w.ref() : w.unref()) };
     }
     const w = new Worker(url, { type: 'module' });
+    // (a worker that can't load its script fires a bare error event, and only when this thread is next free: a pool spawned
+    // inside a busy worker learnt of it seconds later, as the build's first job failed. The Claude app's browser loads no
+    // worker a worker starts from a script URL, 2026-11-22. So each worker says it is ready, and one that fails rejects the
+    // pool's creation: the caller builds without one from the start)
+    await new Promise((ok, no) => {
+        w.addEventListener('message', function on(e) { if (e.data?.type === 'ready') { w.removeEventListener('message', on); ok(); } });
+        w.addEventListener('error', e => { e.preventDefault(); no(new Error(`${file} could not start (${e.message || 'its script did not load'})`)); }, { once: true });
+    });
     // (onCrash: the worker died without a word — out of memory, most often — so the jobs it held never answer)
     return { post: (m, t) => w.postMessage(m, t), listen: fn => w.addEventListener('message', e => fn(e.data)),
-        onCrash: fn => w.addEventListener('error', e => { e.preventDefault?.(); fn(e.message || 'a worker stopped'); }), terminate: () => w.terminate(), hold: () => {} };
+        onCrash: fn => w.addEventListener('error', e => fn(e.message || 'a worker stopped')), terminate: () => w.terminate(), hold: () => {} };
 }
 
 /**
@@ -54,7 +63,10 @@ export class TerrainPool {
      */
     static async create(simMesh, size = null, { carvers = null } = {}) {
         const n = size ?? await defaultPoolSize();
-        const workers = await Promise.all(Array.from({ length: n }, spawn));
+        // (one that can't start: the others let go, and no pool)
+        const started = await Promise.allSettled(Array.from({ length: n }, () => spawn())), workers = started.filter(s => s.status === 'fulfilled').map(s => s.value);
+        const failed = started.find(s => s.status === 'rejected');
+        if (failed) { for (const w of workers) w.terminate(); throw failed.reason; }
         const arrays = { numCells: simMesh.numCells, xyz: simMesh.xyz, adjOffset: simMesh.adjOffset, adjList: simMesh.adjList };
         for (const w of workers) w.post({ type: 'sim', mesh: arrays });
         // the first worker plans each frame and hands the plan to each other worker over a port of their own
