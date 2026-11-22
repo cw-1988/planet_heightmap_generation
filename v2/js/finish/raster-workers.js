@@ -1,11 +1,13 @@
 // The finished picture's rows on short-lived workers (finish-raster.js rasterBand): each gets the mesh and the cells'
 // fields once — a copy, ~350 MB at 2.5M cells, held only while the picture is drawn — then bands of rows, the next as
-// soon as one is done; the bands come back in order and are joined, and what reads the picture whole runs here.
-// The same pixels as finishRaster's; where no worker starts, or the picture is small, it is finishRaster.
+// soon as one is done; the bands come back in order and are joined, and what reads the picture whole runs here — but the
+// terrain look's rows (terrain-look.js), a second round on the same workers before they end. The same pixels as
+// finishRaster's; where no worker starts, or the picture is small, it is finishRaster.
 
 import { finishRaster, rasterBand, rasterFinish, climateWidth, FARM_KEYS } from './finish-raster.js';
 import { spawn, defaultPoolSize } from '../terrain/terrain-pool.js';
 import { SphereIndex } from '../core/sphere-index.js';
+import { lookSetup, lookBand } from './terrain-look.js';
 
 /** From these cells, the picture is drawn on workers. */
 const WORKERS_FROM_CELLS = 300000;
@@ -20,9 +22,39 @@ export async function finishRasterAsync(mesh, z, ocean, w, onRow = null, lake = 
     const W = Math.min(MAX_WORKERS, await defaultPoolSize());
     if (W < 2) return draw();
     const S = { mesh, z, ocean, lake, lakeLevel, climate, geology, farming, pond, got: null, keep: null };
-    const bands = await onWorkers(S, w, W, onRow).catch(() => null);
-    if (!bands) return draw();                                       // (no worker starts: on this thread)
-    return rasterFinish(joinBands(bands), S, w);
+    // (the bands joined, the small lakes, then the terrain look's rows on the same workers)
+    const out = await onWorkers(S, w, W, onRow, (bands, workers) => rasterFinish(joinBands(bands), S, w, (C, heightM) => lookOnWorkers(workers, C, heightM, w))).catch(() => null);
+    return out ?? draw();                                            // (no worker starts: on this thread)
+}
+
+/** The terrain on the satellite picture (terrain-look.js) with its rows on the workers: what it reads whole worked out
+ *  here and sent to each once, then bands of rows, their sat views written back into C's. */
+async function lookOnWorkers(workers, C, heightM, w) {
+    const { L, mean, std } = lookSetup(C, heightM, w), cw = C.w, ch = C.h;
+    const count = workers.length * BANDS_PER_WORKER, cut = i => Math.round(i * ch / count);
+    const ranges = Array.from({ length: count }, (_, i) => [cut(i), cut(i + 1)]).filter(([a, b]) => b > a);
+    const views = [C.sat.year, C.sat.jan, C.sat.jul];
+    let next = 0, done = 0;
+    await new Promise((resolve, reject) => {
+        const give = wk => {
+            if (next >= ranges.length) return;
+            const i = next++, [y0, y1] = ranges[i], B = { ...lookBand(C, y0, y1, true), mean: mean.slice(y0 * cw, y1 * cw), std: std.slice(y0 * cw, y1 * cw) };
+            wk.post({ type: 'look', i, y0, y1, B }, bandBuffers(B));
+        };
+        for (const wk of workers) {
+            wk.listen(msg => {
+                if (msg.type === 'error') { reject(new Error(`raster worker: ${msg.message}`)); return; }
+                if (msg.type !== 'lookDone') return;
+                const y0 = ranges[msg.i][0];
+                for (let v = 0; v < 3; v++) views[v].set(msg.sat[v], 3 * y0 * cw);
+                done++;
+                if (done === ranges.length) resolve(); else give(wk);
+            });
+            wk.onCrash(m => reject(new Error(`raster worker stopped (${m})`)));
+            wk.post({ type: 'lookShare', L, seed: C.mottleSeed });
+            give(wk);
+        }
+    });
 }
 
 /** What a worker needs of S: the mesh's arrays and its index's table (not rebuilt), and only the fields read per pixel. */
@@ -42,7 +74,8 @@ export function shareToState(sh) {
     return { ...sh, mesh: { ...m, index }, got: null, keep: null };
 }
 
-async function onWorkers(S, w, W, onRow) {
+/** The picture's bands drawn on W workers, then `after(bands, workers)` while they still run — its result, theirs ended. */
+async function onWorkers(S, w, W, onRow, after) {
     const h = w >> 1, { f } = climateWidth(w, S.climate), step = Math.max(1, f);
     const count = W * BANDS_PER_WORKER, cut = i => Math.round(i * h / count / step) * step;
     const ranges = Array.from({ length: count }, (_, i) => [cut(i), i + 1 === count ? h : cut(i + 1)]).filter(([a, b]) => b > a);
@@ -55,6 +88,7 @@ async function onWorkers(S, w, W, onRow) {
             for (const wk of workers) {
                 wk.listen(msg => {
                     if (msg.type === 'error') { reject(new Error(`raster worker: ${msg.message}`)); return; }
+                    if (msg.type !== 'done') return;
                     out[msg.i] = msg.B;
                     done++;                                       // (not inside onRow?.(): with no onRow it never counts)
                     onRow?.(done / ranges.length);
@@ -66,7 +100,7 @@ async function onWorkers(S, w, W, onRow) {
                 give(wk);
             }
         });
-        return out;
+        return await after(out, workers);
     } finally { for (const wk of workers) wk.terminate(); }
 }
 

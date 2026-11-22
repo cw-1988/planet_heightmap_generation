@@ -10,7 +10,8 @@ by bands of rows: `v2/js/finish/finish-raster.js` (`rasterBand`, `rasterFinish`)
 - Band starts are multiples of the climate grid's step, so each band's climate rows are whole; the bands are joined in
   row order.
 - What reads the picture whole runs on the finish's thread after the join: the small lakes (`pondRaster`) and the
-  terrain look.
+  terrain look's setup; the terrain look's rows go back to the same workers in a second round
+  ([terrain-look-workers.md](terrain-look-workers.md)).
 - Below 300K cells, with reused cells (`located`), or where no worker starts, `finishRaster` draws it on the finish's
   own thread, and the result is the same.
 
