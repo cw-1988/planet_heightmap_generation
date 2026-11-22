@@ -8,7 +8,8 @@
 //              keepCells? (a pass of Add detail's ladder: the last pass's detail, whose meshes stay), earlyTerrain? (send
 //              the terrain as soon as it is final: the 'terrain' message), valleyQ? (with it, the valleys' lines for the
 //              rivers of at least this m³/s: river-valleys.js riverLines), terrainOnly? (with earlyTerrain: stop after the
-//              'terrain' message, its 'done' bare — a step of the Detail ladder's water, js/rung-view.js; its climate step-climate.js's)}
+//              'terrain' message, its 'done' bare — a step of the Detail ladder's water, js/rung-view.js; its climate step-climate.js's),
+//              fast? (the fast mode's parts, fast-mode.js: '1' or a comma list; '' = the exact finish)}
 //              · {type: 'prepare', cells, simCells, delaunatorUrl} — the meshes a finish at `cells` needs, built ahead
 //              while nothing waits on them (no reply; a finish asked for meanwhile waits for them, then finds them built)
 //              A page that draws its own surface (Generate: plans/SHARED_CORE_PLAN.md U1) adds mesh {numCells, xyz, adjOffset,
@@ -55,7 +56,7 @@ self.onmessage = async ({ data }) => {
         return;
     }
     if (data.type !== 'finish') return;
-    const { id, frame, seed, width, poolSize = null, climateOptions = {}, surface = null, earlyTerrain = false, valleyQ = 0, terrainOnly = false } = data;
+    const { id, frame, seed, width, poolSize = null, climateOptions = {}, surface = null, earlyTerrain = false, valleyQ = 0, terrainOnly = false, fast = '' } = data;
     try {
         if (!delaunatorSet) { setDelaunator((await import(data.delaunatorUrl)).default); delaunatorSet = true; }
         if (!sim || simCells !== data.simMesh.numCells) { sim = meshFromArrays(data.simMesh); simCells = data.simMesh.numCells; }
@@ -89,7 +90,7 @@ self.onmessage = async ({ data }) => {
             const now = performance.now();
             if (share < sentShare || share - sentShare >= 0.02 || now - sentAt >= 100) { self.postMessage({ type: 'progress', id, share }); sentAt = now; sentShare = share; }
         };
-        const out = await finishPlanet({ frame, simMesh: sim, seed, cells, pool, closePool: !!pool, climateOptions, driversWidth: driverWidth(width), onProgress,
+        const out = await finishPlanet({ frame, simMesh: sim, seed, cells, pool, closePool: !!pool, climateOptions, driversWidth: driverWidth(width), onProgress, fast,
             onStage: stage => { sentShare = -1; self.postMessage({ type: 'stage', id, stage }); },
             onTerrain, onDrivers, ...own, ...(terrainOnly ? { climate: stepClimate } : {}),...(data.terrain ? { cfg: terrainConfig(data.terrain) } : {}), F: { ...FINISH, ...lakeOverrides(climateOptions.lakes), ...(data.finish ?? {}) } });   // (the page's Lakes: lake-amount.js)
         if (out.terrainOnly) { self.postMessage({ type: 'done', id, terrainOnly: true, ms: out.ms }); return; }

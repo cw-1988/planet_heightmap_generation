@@ -10,7 +10,7 @@ each get a copy of what they read: the mesh and the fields for the bands, the lo
 - Sending the look's setup: 0.03–0.05 s a worker.
 
 Without SharedArrayBuffer (the page has no cross-origin isolation headers) the copy can't be skipped, and every array
-sent is read per pixel. With the `?isolate=1` toggle it is skipped: [shared-memory.md](shared-memory.md). Sending it earlier would cost the finish's thread the same time and keep four copies in memory
+sent is read per pixel. With shared memory (on by default) it is skipped: [shared-memory.md](shared-memory.md). Sending it earlier would cost the finish's thread the same time and keep four copies in memory
 longer.
 
 What was slack instead: while the workers drew, the finish's thread only waited. It now draws bands too, in both rounds

@@ -3,18 +3,20 @@
 A browser hands out `SharedArrayBuffer` only to a cross-origin isolated page, one served with two headers:
 `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`. With it, the picture's
 workers ([picture-shares.md](picture-shares.md)) read the mesh and fields the finish holds, instead of a copy each.
-GitHub Pages can't send headers, so a service worker adds them. It is off unless asked for.
+GitHub Pages can't send headers, so a service worker adds them. It is on unless turned off (since the fast-mode work,
+[fast-mode.md](fast-mode.md); before, it was opt-in).
 
 ## Turning it on and off
 
-- `?isolate=1` on any app page (evolution, generate, import) turns it on; this browser remembers it (`localStorage`
-  `orogen.isolate`). The page registers `isolate-sw.js` (at the site's root, so its scope is the whole site, `/v/`
-  included) and reloads once; from then on it is served isolated.
-- `?isolate=0` turns it off: the service worker is unregistered and the page reloads plain.
+- On by default on every app page (evolution, generate, import): the page registers `isolate-sw.js` (at the site's
+  root, so its scope is the whole site, `/v/` included) and reloads once, the first visit; from then on it is served
+  isolated.
+- `?isolate=0` turns it off, and this browser remembers it (`localStorage` `orogen.isolate` = `'0'`): the service
+  worker is unregistered and the page reloads plain. `?isolate=1` forgets that, on again.
 - Loaded by `js/support-check.js` → `js/isolate.js`. The workers check `globalThis.crossOriginIsolated` at runtime
   (`v2/js/core/shared-memory.js`, `SHARED`), so off, nothing changes: same copies, same 4 picture workers.
 
-## Spectre: why it's a toggle anyway
+## Spectre: why it's still a toggle
 
 The headers are not a Spectre exposure; they are the mitigation. Browsers withheld `SharedArrayBuffer` (a precise timer)
 after Spectre and give it back only to pages whose process holds nothing of other sites: COOP keeps other sites' windows

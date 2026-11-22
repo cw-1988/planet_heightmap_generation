@@ -5,6 +5,7 @@
 
 export { REGIME_STYLE, riverYearWords, riverPaths, drawRivers, drawRiversWindow, riverAt } from './river-draw.js';
 import { lakeMix, deepLakeRgb, nearestLake, lakeHere } from './lake-water.js';
+import { pageFast } from '../finish/fast-mode.js';
 
 export class FinishService {
     constructor() { this.worker = null; this.jobs = new Map(); this.next = 1; this.prepared = 0; }
@@ -29,7 +30,8 @@ export class FinishService {
         const w = this.start(), id = this.next++;
         return new Promise((resolve, reject) => {
             this.jobs.set(id, { resolve, reject, onStage, onProgress, onTerrain, onDrivers, keep });
-            w.postMessage({ type: 'finish', id, ...msg, earlyTerrain: !!onTerrain, delaunatorUrl: import.meta.resolve('delaunator') }, transfer);
+            // (the page's fast mode, ?fast=…: finish/fast-mode.js — every page's finishes go through here)
+            w.postMessage({ type: 'finish', id, fast: pageFast(), ...msg, earlyTerrain: !!onTerrain, delaunatorUrl: import.meta.resolve('delaunator') }, transfer);
         });
     }
 

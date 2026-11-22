@@ -22,7 +22,7 @@
         HTMLScriptElement.supports('importmap');
     var gl = null;
     try { var canvas = document.createElement('canvas'); gl = canvas.getContext('webgl2') || canvas.getContext('webgl'); } catch (e) { gl = null; }
-    // (the cross-origin isolation toggle, ?isolate=1, docs/shared-memory.md: on every page that runs the app's workers)
+    // (the cross-origin isolation toggle, on unless ?isolate=0, docs/shared-memory.md: on every page that runs the app's workers)
     var isolate = document.createElement('script');
     isolate.src = new URL('isolate.js', document.currentScript.src).href;
     document.head.appendChild(isolate);

@@ -1,4 +1,4 @@
-// The ?isolate=1 toggle's service worker (js/isolate.js registers it, docs/shared-memory.md): GitHub Pages can't send
+// The isolation toggle's service worker (js/isolate.js registers it, docs/shared-memory.md): GitHub Pages can't send
 // headers, so this adds the two that make the site cross-origin isolated to every response it serves, which lets the
 // workers share memory (SharedArrayBuffer). Cross-Origin-Opener-Policy keeps other sites' windows out of the page's
 // process; Cross-Origin-Embedder-Policy lets in only what agrees to be loaded (same origin, or CORS, as jsDelivr's

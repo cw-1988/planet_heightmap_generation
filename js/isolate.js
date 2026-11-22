@@ -1,15 +1,15 @@
-// The cross-origin isolation toggle (docs/shared-memory.md), loaded by support-check.js on the app's pages. ?isolate=1
-// turns it on, ?isolate=0 off; this browser remembers it. On, the service worker isolate-sw.js serves the site with the
-// isolation headers (one reload, the first time), and the workers share memory instead of copying it
-// (v2/js/core/shared-memory.js). Off, that worker is unregistered and everything is as before.
+// The cross-origin isolation toggle (docs/shared-memory.md), loaded by support-check.js on the app's pages. On unless
+// turned off: ?isolate=0 turns it off, ?isolate=1 on again; this browser remembers it. On, the service worker
+// isolate-sw.js serves the site with the isolation headers (one reload, the first time), and the workers share memory
+// instead of copying it (v2/js/core/shared-memory.js). Off, that worker is unregistered and the workers copy.
 (function () {
     var KEY = 'orogen.isolate', RELOADED = 'orogen.isolate.reloaded';
-    var asked = new URLSearchParams(location.search).get('isolate'), on = false;
+    var asked = new URLSearchParams(location.search).get('isolate'), on = true;
     try {
-        if (asked === '1') localStorage.setItem(KEY, '1');
-        else if (asked === '0') localStorage.removeItem(KEY);
-        on = localStorage.getItem(KEY) === '1';
-    } catch (e) { on = asked === '1'; }
+        if (asked === '0') localStorage.setItem(KEY, '0');
+        else if (asked === '1') localStorage.removeItem(KEY);
+        on = localStorage.getItem(KEY) !== '0';
+    } catch (e) { on = asked !== '0'; }
     if (!('serviceWorker' in navigator) || !window.isSecureContext) return;
     var sw = new URL('../isolate-sw.js', document.currentScript.src).href;
     var reloadOnce = function () {

@@ -1,5 +1,5 @@
 // Memory the worker threads share instead of copying (docs/shared-memory.md). Only where SharedArrayBuffer is open: a
-// cross-origin isolated page (the ?isolate=1 toggle, js/isolate.js) or Node run with OROGEN_SHARED=1. Elsewhere every
+// cross-origin isolated page (the isolation toggle, on unless ?isolate=0: js/isolate.js) or Node run with OROGEN_SHARED=1. Elsewhere every
 // call here hands back what it was given, and the workers get their copies as before.
 
 const IS_NODE = typeof window === 'undefined' && typeof process !== 'undefined' && !!process.versions?.node;

@@ -13,6 +13,7 @@ import { lastIceAge } from './finish-ice.js';
 import { windWork } from './finish-wind.js';
 import { coastWork } from './finish-coast.js';
 import { detailDrivers } from './finish-drivers.js';
+import { fastParts } from './fast-mode.js';
 import { hydrology, openStraits, fillSeaBasins, Water } from './finish-hydro.js';
 import { pondShare } from './small-lakes.js';
 import { biasTowardClimate, coverRain } from './finish-cover.js';
@@ -72,8 +73,9 @@ export function surfaceConfig(F, cfg) {
  *   is this thread's: its caller clears it with reportTo(null) when the finish ends)
  * @returns {Promise<{mesh: Object, z: Float32Array, ocean: Uint8Array, ms: Object, stats: Object}>}
  */
-export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, closePool = false, onStage = () => {}, F = FINISH, cfg = terrainConfig(), debug = false, climateOptions = {}, driversWidth = cells >= 1.5e6 ? 2048 : 1024, inspect = null, mesh: givenMesh = null, surface = null, onTerrain = null, onDrivers = null, climate = planetClimate, onProgress = null }) {
-    const ms = {}, stats = {}, said = onStage;
+export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, closePool = false, onStage = () => {}, F = FINISH, cfg = terrainConfig(), debug = false, climateOptions = {}, driversWidth = cells >= 1.5e6 ? 2048 : 1024, inspect = null, mesh: givenMesh = null, surface = null, onTerrain = null, onDrivers = null, climate = planetClimate, onProgress = null, fast = null }) {
+    const ms = {}, stats = {}, said = onStage, FP = fastParts(fast);
+    if (FP.size) stats.fast = [...FP].sort();                         // (a fast finish says so: fast-mode.js)
     onStage = s => { said(s); reportTo(onProgress); };                // (each stage's reports from 0, over all of it)
     let t0 = performance.now();
     const lap = name => { const t = performance.now(); ms[name] = t - t0; t0 = t; };
