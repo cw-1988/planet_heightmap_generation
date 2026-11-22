@@ -72,10 +72,16 @@ async function presentGround(present, plateIsOcean, mesh, r_xyz, seed, knobs, dr
     const pieceLand = Uint8Array.from(present.L.pieceIds, id => (plateIsOcean.has(id) ? 0 : 1));
     // (G2c: each region's own piece as edited — the ground is held to the pieces' outlines at this Detail)
     const regionLand = regionLandOf(present.r_plate, plateIsOcean);
-    present.world = await presentWorld(present, pieceLand, mesh, r_xyz, { seed, knobs, regionLand, regionCell: present.regionCell, regionPlate: present.regionPlate, finish: finishConfigOf(knobs), unedited: present.base, pool: await poolFor(mesh, r_xyz) });
+    present.world = unread(await presentWorld(present, pieceLand, mesh, r_xyz, { seed, knobs, regionLand, regionCell: present.regionCell, regionPlate: present.regionPlate, finish: finishConfigOf(knobs), unedited: present.base, pool: await poolFor(mesh, r_xyz) }));
     present.knobs = knobs;
     present.world.shade = hillshade(presentTerrainMesh(mesh, r_xyz), present.world.heightKm);
     if (drawn) groundDrawn(present, mesh, r_xyz);
+}
+/** A world as the worker keeps it: without the carving's own results (its drainage, receivers, order, lava, young
+ *  mountains, cut depths — ~40 MB at 2.56M) — nothing here reads them, the page's picture is the finish's (docs/page-memory.md). */
+function unread(world) {
+    for (const k of ['drainage', 'receivers', 'order', 'lava', 'young', 'cut']) delete world[k];
+    return world;
 }
 /** The Detail ladder's steps after the first (js/detail-ladder.js: `ns`, the world's own Detail last), each mesh built
  *  by `build` as its turn comes; each step shown, the last one's ground, regions and mask laid into `present`, as if the
@@ -88,7 +94,7 @@ async function climbTo(present, ns, build, plateIsOcean, seed, knobs, t0, water)
         const g = await groundOnMesh(present, m, plateIsOcean, seed, knobs, await poolFor(m.mesh, m.r_xyz));
         if (m.n !== N) { sendRung(m.mesh, m.r_xyz, g.heightKm, g.shade, m.n, N, t0, { mesh: tg - tb, ground: performance.now() - tg }, water && presentRungJob(present, g.surface, seed)); continue; }
         const w = present.world;
-        Object.assign(w, { mask: g.mask, heightKm: g.heightKm, drainage: g.drainage, receivers: g.receivers, order: g.order, lava: g.lava, young: g.young, cut: g.cut, surface: g.surface, shade: g.shade, ms: { ...w.ms, ...g.ms, mesh: tg - tb } });
+        Object.assign(w, { mask: g.mask, heightKm: g.heightKm, surface: g.surface, shade: g.shade, ms: { ...w.ms, ...g.ms, mesh: tg - tb } });
         Object.assign(present, { regionCell: g.regionCell, regionPlate: g.regionPlate, r_plate: m.r_plate });
         return m;
     }
@@ -152,8 +158,9 @@ function presentMessage(present, plateIsOcean) {
 /**
  * What the page needs of a world (js/main.js; plans/SHARED_CORE_PLAN.md U3): its mesh in Evolution's z-up frame (the
  * planet view paints it, the hover locates on it), the first picture (the ground in km and its hillshade), the record the
- * hover's stories read (layers.js storyFrame), each region's sim cell, and the finish's job — the Frame, the sim mesh, the
- * uncarved surface and the configs it was drawn with. Copies, sent as transfers (the worker keeps its own).
+ * hover's stories read (layers.js storyFrame), each region's sim cell, and the finish's job — the Frame, the sim mesh and
+ * the configs it was drawn with. Copies, sent as transfers (the worker keeps its own). The uncarved surface stays here,
+ * sent only when a finish starts (sendSurface).
  */
 function sharedPayload(present, mesh, r_xyz, seed) {
     const w = present.world, tm = presentTerrainMesh(mesh, r_xyz), sim = present.L.sim, transfer = [];
@@ -163,11 +170,10 @@ function sharedPayload(present, mesh, r_xyz, seed) {
     const frame = Object.fromEntries(Object.entries(ff).map(([k, v]) => [k, ArrayBuffer.isView(v) ? copy(v) : v]));
     const story = storyFrame(ff);
     for (const v of Object.values(story)) if (ArrayBuffer.isView(v)) transfer.push(v.buffer);
-    const s = w.surface, surface = { heightKm: copy(s.heightKm), recCell: copy(s.recCell), cues: copy(s.cues), carveIn: Object.fromEntries(Object.entries(s.carveIn).map(([k, a]) => [k, copy(a)])) };
     const payload = {
         mesh: { numCells: tm.numCells, xyz: copy(tm.xyz), adjOffset: copy(tm.adjOffset), adjList: copy(tm.adjList) },
         heightKm: copy(w.heightKm), shade: copy(w.shade), story, regionCell: copy(present.regionCell),
-        finish: { frame, simMesh: { numCells: sim.numCells, xyz: copy(sim.xyz), adjOffset: copy(sim.adjOffset), adjList: copy(sim.adjList) }, seed, surface,
+        finish: { frame, simMesh: { numCells: sim.numCells, xyz: copy(sim.xyz), adjOffset: copy(sim.adjOffset), adjList: copy(sim.adjList) }, seed,
             terrain: presentTerrainOverrides({ knobs: present.knobs }), finish: finishOverrides(present.knobs ?? {}),
             // (and for a region, drawn again finer: the fine relief's share and the fronts its ridges follow — region-synth.js)
             relief: reliefShareOf(present.knobs ?? {}), frontKm: w.frontKm ? copy(w.frontKm) : null },
@@ -322,24 +328,33 @@ async function importGround(data, again = false) {
     const tm = presentTerrainMesh(mesh, r_xyz), n = mesh.numRegions, heightKm = new Float32Array(n);
     for (let r = 0; r < n; r++) heightKm[r] = elevToHeightKm(elev[r]);
     importSim ??= buildSimMesh(IMPORT_SIM_CELLS, 12345);
-    const knobs = knobsOf(data, 0.4), surface = plainSurface(tm, heightKm.slice(), knobs, seed);
-    const transfer = [surface.heightKm.buffer, ...Object.values(surface.carveIn).map(a => a.buffer)], copy = (a) => { const c = a.slice(); transfer.push(c.buffer); return c; };
+    const knobs = knobsOf(data, 0.4);
+    W.surface = plainSurface(tm, heightKm.slice(), knobs, seed);   // (kept here, sent when a finish starts: sendSurface)
+    const transfer = [], copy = (a) => { const c = a.slice(); transfer.push(c.buffer); return c; };
     const shade = hillshade(tm, heightKm);
     transfer.push(heightKm.buffer, shade.buffer);
     const shared = {
         mesh: { numCells: n, xyz: copy(tm.xyz), adjOffset: copy(tm.adjOffset), adjList: copy(tm.adjList) },
         heightKm, shade, story: null, regionCell: null,
-        finish: { frame: null, simMesh: { numCells: importSim.numCells, xyz: copy(importSim.xyz), adjOffset: copy(importSim.adjOffset), adjList: copy(importSim.adjList) }, seed, surface,
+        finish: { frame: null, simMesh: { numCells: importSim.numCells, xyz: copy(importSim.xyz), adjOffset: copy(importSim.adjOffset), adjList: copy(importSim.adjList) }, seed,
             terrain: presentTerrainOverrides({ knobs }), finish: finishOverrides(knobs) },
     };
     progress(95, 'Done');
     self.postMessage({ type: again ? 'reapplyDone' : 'done', seed, shared, _workerTotal: performance.now() - t0 }, transfer);
 }
 
+/** The uncarved surface of the world held here, for a finish starting on the page (js/surface-ask.js): copies, sent as
+ *  transfers — the page keeps none between finishes. */
+function sendSurface({ id }) {
+    const s = W.present?.world.surface ?? W.surface, transfer = [], copy = (a) => { const c = a.slice(); transfer.push(c.buffer); return c; };
+    const surface = { heightKm: copy(s.heightKm), recCell: s.recCell && copy(s.recCell), cues: s.cues && copy(s.cues), carveIn: Object.fromEntries(Object.entries(s.carveIn).map(([k, a]) => [k, copy(a)])) };
+    self.postMessage({ type: 'surface', id, surface }, transfer);
+}
+
 // (the commands one after another, as they came: a ground drawn on the pool is awaited, and the next waits for it)
 let queue = Promise.resolve();
 self.onmessage = (e) => {
-    const handlers = { generate: handleGenerate, reapply: handleReapply, editRecompute: handleEditRecompute, brush: handleBrush, importHeightmap: (d) => importGround(d) };
+    const handlers = { generate: handleGenerate, reapply: handleReapply, editRecompute: handleEditRecompute, brush: handleBrush, importHeightmap: (d) => importGround(d), surface: sendSurface };
     const run = handlers[e.data.cmd];
     if (!run) { self.postMessage({ type: 'error', message: `Unknown command: ${e.data.cmd}` }); return; }
     queue = queue.then(() => run(e.data)).catch(err => self.postMessage({ type: 'error', message: err.message, stack: err.stack }));

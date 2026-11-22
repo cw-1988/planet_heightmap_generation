@@ -48,7 +48,8 @@ export function texture(width) {
     const canvas = document.createElement('canvas');
     canvas.width = width; canvas.height = width >> 1;
     const ctx = canvas.getContext('2d');
-    return { canvas, ctx, image: ctx.createImageData(width, width >> 1), width };
+    let image = null;
+    return { canvas, ctx, width, get image() { return (image ??= ctx.createImageData(width, width >> 1)); } };
 }
 
 export class PlanetView {

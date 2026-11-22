@@ -5,7 +5,8 @@
 import { meshFromArrays } from '../core/sim-mesh.js';
 import { preparePlan, surfaceRange, carveInputs, settleFields, carveLadder, carveSettings } from '../terrain/synthesize.js';
 import { sampleOnto, terrainMesh } from '../terrain/terrain-mesh.js';
-import { carveTerrain } from '../terrain/carve.js';
+import { carveTerrain, forgetMesh } from '../terrain/carve.js';
+import { forgetEdgeKm } from '../core/min-heap.js';
 import { surfaceConfig } from '../finish/finish.js';
 import { terrainConfig } from '../terrain/terrain-config.js';
 import { buildPresentPlates, classifyBoundaries, cellLandNow } from './plates.js';
@@ -137,6 +138,9 @@ export function presentGroundOf(frame, sim, genMesh, r_xyz, o) {
     return then(presentSynthesize(frame, sim, tMesh, cfg, o.seed, o.relief ?? reliefShareOf(o.knobs ?? {}), o.mask ?? null, o.frontKm ?? null, o.finish ?? null, o.pool ?? null), T => {
         ms.terrain = clock() - t0;
         Object.assign(ms, Object.fromEntries(Object.entries(T.ms).map(([k, v]) => [`  ${k}`, v])));
+        // (the carving's caches for this mesh let go, as the finish does: its edge lengths and its map onto the coarser
+        // mesh — ~0.25 GB at 2.56M the planet worker kept, unread, until the next ground: docs/page-memory.md)
+        forgetMesh(tMesh); forgetEdgeKm(tMesh);
         return { heightKm: T.heightKm, drainage: T.drainage ?? null, receivers: T.receivers ?? null, order: T.order ?? null, lava: T.lava ?? null, young: T.young ?? null, cut: T.cut ?? null, surface: T.surface ?? null, ms };
     });
 }

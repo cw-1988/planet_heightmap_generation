@@ -848,7 +848,7 @@ function styledJob(R, season, heightM, hw, rivers, water, ground) {
             try {
                 while (!J.done) {
                     const r = it.next();
-                    if (r.done) { J.out = r.value; J.done = true; break; }
+                    if (r.done) { J.out = r.value; J.done = true; letGoOnceStyled(R, byS); break; }
                     if (performance.now() - t0 >= budgetMs) break;
                 }
             } catch (e) { byS.delete(season); throw e; }
@@ -857,6 +857,12 @@ function styledJob(R, season, heightM, hw, rivers, water, ground) {
     };
     byS.set(season, J);
     return J;
+}
+/** Every season of a climate picture styled: its shares, riverside, land means and large-scale fields let go — only a
+ *  season's styling reads them (~50 MB at a 4096 picture, held as long as the picture; docs/page-memory.md). */
+function letGoOnceStyled(R, byS) {
+    if (!Object.keys(R.sat).every(s => byS.get(s)?.done)) return;
+    for (const c of [shareCache, ripCache, meanCache, macroCache]) c.delete(R);
 }
 function* jobGen(R, season, heightM, hw, rivers, water, ground) {
     yield* sharesGen(R);

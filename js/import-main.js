@@ -10,6 +10,7 @@ import { meshFromArrays } from '../v2/js/core/sim-mesh.js';
 import { PlanetView } from '../v2/js/view/planet-view.js';
 import { mountLayerBar } from '../v2/js/view/layer-bar.js';
 import { FinishService } from '../v2/js/evolution/finish-view.js';
+import { askSurface } from './surface-ask.js';
 import { terrainFin, finishedFin } from './finish-landing.js';
 import { stageClock } from '../v2/js/finish/stage-clock.js';
 import { initEvolutionExport } from '../v2/js/evolution/export.js';
@@ -83,8 +84,11 @@ function received(msg) {
 
 // ── the finish (Evolution's) in the background ──
 const finishWidth = (n) => (IS_TOUCH ? 2048 : Math.min(8192, Math.max(2048, 2 ** Math.round(Math.log2(4 * Math.sqrt(n))))));
+let finishes = 0;            // (the finish asked last: one whose surface comes after a newer one was asked goes no further)
 async function finish(w) {
     finisher.cancel();
+    const ticket = ++finishes, { surface, transfer } = await askSurface(worker);   // (the surface the worker keeps: js/surface-ask.js)
+    if (world !== w || ticket !== finishes) return;
     const started = performance.now();
     w.fin = null; w.problem = null; w.finishing = { stage: 'starting', share: 0 }; updateChip(); bar.finishing('starting', 0);
     let quiet = false;
@@ -95,7 +99,7 @@ async function finish(w) {
     try {
         // (the terrain lands first, the other layers after it: finish-landing.js)
         const onTerrain = (d) => { if (world !== w) return; w.fin = terrainFin(w.n, d); rungs.clear(); dirty = true; updateChip(); console.info(`[import] terrain finished in ${((performance.now() - started) / 1000).toFixed(1)} s`); };
-        const res = await finisher.finish({ ...w.finishJob, mesh: w.meshArrays, cells: w.n, width: finishWidth(w.n), climateOptions: climateOptions(), valleyQ: view.riverQ }, { onStage, onProgress, onTerrain, onDrivers: () => { if (world === w) bar.zoomReady(); }, keep: false });
+        const res = await finisher.finish({ ...w.finishJob, surface, mesh: w.meshArrays, cells: w.n, width: finishWidth(w.n), climateOptions: climateOptions(), valleyQ: view.riverQ }, { onStage, onProgress, onTerrain, onDrivers: () => { if (world === w) bar.zoomReady(); }, keep: false, transfer });
         clock.done(res.ms);
         if (world !== w) return;
         quiet = !!pv.shows(w.fin);                                   // (the terrain shown already: the rest changes nothing on it)

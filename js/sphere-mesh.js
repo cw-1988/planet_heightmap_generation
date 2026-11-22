@@ -89,92 +89,45 @@ export function addPoleToMesh(poleId, triangles, halfedges) {
     return { triangles: nt, halfedges: nh };
 }
 
-// Lightweight dual-mesh helper wrapping Delaunator output.
-// Regions = Voronoi cells, Triangles = Delaunay triangles, Sides = half-edges.
+// The sphere's regions (Voronoi cells) and each one's neighbours, in order around it, read off Delaunator's triangles
+// and half-edges. Only the neighbours are kept: nothing reads the triangles once these are built, and at 2.56M cells
+// the triangles, the half-edges and the triangles around each region were ~190 MB the planet worker kept for no reader
+// (docs/page-memory.md).
 export class SphereMesh {
     constructor(triangles, halfedges, numRegions) {
-        this.triangles = triangles;
-        this.halfedges = halfedges;
         this.numRegions = numRegions;
-        this.numSides = triangles.length;
-        this.numTriangles = (triangles.length / 3) | 0;
-
-        this._r_s = new Int32Array(numRegions).fill(-1);
-        for (let s = 0; s < this.numSides; s++) {
-            const r = triangles[s];
-            if (this._r_s[r] === -1) this._r_s[r] = s;
-        }
-
-        // Pre-compute flat adjacency lists for r_circulate_r and r_circulate_t.
-        // Replaces per-call half-edge traversal with cache-friendly array reads.
-        const adjCount = new Int32Array(numRegions);
+        const numSides = triangles.length, next = s => (s % 3 === 2 ? s - 2 : s + 1);
+        const r_s = new Int32Array(numRegions).fill(-1);              // (a side leaving each region)
+        for (let s = 0; s < numSides; s++) if (r_s[triangles[s]] === -1) r_s[triangles[s]] = s;
+        // flat adjacency lists (cache-friendly array reads instead of a half-edge walk per call)
+        const adjOffset = new Int32Array(numRegions + 1);
         for (let r = 0; r < numRegions; r++) {
-            const s0 = this._r_s[r];
+            let count = 0;
+            const s0 = r_s[r];
+            if (s0 !== -1) { let s = s0; do { count++; s = next(halfedges[s]); } while (s !== s0); }
+            adjOffset[r + 1] = adjOffset[r] + count;
+        }
+        const adjList = new Int32Array(adjOffset[numRegions]);
+        for (let r = 0; r < numRegions; r++) {
+            const s0 = r_s[r];
             if (s0 === -1) continue;
-            let s = s0;
-            do {
-                adjCount[r]++;
-                s = this._next(this.halfedges[s]);
-            } while (s !== s0);
+            let s = s0, idx = adjOffset[r];
+            do { adjList[idx++] = triangles[next(s)]; s = next(halfedges[s]); } while (s !== s0);
         }
-
-        this._adjOffset = new Int32Array(numRegions + 1);
-        for (let r = 0; r < numRegions; r++) {
-            this._adjOffset[r + 1] = this._adjOffset[r] + adjCount[r];
-        }
-
-        const totalAdj = this._adjOffset[numRegions];
-        this._adjList = new Int32Array(totalAdj);   // neighbor regions
-        this._adjTriList = new Int32Array(totalAdj); // neighbor triangles
-
-        for (let r = 0; r < numRegions; r++) {
-            const s0 = this._r_s[r];
-            if (s0 === -1) continue;
-            let s = s0;
-            let idx = this._adjOffset[r];
-            do {
-                this._adjList[idx] = this.s_end_r(s);
-                this._adjTriList[idx] = this.s_inner_t(s);
-                idx++;
-                s = this._next(this.halfedges[s]);
-            } while (s !== s0);
-        }
-
-        // Public aliases for direct adjacency iteration (avoids r_circulate_r copy overhead)
-        this.adjOffset = this._adjOffset;
-        this.adjList   = this._adjList;
+        this.adjOffset = adjOffset;
+        this.adjList = adjList;
     }
 
     /** Its arrays, to send to another thread (js/mesh-worker.js), and the mesh again from them, nothing worked out anew. */
-    parts() { return { triangles: this.triangles, halfedges: this.halfedges, numRegions: this.numRegions, r_s: this._r_s, adjOffset: this._adjOffset, adjList: this._adjList, adjTriList: this._adjTriList }; }
+    parts() { return { numRegions: this.numRegions, adjOffset: this.adjOffset, adjList: this.adjList }; }
     static fromParts(p) {
-        const m = Object.create(SphereMesh.prototype);
-        Object.assign(m, { triangles: p.triangles, halfedges: p.halfedges, numRegions: p.numRegions, numSides: p.triangles.length, numTriangles: (p.triangles.length / 3) | 0,
-            _r_s: p.r_s, _adjOffset: p.adjOffset, _adjList: p.adjList, _adjTriList: p.adjTriList, adjOffset: p.adjOffset, adjList: p.adjList });
-        return m;
+        return Object.assign(Object.create(SphereMesh.prototype), { numRegions: p.numRegions, adjOffset: p.adjOffset, adjList: p.adjList });
     }
-
-    _next(s)    { return (s % 3 === 2) ? s - 2 : s + 1; }
-    s_begin_r(s){ return this.triangles[s]; }
-    s_end_r(s)  { return this.triangles[this._next(s)]; }
-    s_inner_t(s){ return (s / 3) | 0; }
-    s_outer_t(s){ return (this.halfedges[s] / 3) | 0; }
 
     r_circulate_r(out, r) {
-        const start = this._adjOffset[r];
-        const end = this._adjOffset[r + 1];
-        const len = end - start;
+        const start = this.adjOffset[r], len = this.adjOffset[r + 1] - start;
         out.length = len;
-        for (let i = 0; i < len; i++) out[i] = this._adjList[start + i];
-        return out;
-    }
-
-    r_circulate_t(out, r) {
-        const start = this._adjOffset[r];
-        const end = this._adjOffset[r + 1];
-        const len = end - start;
-        out.length = len;
-        for (let i = 0; i < len; i++) out[i] = this._adjTriList[start + i];
+        for (let i = 0; i < len; i++) out[i] = this.adjList[start + i];
         return out;
     }
 }
@@ -209,20 +162,4 @@ export function computeNeighborDist(mesh, r_xyz) {
         }
     }
     return neighborDist;
-}
-
-// Triangle centres (= Voronoi vertices on the sphere).
-export function generateTriangleCenters(mesh, r_xyz) {
-    const { numTriangles } = mesh;
-    const t_xyz = new Float32Array(3 * numTriangles);
-    for (let t = 0; t < numTriangles; t++) {
-        const s0 = 3 * t;
-        const a = mesh.s_begin_r(s0),
-              b = mesh.s_begin_r(s0 + 1),
-              c = mesh.s_begin_r(s0 + 2);
-        t_xyz[3*t]   = (r_xyz[3*a] + r_xyz[3*b] + r_xyz[3*c]) / 3;
-        t_xyz[3*t+1] = (r_xyz[3*a+1]+r_xyz[3*b+1]+r_xyz[3*c+1]) / 3;
-        t_xyz[3*t+2] = (r_xyz[3*a+2]+r_xyz[3*b+2]+r_xyz[3*c+2]) / 3;
-    }
-    return t_xyz;
 }
