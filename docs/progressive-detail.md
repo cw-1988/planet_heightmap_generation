@@ -44,6 +44,8 @@ Each Detail is its own Fibonacci sphere with its own jitter; its points don't in
 replaces the last instead of refining it. The ground keeps its shape between steps (the same plates, past and Frame);
 the coasts and relief sharpen. A true refine-in-place would need nested meshes (such as a subdivided icosphere) under
 every finish stage, the saved files and Evolution: a change of direction.
+What a step could take over, and how to bring the ladder's cost close to the option off:
+[progressive-reuse.md](progressive-reuse.md).
 
 ## What it costs
 
