@@ -498,16 +498,18 @@ export function oceanMask(mesh, z, seaSeedKm2 = FINISH.seaSeedKm2, deepKm = FINI
     // sea: developer, "tiny bits of 'sea' surrounded by continent … where rivers end … should NOT be a valid end"; then,
     // "lets reduce what we consider a valid end sea": the size is the whole body's, not only its deep water's)
     const { adjOffset, adjList, numCells: n } = mesh, ocean = new Uint8Array(n), seen = new Uint8Array(n), cellKm2 = 4 * Math.PI * R * R / n;
+    // (each body's cells in one typed queue, reused: a growing JS array of a 1.7M-cell ocean was ~0.5 s a call at 2.5M)
+    const cells = new Int32Array(n);
     for (let s = 0; s < n; s++) {
         if (!(z[s] < 0) || seen[s]) continue;
-        const cells = [s];
-        seen[s] = 1;
+        let len = 1;
+        cells[0] = s; seen[s] = 1;
         let deep = z[s] < -deepKm;
-        for (let i = 0; i < cells.length; i++) for (let k = adjOffset[cells[i]]; k < adjOffset[cells[i] + 1]; k++) {
+        for (let i = 0; i < len; i++) for (let k = adjOffset[cells[i]]; k < adjOffset[cells[i] + 1]; k++) {
             const nb = adjList[k];
-            if (z[nb] < 0 && !seen[nb]) { seen[nb] = 1; cells.push(nb); if (z[nb] < -deepKm) deep = true; }
+            if (z[nb] < 0 && !seen[nb]) { seen[nb] = 1; cells[len++] = nb; if (z[nb] < -deepKm) deep = true; }
         }
-        if (deep && cells.length * cellKm2 >= seaSeedKm2) for (const c of cells) ocean[c] = 1;
+        if (deep && len * cellKm2 >= seaSeedKm2) for (let i = 0; i < len; i++) ocean[cells[i]] = 1;
     }
     return ocean;
 }

@@ -40,6 +40,16 @@ bits. The rest could go to workers, but the page has no SharedArrayBuffer (no cr
 worker would need its own copy of the 2.5M mesh's adjacency: about 70 MB a level, for about 1.5 s of work a round. Done
 instead: [carve-cell-order.md](carve-cell-order.md).
 
+## CPU profile after the warp change (2.5M)
+
+`node --cpu-prof`, the finish's thread, self time: carving's levels 4.3 s · hydrology 2.4 · the coast's waves 1.8 · the
+climate's relax 1.6 · `oceanMask` 1.4 over its three calls · `spillFlood` 1.4 · `riverYears` 1.35 · closed basins
+1.0 · `detailDrivers` 0.9 · the wind 0.65 · the ice age 0.5 · farming's reach 0.4; idle (waiting on workers) 10 s. A
+terrain worker: `surfaceRange` 2.3 · noise 1.7 · `runJob` 1.4 (its own lines, not yet explained) · garbage collection 0.6.
+
+`oceanMask` was moved to a typed queue (exactly the same order): measured alone at 2.5M, 280–360 → 230–315 ms a call;
+the rest of its time is the walk over the cells' neighbours itself.
+
 ## Water (5.1 s)
 
 Hydrology in `finish-hydro.js`. It was being changed by another session at the time, so it was left alone.
