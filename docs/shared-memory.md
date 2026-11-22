@@ -36,6 +36,9 @@ for it):
 - picture 5.7 → 4.0 s (finish 47.2 s): no copies sent, and as many picture workers as the pool has (`MAX_WORKERS`), not
   4 — each extra worker costs no memory. The mesh's shared copy is kept from finish to finish (`shared(a, true)`); the
   fields are copied once for all workers, since some are written in place (the look's `C.sat`).
+- Memory: peak RSS of the whole run 3.84 → 3.19 GB (−0.66 GB). The peak is the picture, at the finish's end, where
+  each unshared worker held its own copy; sampled every 50 ms from a thread of its own (workers are threads of the same
+  process). The cost: the mesh's shared copy (~0.1–0.2 GB at 2.5M) stays between finishes.
 - The 126 hashed arrays are the same as without it, at 2.5M and 250K.
 
 Checked in the page (local dev server, no headers of its own): `?isolate=1` → `crossOriginIsolated` true, the globe and
