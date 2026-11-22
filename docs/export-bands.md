@@ -35,4 +35,5 @@ Exported maps may be up to 65,536 px wide (`EXPORT_MAX_BANDS` in `v2/js/evolutio
 ## Checked (2026-11-22)
 
 - Every module loads in the page with no error; `node --check` and `check-style` pass.
+- A 1,024-px export in the page saves its zip (1.3 MB) with no error.
 - A band run at 32,768 px or more was not run end to end: it needs a real folder picked by the user.
