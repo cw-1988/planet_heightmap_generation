@@ -132,6 +132,10 @@ The globe and the map zoom down to 9.5 m a pixel, with a region's rolling and ri
 [world-map-detail.md](world-map-detail.md).
 
 ## Mobile Support
+### Export past 16,384 px (fork addition)
+
+Maps up to 65,536 px wide, drawn and saved a band of rows at a time: [export-bands.md](export-bands.md).
+
 
 Generate is fully usable on phones and tablets:
 

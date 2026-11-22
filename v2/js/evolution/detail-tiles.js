@@ -17,7 +17,7 @@ export class DetailTiles {
      *  tiles kept in memory; most in a view; the finest level; most across or down (TileLayers' layers on this GPU); the disk's */
     constructor(service, { keep = 200, most = 150, maxLevel = 9, maxSpan = 31, store = new TileStore() } = {}) {
         this.service = service; this.keep = keep; this.most = most; this.maxLevel = maxLevel; this.maxSpan = maxSpan; this.store = store;
-        this.tiles = new Map(); this.fin = null; this.seed = 0; this.riverQ = Infinity; this.range = null; this.clock = 0;
+        this.tiles = new Map(); this.fin = null; this.seed = 0; this.riverQ = Infinity; this.range = null; this.clock = 0; this.held = false;
         this.onTile = null;                                   // (called as each tile is drawn)
     }
 
@@ -31,12 +31,20 @@ export class DetailTiles {
     /**
      * The tiles a view wants, asked for where not drawn: `places` its sampled points as [lon, lat] (degrees; null off the
      * planet), `screenPx` its height in device pixels, `textureW` the picture shown's width, `riverQ` the rivers drawn
-     * (DetailService.source). Returns the range { L, tx0, tx1, ty0, ty1 } (tx may run past the planet's edge: wrapped), or
-     * null where the picture's own pixels are fine enough.
+     * (DetailService.source), `settled` whether the view has stopped: while it moves, a view wanting another level keeps
+     * the level it has (`held`) — its tiles not yet sent to a worker dropped, the rest drawn — so a zoom draws none of the
+     * levels it passes through (from PR #155). Returns the range { L, tx0, tx1, ty0, ty1 } (tx may run past the planet's
+     * edge: wrapped), or null where the picture's own pixels are fine enough.
      */
-    want(fin, seed, places, screenPx, textureW, riverQ = Infinity) {
+    want(fin, seed, places, screenPx, textureW, riverQ = Infinity, settled = true) {
         if (fin !== this.fin || riverQ !== this.riverQ) this.reset(fin, seed, riverQ);
-        const g = this.range = tileRange(places, screenPx, textureW, this.most, this.maxLevel, this.maxSpan), wanted = new Set();
+        const g = tileRange(places, screenPx, textureW, this.most, this.maxLevel, this.maxSpan), wanted = new Set();
+        this.held = !settled && !!g && g.L !== this.range?.L;
+        if (this.held) {
+            for (const [key, t] of this.tiles) if (!t.data && !t.ticket?.sent) { t.ctl?.abort(); this.tiles.delete(key); }
+            return this.range;
+        }
+        this.range = g;
         const list = [];
         if (g) for (let ty = g.ty0; ty <= g.ty1; ty++) for (let tx = g.tx0; tx <= g.tx1; tx++) {
             const key = keyOf(g.L, tx, ty), t = this.tiles.get(key), d = (tx + 0.5 - g.cx) ** 2 + (ty + 0.5 - g.cy) ** 2;
@@ -120,6 +128,10 @@ export class DetailTiles {
     }
 }
 
+/** The tiles a view wants reach past its edges by this share of it, ready for a pan (0.12 until 2026-11-22: 1.12² of
+ *  the view's tiles a view, against 1.24²; PR #155's). */
+export const TILE_MARGIN = 0.06;
+
 const keyOf = (L, tx, ty) => { const n = 1 << L; return `${L}/${((tx % n) + n) % n}/${ty}`; };
 
 /**
@@ -148,7 +160,7 @@ export function tileRange(places, screenPx, textureW, most, maxLevel, maxSpan = 
     // at 40° with its margin took 300+ tiles at its level, and fell a level, 1.7–2.3× its pixels)
     const all = lo1 - lo0 > 300, edge = places.some(p => !p);
     if (all) { if (la1 > -la0) la1 = 90; else la0 = -90; }
-    for (let L = Math.max(minL, Math.min(maxLevel, Math.ceil(Math.log2(need / TILE) - 0.25))); L >= minL; L--) for (const rim of edge ? [0.25, 0.04] : [0.12, 0.02]) {
+    for (let L = Math.max(minL, Math.min(maxLevel, Math.ceil(Math.log2(need / TILE) - 0.25))); L >= minL; L--) for (const rim of edge ? [0.25, 0.04] : [TILE_MARGIN, 0.02]) {
         const n = 1 << L, rows = n >> 1, mLat = rim * (la1 - la0), mLon = all ? 0 : rim * (lo1 - lo0);
         let tx0 = Math.floor((lo0 - mLon + 180) / 360 * n), tx1 = Math.floor((lo1 + mLon + 180) / 360 * n);
         if (all || tx1 - tx0 >= n) { tx0 = Math.floor((c[0] + 180) / 360 * n) - (n >> 1); tx1 = tx0 + n - 1; }

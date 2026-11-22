@@ -45,6 +45,8 @@ const PATCH_EVERY_MS = 50;      // (a moving view asks for its tiles this often)
 
 /** A canvas texture `width` wide (×width/2), its 2D context and an image to paint into it. */
 export function texture(width) {
+const PATCH_SETTLE_MS = 200;    // (a zoom on its way to another level of tiles waits until the view has been still this long:
+                                // no wheel, drag or pinch, and its zoom within a hundredth of where it is going — PR #155's)
     const canvas = document.createElement('canvas');
     canvas.width = width; canvas.height = width >> 1;
     const ctx = canvas.getContext('2d');
@@ -109,7 +111,13 @@ export class PlanetView {
         this.PATCH_BUDGET_MS = isTouch ? 4 : 6;         // (a frame paints and lays tiles for about this long: the rest come in the frames after)
         this.tiles = new DetailTiles(this.detail, { ...(isTouch ? { keep: 48, most: 48, maxLevel: 12 } : { keep: 260, most: 260, maxLevel: 14 }), maxSpan: this.PATCH_SPAN });   // (~0.9 MB a tile in memory, its whole 1.6 MB on disk: detail-tiles.js; fork: level 14 is 9.5 m a pixel; 260 a view: at 150 a 2560 × 1440 screen fell a level coarser, docs/world-map-detail.md)
         this.layers = new TileLayers(this.globe, this.PATCH_SPAN);
-        this.patchLook = 0; this.patchLookKey = ''; this.patchClimate = null; this.viewSig = ''; this.wantedAt = 0;
+        this.patchLook = 0; this.patchLookKey = ''; this.patchClimate = null; this.viewSig = ''; this.wantedAt = 0; this.inputAt = 0;
+        // (when the view was last moved by hand: the globe's canvas and the map's frame take the pointer)
+        for (const el of [this.ui.canvas, this.ui.map]) {
+            if (!el) continue;
+            for (const ev of ['wheel', 'pointerdown', 'touchstart', 'touchmove']) el.addEventListener(ev, () => { this.inputAt = performance.now(); }, { passive: true });
+            el.addEventListener('pointermove', e => { if (e.buttons) this.inputAt = performance.now(); }, { passive: true });
+        }
         this.tileImage = null; this.tileColors = { look: -1, byWidth: new Map() };
         this.cloudsShown = { on: null, C: undefined, season: null };
         this.satPrep = null; this.satPrepFailed = new WeakSet();
@@ -476,13 +484,14 @@ export class PlanetView {
         if (!fin || !DetailService.can(fin) || !this.patchLayer(view.layer)) { layers.hide(); return; }
         const mv = globe.mapView, sig = view.mode === 'map' ? `m|${mv?.zoom}|${mv?.panX}|${mv?.panY}|${view.centerLon}|${view.projection}|${ui.map.clientWidth}|${ui.map.clientHeight}`
             : `${globe.camera.position.toArray().map(v => v.toFixed(4)).join()}|${ui.canvas.clientWidth}|${ui.canvas.clientHeight}`;
-        if ((sig !== this.viewSig || fin !== tiles.fin || this.riversDrawn(fin) !== tiles.riverQ) && now - this.wantedAt >= PATCH_EVERY_MS) {
+        const settled = now - this.inputAt >= PATCH_SETTLE_MS && !globe.zoomEasing();
+        if ((sig !== this.viewSig || fin !== tiles.fin || this.riversDrawn(fin) !== tiles.riverQ || (tiles.held && settled)) && now - this.wantedAt >= PATCH_EVERY_MS) {
             this.viewSig = sig; this.wantedAt = now;
             if (fin !== tiles.fin) layers.clear();
             const { places, px } = this.viewPlaces();
             // (from the running picture's pixels on: told the paused one's 4,096, the tiles waited for a planet 6,554 px
             // wide while the 2,048 picture shown stood in stretched 3.2×; level 4's tiles are as fine as the paused one)
-            tiles.want(fin, seed, places, px, this.MAP_WIDTH, this.riversDrawn(fin));
+            tiles.want(fin, seed, places, px, this.MAP_WIDTH, this.riversDrawn(fin), settled || fin !== tiles.fin);
         }
         const look = this.patchLookOf(fin), extra = this.extraLines ? this.extraLinesKey(view) : null;
         layers.lay(tiles, look, t => this.paintTile(fin, t, look, extra), this.PATCH_BUDGET_MS, extra);

@@ -40,6 +40,15 @@ const ROTS = Array.from({ length: 17 }, (_, o) => {
     return [ca * cc - sa * cb * sc, -ca * sc - sa * cb * cc, sa * sb, sa * cc + ca * cb * sc, -sa * sc + ca * cb * cc, -ca * sb, sb * sc, sb * cc, cb];
 });
 
+/** One octave's noise (seeded), turned its own way (ROTS): fn(x, y, z, o, f) at a point on the sphere (km), at frequency f. */
+export function turnedNoise(seed) {
+    const noise = new FastNoise(seed);
+    return (x, y, z, o, f) => {
+        const q = ROTS[o];
+        return noise.noise3D((q[0] * x + q[1] * y + q[2] * z) * f + 0.37 * o, (q[3] * x + q[4] * y + q[5] * z) * f, (q[6] * x + q[7] * y + q[8] * z) * f);
+    };
+}
+
 /**
  * The detail's waves (seeded): fn(px, py, pz, b, L, o0, o1, out) at a point on the sphere (km) over ground `b` m high,
  * octaves o0 … o1 of the ladder L ({ top: the longest wave, km; s1: the roughness noise's frequency }), each wave
@@ -57,11 +66,7 @@ const ROTS = Array.from({ length: 17 }, (_, o) => {
 export function detailWaves(seed, vary = false, { fineWarp = FINE_WARP, rolling = false, broadTo = WIDE } = {}) {
     const noise = new FastNoise(seed), warp = new FastNoise(seed + 7), rough = new FastNoise(seed + 29), det = { slope: 0, relief: 0 };
     const warp2 = new FastNoise(seed + 11), hist = new Float32Array(17);
-    const nz = (x, y, z, o, f) => {
-        if (!vary) return noise.noise3D(x * f, y * f, z * f);
-        const q = ROTS[o];
-        return noise.noise3D((q[0] * x + q[1] * y + q[2] * z) * f + 0.37 * o, (q[3] * x + q[4] * y + q[5] * z) * f, (q[6] * x + q[7] * y + q[8] * z) * f);
-    };
+    const nz = vary ? turnedNoise(seed) : (x, y, z, o, f) => noise.noise3D(x * f, y * f, z * f);
     return (px, py, pz, b, L, o0, o1, out, wts = null, ridgedTo = Infinity) => {
         const top = L.top, s0 = 1 / top, s1 = L.s1;
         // (the widest waves warped by a third of the widest — the coasts' and hills' broad shapes; each wave as tall as

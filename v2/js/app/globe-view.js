@@ -265,6 +265,15 @@ export class GlobeView {
         return true;
     }
 
+    /** Whether the view's zoom is still on its way: the globe's height, or the map's zoom, more than a hundredth from where
+     *  it is going (its last hundredths ease in slowly and do not count as moving; from PR #155). */
+    zoomEasing() {
+        const v = this.mapView;
+        if (this.map && v) return Math.abs(v.zoomTo - v.zoom) > 0.01 * v.zoom;
+        const h = this.camera.position.length() - 1;
+        return Math.abs(this.zoomTo - 1 - h) > 0.01 * h;
+    }
+
     /** The near plane at a third of the camera's height above the ground (at most 0.1, as before). */
     fitNear(d) {
         const n = Math.min(0.1, Math.max(1e-6, (d - 1) / 3));

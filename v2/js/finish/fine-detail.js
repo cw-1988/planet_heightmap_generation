@@ -293,7 +293,7 @@ export function fineWindow(src, { W, x0, y0, w, h }, signal = null) {
 
     lap('coasts');
     // ── (fork) an opened region's rolling and ridged detail, octave by octave as the pixels hold it (fine-ladder.js) ──
-    fineLadder(D, { hb, gE, gN, seaB, coastKm, cosLa, sinLa, cosLo, sinLo, ew, eh, pxKm, picKm, seed, fade, reach });
+    fineLadder(D, { hb, gE, gN, cosLa, sinLa, cosLo, sinLo, ew, eh, picKm, seed, fade, W, X0, Y0, pxKm });
     lap('ladder');
     // ── (fork) the rivers' valleys, cut along the lines the page draws (river-valleys.js) ──
     carveValleys(D, src.rv ?? (src.rvAll ? cropLines(src.rvAll, { W, x0, y0, w, h }, M) : null), { hb, gE, gN, seaB, W, X0, Y0, ew, eh, pxKm, cosLa, sinLa, cosLo, sinLo, seed, fade });

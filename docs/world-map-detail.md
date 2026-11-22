@@ -21,6 +21,11 @@ valleys of their own.
   the running picture (2,048 px) at or past its own pixels. The scale is read between the samples just above and
   below the middle, so the planet's edge, a pole or a wide view no longer keeps the tiles off. A view's tiles first
   drop their prefetch margin before falling a level coarser; desktop holds 260 a view (`most`).
+- The prefetch margin is 6% of the view each side (`TILE_MARGIN`; 12% until 2026-11-22, from PR #155): a view asks for
+  1.12² of its own tiles, not 1.24².
+- While the zoom is still easing (`GlobeView.zoomEasing`), a view that wants another level keeps the one it has
+  (`DetailTiles.want`, `settled`). Its tiles not yet sent to a worker are dropped, so a zoom draws none of the levels it
+  passes through (from PR #155).
 - Each tile is drawn once per world and kept on disk; memory holds only the view's: [tile-disk.md](tile-disk.md).
 - What the page keeps at rest at 2.56M Detail, and what was cut: [page-memory.md](page-memory.md).
 - Before (2026-11-18): tiles waited for 1.6× the paused picture's 4,096 px, a view free of the planet's edge, the
@@ -45,8 +50,13 @@ world tile.
   at that pixel. The grain is as strong on a crest as on a flank.
 - The waves are read on the sphere, so neighbouring tiles match.
 - Near the coast, the waves may push land below the sea and raise the shallow sea floor above it.
-- Inland, a lowering is held above the sea by a soft cap, so plains get no pits of new sea.
-- The deep sea floor gets none.
+- Inland, a lowering is held above the sea by a soft cap, so plains get no pits of new sea. Out at sea, a raising is
+  held below it the same way.
+- Each cap runs on through the picture's coastline and opens fast on the far side (`COAST_OPEN`, 20 km of cap per km
+  of height).
+  - Before, a cap switched on at the coastline and off at the coast's reach. A wave's height jumped there, and the
+    hillshade drew a hard ring round every island offshore (the owner, 2026-11-20).
+- The deep sea floor gets none. It is skipped before the cap, which would otherwise divide 0 by 0 and turn the sea black.
 
 `detailOf` (region-relief.js) eases the sea floor's detail into the land's over the first 60 m of height. Before this,
 it jumped at height 0, which a region hides because its coast lies there. Once the ladder moved the coast, the jump
@@ -135,6 +145,9 @@ Rivers, checked in Node on a synthetic river (2026-11-18):
 - Bent line: no gap at any joint. It swings at most about 4 km at every level from 8 to 14. Its steps are 2–3 px with
   corners of at most 20°, apart from one step of 8 px at level 14.
 - Valley: at levels 10 to 14 the drawn line lies at 97–100% of the floor's depth. The steepest side is 0.024–0.057,
+- Since 2026-11-22 (from PR #155): an octave whose wave spans 16 pixels or more is read on a grid of the planet's own
+  pixels and drawn between them by Catmull-Rom (`GRID_PER_WAVE` in fine-ladder.js). A level-14 tile's ladder went from
+  about 120 ms to 50 ms, 0.70% rms off the per-pixel waves, with no seams (`v2/tools/bench-fine-ladder.mjs`).
   against about 0.3 before. A 320 × 320 window carves in at most 90 ms.
 - Across a picture sloping 1.5% across the river, 1,000 m³/s (2026-11-18, second round): at levels 10–14 the ground under
   the line is at most 1.7–2.3 m above the valley's lowest, both sides 2.5 km out stand 36–44 m above the floor, and

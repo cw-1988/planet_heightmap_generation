@@ -31,8 +31,8 @@ export class DetailService {
 
     /**
      * One window drawn by a worker: a promise of fineWindow's result. A job aborted before it starts is never sent; the
-     * waiting job sent first is the one whose `ticket.order` is lowest (the caller may change it while it waits), else the
-     * first asked for.
+     * waiting job sent first is one without a ticket (an export's band), else the one whose `ticket.order` is lowest (the
+     * caller may change it while it waits), else the first asked for. A job sent marks its ticket `sent`.
      */
     run(src, win, signal, ticket = null) {
         return new Promise((resolve, reject) => {
@@ -45,13 +45,16 @@ export class DetailService {
     pump() {
         while (this.queue.length) {
             let at = 0;
-            for (let i = 1; i < this.queue.length; i++) if ((this.queue[i].ticket?.order ?? Infinity) < (this.queue[at].ticket?.order ?? Infinity)) at = i;
+            // (an export's band before any tile: a view moving, zoomed in, asks for tiles all the time, and the export waited
+            // behind them — from PR #155)
+            for (let i = 1; i < this.queue.length; i++) if ((this.queue[i].ticket?.order ?? -Infinity) < (this.queue[at].ticket?.order ?? -Infinity)) at = i;
             const job = this.queue[at];
             if (job.signal?.aborted) { this.queue.splice(at, 1); job.reject(new DOMException('The detail was cancelled', 'AbortError')); continue; }
             let w = this.idle.pop();
             if (!w && this.workers.length < this.n) w = this.spawn();
             if (!w) return;
             this.queue.splice(at, 1);
+            if (job.ticket) job.ticket.sent = true;
             this.jobs.set(job.id, { job, w });
             w.postMessage({ type: 'window', id: job.id, src: cropSource(job.src, job.win), win: job.win });
         }
@@ -80,16 +83,22 @@ export class DetailService {
      * workers, put together: { h, sea, wat }.
      */
     async window(fin, seed, win, signal = null, onBand = null, riverQ = Infinity) {
-        // (bands of at most ~1.5 million pixels — a worker's band holds ~60 bytes a pixel — and at least one per worker)
-        const src = this.source(fin, seed, riverQ), parts = Math.max(Math.min(this.n, Math.floor(win.h / 64)), Math.ceil(win.w * win.h / 1.5e6), 1), rows = Math.max(16, Math.ceil(win.h / parts)), bands = [];
+        // (bands of at most ~1.5 million pixels — a worker's band holds ~60 bytes a pixel — and at least one per worker it
+        // uses: at most 4 at a time, whatever the tiles' workers)
+        const n = Math.min(4, this.n), src = this.source(fin, seed, riverQ), parts = Math.max(Math.min(n, Math.floor(win.h / 64)), Math.ceil(win.w * win.h / 1.5e6), 1), rows = Math.max(16, Math.ceil(win.h / parts)), bands = [];
         for (let y = 0; y < win.h; y += rows) bands.push({ y, win: { W: win.W, x0: win.x0, y0: win.y0 + y, w: win.w, h: Math.min(rows, win.h - y) } });
         const out = { h: new Float32Array(win.w * win.h), sea: new Uint8Array(win.w * win.h), wat: new Uint8Array(win.w * win.h), lev: fin.raster.waterLevel ? new Float32Array(win.w * win.h) : null };
-        let done = 0;
-        await Promise.all(bands.map(b => this.run(src, b.win, signal).then(o => {
-            const at = b.y * win.w;
-            out.h.set(o.h, at); out.sea.set(o.sea, at); out.wat.set(o.wat, at); if (out.lev && o.lev) out.lev.set(o.lev, at);
-            onBand?.(++done / bands.length);
-        })));
+        // (at most n bands asked for at a time, each next one once one comes back: queued all at once, they held every
+        // worker until the last band, and the view's tiles waited — from PR #155)
+        let done = 0, next = 0;
+        const one = async () => {
+            while (next < bands.length) {
+                const b = bands[next++], o = await this.run(src, b.win, signal), at = b.y * win.w;
+                out.h.set(o.h, at); out.sea.set(o.sea, at); out.wat.set(o.wat, at); if (out.lev && o.lev) out.lev.set(o.lev, at);
+                onBand?.(++done / bands.length);
+            }
+        };
+        await Promise.all(Array.from({ length: Math.min(n, bands.length) }, one));
         return out;
     }
 

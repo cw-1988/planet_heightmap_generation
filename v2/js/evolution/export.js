@@ -9,26 +9,27 @@
 // weighted majority of the nearest pixels, satellite colours blended — then painted at the full width, so the hillshade,
 // the coasts and the rivers' lines stay sharp. And the geology's (geology-export.js): each of its views' maps, the rock
 // types and a richness mask per resource as data, the districts as GeoJSON and CSV, a resource atlas in words. And the
-// farming's (farming-view.js): each of its views as shown, and its numbers as data.
+// farming's (farming-view.js): each of its views as shown, and its numbers as data. Wider than EXPORT_MAX, a band of rows
+// at a time (export-bands.js); the pixel work both share in export-pixels.js.
 
-import { paintFinished, paintWindow, riverPaths, drawRivers, rasterAt, lakeColor } from './finish-view.js';
+import { paintFinished, paintWindow, riverPaths, drawRivers, rasterAt } from './finish-view.js';
+import { drawRiversWindow } from './river-draw.js';
 import { finishedClimateColor, finishedClimateValue } from './climate-view.js';
 import { finishedFarmingColor, finishedFarmingValue } from './farming-view.js';
 import { KOPPEN_CLASSES } from '../climate/koppen.js';
 import { canvasOf } from '../view/png.js';
-import { cloudFields, cloudGrid, cloudPicture, cloudOver, cloudStorms } from '../view/clouds.js';
+import { cloudPicture, cloudOver } from '../view/clouds.js';
 import { initExportPanel } from '../view/export-panel.js';
 import { DATA_SCALES as SC, scaled, hillshade8, climateRows, classIndexMap } from '../view/export-raster.js';
 import { GEOLOGY_GROUP, produceGeology, rockTypesList } from './geology-export.js';
 import { FOOD_GROUP, staplesList, farmingNote } from './farming-export.js';
+import { KOPPEN_RGB, CLIMATE_LAYER_OF, CTX_2D, rollRows, rollShift, height16, landHeight16, mask8, koppenRgba, lakesRgba, cloudsOf } from './export-pixels.js';
+import { bandRows, drawBand, produceBand } from './export-bands.js';
 
-/** The heightmap's scale: black −11 km (below the deepest trench), white +9 km (above the highest peak), linear. */
-export const HEIGHT_RANGE_M = [-11000, 9000];
-/** The land heightmap's: the sea black (0), land from 0 m (1) to +9 km (65535), linear. */
-export const LAND_TOP_M = 9000;
-/** The widest export: 16384 px (a picture of 134 million pixels); on a phone 4096. */
-export const EXPORT_MAX = 16384, EXPORT_MAX_TOUCH = 4096;
-const KOPPEN_RGB = KOPPEN_CLASSES.map(k => k.color.map(v => Math.round(255 * v)));
+export { HEIGHT_RANGE_M, LAND_TOP_M, rollRows, rollShift } from './export-pixels.js';
+/** The widest export drawn whole: 16384 px (a picture of 134 million pixels); on a phone 4096. Wider, on a computer, a
+ *  band of rows at a time (export-bands.js): to 65,536 px (PR #155). */
+export const EXPORT_MAX = 16384, EXPORT_MAX_TOUCH = 4096, EXPORT_MAX_BANDS = 65536;
 /** The catalogue of a moment's maps (the panel's rows): as Colour, as Data, or both. */
 export const CATALOGUE = [
     { id: 'maps', label: 'Maps', rows: [
@@ -58,28 +59,14 @@ export function rowAvailable(row, fin) {
         : n === 'geology' ? !!fin.raster?.geology : n === 'deposits' ? !!fin.raster?.geology?.deposits?.land
         : n === 'farming' ? !!(fin.raster?.farming?.crops && fin.climate?.raster?.koppen) : true;
 }
-/** The row ids whose colours climate-view.js names otherwise. */
-const CLIMATE_LAYER_OF = { precip: 'rain' };
 
-// ── the centre longitude: every map turned so that `look.centerLon` (degrees) is in the middle, as the map view is ──
-/** How many columns to roll a W-wide map for a centre longitude (0 … W−1). */
-export const rollShift = (W, centerLon) => ((Math.round(W * (centerLon || 0) / 360) % W) + W) % W;
-/** A map's rows rolled left by `shift` columns (`ch` values a pixel): what was at the centre longitude is now mid-row. */
-export function rollRows(arr, W, H, ch, shift) {
-    if (!shift) return arr;
-    const out = new arr.constructor(arr.length), rowLen = W * ch, s = shift * ch;
-    for (let y = 0; y < H; y++) {
-        const o = y * rowLen;
-        out.set(arr.subarray(o + s, o + rowLen), o);
-        out.set(arr.subarray(o, o + s), o + rowLen - s);
-    }
-    return out;
-}
-/** The rivers drawn onto a rolled map: once shifted left, and once more at the right edge for the lines that wrap. */
+/** The rivers drawn onto a rolled map: once shifted left, and once more at the right edge for the lines that wrap. With
+ *  the detail finer than the mesh drawn (fin.fine), as the detail bends them — the ground is calmed along those lines. */
 function drawRiversRolled(ctx, W, k, shift, fin, look) {
+    if (fin.fine?.W === W) { drawRiversWindow(ctx, fin, look.riverQ, look.byRegime, W, shift, 0, W, W >> 1, look.riverWidth ?? 1, false); return; }
     const paths = riverPaths(fin, look.riverQ);
     for (const dx of shift ? [-shift, W - shift] : [0]) {
-        ctx.save(); ctx.translate(dx, 0); ctx.scale(k, k); drawRivers(ctx, paths, look.byRegime); ctx.restore();
+        ctx.save(); ctx.translate(dx, 0); ctx.scale(k, k); drawRivers(ctx, paths, look.byRegime, look.riverWidth ?? 1); ctx.restore();
     }
 }
 
@@ -114,35 +101,29 @@ export function exportWidths(r, maxW = EXPORT_MAX) {
 
 /** The 16-bit heightmap, the sea floor included: −11 km black … +9 km white. */
 export function heightmap16(fin, W, centerLon = 0) {
-    const { h } = pictureAt(fin, W), [lo, hi] = HEIGHT_RANGE_M, out = new Uint16Array(h.length);
-    for (let i = 0; i < h.length; i++) out[i] = Math.round(65535 * Math.min(1, Math.max(0, (1000 * h[i] - lo) / (hi - lo))));
-    return rollRows(out, W, W >> 1, 1, rollShift(W, centerLon));
+    return rollRows(height16(pictureAt(fin, W).h), W, W >> 1, 1, rollShift(W, centerLon));
 }
 
 /** The 16-bit land heightmap: the sea black, land 0…+9 km as 1…65535 (a lake's bed below sea level as 0 m). */
 export function landHeightmap16(fin, W, centerLon = 0) {
-    const { h, sea } = pictureAt(fin, W, { landOnly: true }), out = new Uint16Array(h.length);
-    for (let i = 0; i < h.length; i++) out[i] = sea[i] ? 0 : 1 + Math.round(65534 * Math.min(1, Math.max(0, 1000 * h[i] / LAND_TOP_M)));
-    return rollRows(out, W, W >> 1, 1, rollShift(W, centerLon));
+    return rollRows(landHeight16(pictureAt(fin, W, { landOnly: true })), W, W >> 1, 1, rollShift(W, centerLon));
 }
 
 /** The land mask: land white (lakes are land), the sea black. */
 export function landMask8(fin, W, centerLon = 0) {
-    const { sea } = pictureAt(fin, W), out = new Uint8Array(sea.length);
-    for (let i = 0; i < sea.length; i++) out[i] = sea[i] ? 0 : 255;
-    return rollRows(out, W, W >> 1, 1, rollShift(W, centerLon));
+    return rollRows(mask8(pictureAt(fin, W).sea), W, W >> 1, 1, rollShift(W, centerLon));
 }
 
 /**
  * The colour map as the Terrain view shows it: the palette's colours hillshaded, the lakes and the rivers (with Rivers &
- * Lakes), no grid. `look`: { lut, exaggeration, water, riverQ, byRegime, shaded (the hillshade; default on), centerLon }.
+ * Lakes), no grid. `look`: { lut, exaggeration, water, riverQ, riverWidth (the lines' ×, default 1), byRegime, shaded (the hillshade; default on), centerLon }.
  */
 export function colorMap(fin, W, look) {
     const H = W >> 1, image = new ImageData(W, H), shift = rollShift(W, look.centerLon);
     paintAt(fin, W, image, look.lut, { exaggeration: look.exaggeration, lakes: look.water, shaded: look.shaded !== false });
     const rgba = rollRows(image.data, W, H, 4, shift);
     if (!(look.water && fin.rivers)) return { kind: 'rgba', W, H, data: rgba };
-    const canvas = canvasOf(W, H), ctx = canvas.getContext('2d');
+    const canvas = canvasOf(W, H), ctx = canvas.getContext('2d', CTX_2D);
     ctx.putImageData(shift ? new ImageData(rgba, W, H) : image, 0, 0);
     // (the rivers' lines are drawn for a 2048-wide picture: as thick, relative to the map, at any width)
     drawRiversRolled(ctx, W, W / 2048, shift, fin, look);
@@ -157,16 +138,6 @@ export function satelliteMap(fin, W, season, look, clouds = false) {
     // (with clouds: theirs — view/clouds.js, one still moment — laid over)
     if (clouds) cloudOver(cloudsOf(fin, season, W, look), image.data, W);
     return { kind: 'rgba', W, H, data: rollRows(image.data, W, H, 4, rollShift(W, look.centerLon)) };
-}
-/** The clouds of a moment for a season (view/clouds.js cloudGrid: at most 2048 wide, one still moment, the storms the
- *  world's own — its numeric seed), kept per moment so both cloud rows draw them once. */
-const cloudGrids = new WeakMap();
-function cloudsOf(fin, season, W, look) {
-    let byKey = cloudGrids.get(fin.climate);
-    if (!byKey) cloudGrids.set(fin.climate, byKey = new Map());
-    const key = `${season}|${Math.min(W, 2048)}|${look.cloudSeed ?? 0}`;
-    if (!byKey.has(key)) byKey.set(key, cloudGrid(cloudFields(fin.climate, season), cloudStorms(look.cloudSeed ?? 0, fin.climate, season), W));
-    return byKey.get(key);
 }
 /** The clouds alone (view/clouds.js: one still moment, their faint shadows too), on a transparent ground. */
 export function cloudsMap(fin, W, season, look) {
@@ -186,9 +157,7 @@ export function koppenIndexMap(fin, W, centerLon = 0) {
 }
 /** The Köppen zones in their colours (the sea in Ocean's colour), from the index map. */
 export function koppenMap(fin, W, centerLon = 0) {
-    const idx = koppenIndexMap(fin, W, centerLon), H = W >> 1, rgba = new Uint8ClampedArray(4 * W * H);
-    for (let p = 0; p < W * H; p++) { const c = KOPPEN_RGB[idx[p]], o = 4 * p; rgba[o] = c[0]; rgba[o + 1] = c[1]; rgba[o + 2] = c[2]; rgba[o + 3] = 255; }
-    return { kind: 'rgba', W, H, data: rgba };
+    return { kind: 'rgba', W, H: W >> 1, data: koppenRgba(koppenIndexMap(fin, W, centerLon)) };
 }
 
 /**
@@ -196,13 +165,8 @@ export function koppenMap(fin, W, centerLon = 0) {
  * the rivers drawn as the Terrain view draws them (the density and the colouring chosen there).
  */
 export function riversMap(fin, W, look) {
-    const H = W >> 1, { wat, sea } = pictureAt(fin, W, { lakes: true }), image = new ImageData(W, H), d = image.data, shift = rollShift(W, look.centerLon);
-    if (wat) for (let p = 0; p < W * H; p++) {
-        if (!wat[p] || sea[p]) continue;
-        const c = lakeColor(look.lut, wat[p]), o = 4 * p;
-        d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = 255;
-    }
-    const canvas = canvasOf(W, H), ctx = canvas.getContext('2d');
+    const H = W >> 1, { wat, sea } = pictureAt(fin, W, { lakes: true }), image = new ImageData(W, H), d = lakesRgba(image.data, wat, sea, look.lut), shift = rollShift(W, look.centerLon);
+    const canvas = canvasOf(W, H), ctx = canvas.getContext('2d', CTX_2D);
     ctx.putImageData(shift ? new ImageData(rollRows(d, W, H, 4, shift), W, H) : image, 0, 0);
     if (fin.rivers) drawRiversRolled(ctx, W, W / 2048, shift, fin, look);
     return { kind: 'rgba', W, H, data: ctx.getImageData(0, 0, W, H).data, alpha: true };
@@ -282,27 +246,40 @@ export function produceMap(fin, W, lk, job) {
  * opts)` (its page and planet words: the size and Food notes are added) and `titleNote(ctx)`.
  */
 export function initEvolutionExport({ moment, look, centerLon, projection = null, isTouch, planetFile = null, fine = null, page = 'evolution', names = null, about = null, titleNote = null,
-    catalogue = CATALOGUE, produceOwn = null }) {
-    // (a page's own rows — Generate's Plates: `catalogue` holds them, `produceOwn(rctx, job)` draws them, else null)
+    catalogue = CATALOGUE, produceOwn = null, produceOwnBand = null }) {
+    // (a page's own rows — Generate's Plates: `catalogue` holds them, `produceOwn(rctx, job)` draws them, else null; and
+    // `produceOwnBand(rctx, job, band)` a band's rows of them, wider than EXPORT_MAX)
+    // (`fine(fin, seed, W, onProgress, win)`: the page's drawing of the detail finer than the mesh — the whole planet W
+    // wide, or a window of it: wider than EXPORT_MAX, on a computer, the maps are drawn a band at a time over it)
     const sizeNote = (ctx, opts) => (opts.width > ctx.fin.raster.w ? (ctx.fin.raster.drivers ? `drawn from the ${ctx.fin.raster.w} px the moment was detailed at, with the detail finer than its mesh added` : `enlarged from the ${ctx.fin.raster.w} px the moment was detailed at`) : opts.width < ctx.fin.raster.w ? `averaged down from ${ctx.fin.raster.w} px` : 'the width the moment was detailed at');
+    // (wider than EXPORT_MAX only where the browser can save straight to a folder — the File System Access API: Chrome and
+    // Edge on a computer — and the moment has the detail finer than the mesh)
+    const maxOf = ctx => isTouch ? EXPORT_MAX_TOUCH : fine && ctx.fin.raster.drivers && globalThis.showDirectoryPicker && globalThis.showSaveFilePicker ? EXPORT_MAX_BANDS : EXPORT_MAX;
     const adapter = {
         page,
         options: { hillshade: true },
         planetFile,
         koppenClasses: KOPPEN_CLASSES,
         readmeLists: files => [...rockTypesList(files), ...staplesList(files)],
-        widths: (ctx) => exportWidths(ctx.fin.raster, isTouch ? EXPORT_MAX_TOUCH : EXPORT_MAX).map(({ w, enlarged }) => ({ w, selected: w === ctx.fin.raster.w, label: `${w}${enlarged ? ` · enlarged ×${w / ctx.fin.raster.w}` : w === ctx.fin.raster.w ? ' · as detailed' : ''}` })),
+        widths: (ctx) => exportWidths(ctx.fin.raster, maxOf(ctx)).map(({ w, enlarged }) => ({ w, selected: w === ctx.fin.raster.w, label: `${w}${enlarged ? ` · enlarged ×${w / ctx.fin.raster.w}` : w === ctx.fin.raster.w ? ' · as detailed' : ''}` })),
         available: (row, ctx) => rowAvailable(row, ctx.fin),
         titleNote: titleNote ?? ((ctx) => `· ${ctx.frame.time.toFixed(0)} Myr`),
         begin: async (W, opts, ctx, progress) => {
             let fin = ctx.fin;
-            // (wider than the picture: drawn with the detail finer than the mesh — fine(), detail-view.js — not merely enlarged)
-            if (fine && W > fin.raster.w && fin.raster.drivers) {
+            // (wider than the picture: drawn with the detail finer than the mesh — fine(), detail-view.js — not merely
+            // enlarged; in bands a band's at a time (bands.draw), and none for a run wider than 16,384 px with no map in it)
+            if (fine && W > fin.raster.w && fin.raster.drivers && !opts.bands) {
                 const data = await fine(fin, ctx.seed, W, p => progress?.(0, `Adding the detail finer than the mesh… ${Math.round(100 * p)} %`));
                 fin = { ...fin, fine: { W, ...data } };
             }
-            return { W, look: { ...look(), shaded: opts.hillshade, centerLon: opts.centerLon, frame: ctx.frame, seed: ctx.seed, cloudSeed: ctx.cloudSeed ?? 0 }, fin };
+            return { W, look: { ...look(), shaded: opts.hillshade, centerLon: opts.centerLon, frame: ctx.frame, seed: ctx.seed, cloudSeed: ctx.cloudSeed ?? 0 }, fin, memo: new Map() };
         },
+        // (wider than EXPORT_MAX: a band of rows at a time — export-panel.js runBands)
+        bands: fine ? {
+            rows: bandRows,
+            draw: (rctx, y0, n) => drawBand((f, s, win) => fine(f, s, win.W, null, win), rctx.fin, rctx.look.seed, rctx.W, y0, n),
+            produce: (rctx, job, band) => (produceOwnBand && produceOwnBand(rctx, job, band)) || produceBand(rctx.fin, rctx.W, rctx.look, job, band, rctx.memo),
+        } : null,
         end: async () => {},
         names: names ?? ((ctx, opts) => { const c = Math.round(opts.centerLon || 0); return { start: ['orogen-evolution', ctx.seed, `${Math.round(ctx.frame.time)}Myr`], end: [c ? `c${Math.abs(c)}${c > 0 ? 'E' : 'W'}` : null] }; }),
         about: (ctx, opts) => ({ ...(about ? about(ctx, opts) : { page: 'Evolution', planet: `seed ${ctx.seed}, the moment at ${Math.round(ctx.frame.time)} Myr`, link: location.href }),
