@@ -203,15 +203,16 @@ export function paintFinished(r, t, lut, { seaImage = null, seaWidth = 0, exagge
  * Paint a window of the planet (fine-detail.js fineWindow: its heights, sea and lakes, `win` {W, x0, y0, w, h} — W the
  * full width it is a window of) onto an RGBA image `out` (w × h), as paintFinished paints the whole planet: the palette,
  * the hillshade from the same light, the lakes, `colorAt` (a climate layer's or the Satellite's colours, asked for at
- * the window's place on a W-wide planet).
+ * the window's place on a W-wide planet). `rows` [y0, y1]: only those rows of the window painted — a tile a band at a
+ * time within the frame's budget (view/planet-view.js paintTileBase).
  */
-export function paintWindow(fw, win, out, lut, { exaggeration = 20, lakes = false, colorAt = null, shaded = true } = {}) {
+export function paintWindow(fw, win, out, lut, { exaggeration = 20, lakes = false, colorAt = null, shaded = true, rows = null } = {}) {
     const { W, x0, y0, w, h } = win, HE = W >> 1, { h: hh, sea, wat, lev = null } = fw, L = lut.rgb, { minM, stepM, zero } = lut, top = lut.n - 1;
     const pxKm = 2 * Math.PI * 6371 / W, Le = -0.5, Ln = 0.5, Lu = Math.SQRT1_2;
     // (fork) the picture's exaggeration at every level: the fine detail's slopes fall gently (fine-ladder.js LADDER), so the
     // shading of the broad forms stays the world map's and the finer ones join it. (Lowered as the pixels shrank, the
     // picture's forms faded to flat and only the finest detail shaded: a uniform crinkle up close.)
-    for (let y = 0; y < h; y++) {
+    for (let y = rows ? rows[0] : 0, yEnd = rows ? rows[1] : h; y < yEnd; y++) {
         const Y = Math.min(HE - 1, Math.max(0, y0 + y)), cl = Math.max(0.05, Math.cos(((Y + 0.5) / HE - 0.5) * Math.PI)), up = Math.max(0, y - 1) * w, dn = Math.min(h - 1, y + 1) * w;
         for (let x = 0; x < w; x++) {
             const i = y * w + x, v = hh[i], wet = sea[i], lake = lakes && wat && !wet ? wat[i] : 0, depthM = lake ? lakeDepthM(lev, i, v) : 0;

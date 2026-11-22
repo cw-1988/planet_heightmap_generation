@@ -74,7 +74,7 @@ export class DetailTiles {
 
     /** A tile's whole data: from disk where kept, else drawn by the workers (and kept). */
     async fetch(t, at, signal, ticket) {
-        const kept = await this.store.get(at);
+        const kept = await this.store.get(at, signal);
         if (kept) return kept;
         if (signal?.aborted) throw new DOMException('The detail was cancelled', 'AbortError');
         const data = await this.service.run(this.service.source(this.fin, this.seed, this.riverQ), t.win, signal, ticket);

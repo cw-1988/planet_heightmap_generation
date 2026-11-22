@@ -3,7 +3,9 @@
 // zoomed out and back in, panned back, or painted for another layer. Only the world shown is kept, and only by this page:
 // each page has a database of its own, held by a lock while the page lives; on start, those whose page is gone are deleted.
 
-const PREFIX = 'orogen-tiles-', STORE = 't';
+// (reads under way at once: each read's ~1.6 MB comes back on the page's thread, and all of a view's at once — 156 asked in
+// one frame on a view switch — held its frames at 45–100 ms for a quarter second; docs/tile-reads-queued.md)
+const PREFIX = 'orogen-tiles-', STORE = 't', READS = 2;
 
 export class TileStore {
     /** @param {number} most  the most tiles kept (the oldest dropped past it, drawn again if wanted: ~1.6 MB each) */
@@ -11,6 +13,7 @@ export class TileStore {
         this.most = most; this.world = 0;
         this.keys = new Set();                // (the tiles stored for this world, oldest first)
         this.writing = new Map();             // (key → data: tiles still being written, read from here meanwhile)
+        this.queue = []; this.reading = 0;    // (reads waiting, in the order asked — nearest the view's middle first — and under way)
         this.db = openOwn();
     }
 
@@ -39,18 +42,30 @@ export class TileStore {
         for (const old of this.keys) { if (this.keys.size <= this.most) break; this.forget(old); }
     }
 
-    /** A kept tile's data, or null (not kept, dropped meanwhile, or the disk could not give it back). */
-    get(key) {
+    /** A kept tile's data, or null (not kept, dropped meanwhile, the disk could not give it back, or `signal` aborted while
+     *  it waited): READS at a time, the rest queued in the order asked. */
+    get(key, signal = null) {
         if (!this.keys.has(key)) return Promise.resolve(null);
         const w = this.writing.get(key);
         if (w) return Promise.resolve(w);
-        const id = `${this.world}|${key}`;
-        return this.db.then(db => new Promise(ok => {
-            try {
-                const r = db.transaction(STORE, 'readonly').objectStore(STORE).get(id);
-                r.onsuccess = () => ok(r.result ?? null); r.onerror = () => ok(null);
-            } catch { ok(null); }
-        }));
+        return new Promise(ok => { this.queue.push({ key, signal, ok }); this.next(); });
+    }
+
+    /** The next queued reads started, up to READS under way. */
+    next() {
+        while (this.reading < READS && this.queue.length) {
+            const { key, signal, ok } = this.queue.shift();
+            const w = this.writing.get(key);
+            if (signal?.aborted || !this.keys.has(key) || w) { ok(w ?? null); continue; }
+            this.reading++;
+            const id = `${this.world}|${key}`, done = v => { this.reading--; ok(v); this.next(); };
+            this.db.then(db => {
+                try {
+                    const r = db.transaction(STORE, 'readonly').objectStore(STORE).get(id);
+                    r.onsuccess = () => done(r.result ?? null); r.onerror = () => done(null);
+                } catch { done(null); }
+            });
+        }
     }
 
     forget(key) {

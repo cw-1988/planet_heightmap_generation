@@ -143,6 +143,8 @@ export class TileLayers {
      * paints them for `look` (another look: every tile painted again, the planet's own shown until it is), until `budgetMs`
      * is spent. `lines`: what the page draws over the tiles (another: each tile laid again where it is, the old one shown
      * until then — a pick's tint changes as the pointer moves, and the view should not blink back to the planet's).
+     * `paint(t, until)` may stop at `until` (performance.now()'s) with a tile half painted and give null: it goes on with
+     * it next frame — so a switch of look repaints the tiles within the budget, not a whole tile a frame at least.
      */
     lay(tiles, look, paint, budgetMs, lines = null) {
         const g = tiles.range;
@@ -177,8 +179,11 @@ export class TileLayers {
         todo.sort((a, b) => a.d - b.d);
         const t0 = performance.now();
         for (const j of todo) {
-            const pic = paint(j.t);
-            if (!pic) continue;                                              // (its data still read back from disk: laid once it comes)
+            const pic = paint(j.t, t0 + budgetMs);
+            if (!pic) {                       // (its data still read back from disk, its colours still drawn, or the budget spent mid-tile)
+                if (performance.now() - t0 > budgetMs) break;
+                continue;
+            }
             this.globe.putPatchTile(0, j.s % A.cols, Math.floor(j.s / A.cols), j.tx, j.ty, pic);
             if (!(A.slots[j.s] === A.slots[j.s])) A.count++;              // (NaN: the slot was empty)
             A.slots[j.s] = j.key; A.lv[j.s] = this.linesV;

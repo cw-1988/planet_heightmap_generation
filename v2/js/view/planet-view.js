@@ -41,6 +41,7 @@ const SEASONS = ['year', 'jan', 'jul'];
 // (a slice of the Satellite view drawn ahead, ~PREP_MS every PREP_EVERY_MS: the globe draws all the time, so the page is
 // seldom idle — a steady slice, short enough that its frames keep coming)
 const PREP_MS = 7, PREP_EVERY_MS = 16;
+const TILE_BAND = 16;           // (a tile is painted this many rows at a time, ~1–3 ms: the frame's budget stops between bands)
 const PATCH_EVERY_MS = 50;      // (a moving view asks for its tiles this often)
 
 /** A canvas texture `width` wide (×width/2), its 2D context and an image to paint into it. */
@@ -493,7 +494,7 @@ export class PlanetView {
             tiles.want(fin, seed, places, px, this.MAP_WIDTH, this.riversDrawn(fin), settled || fin !== tiles.fin);
         }
         const look = this.patchLookOf(fin), extra = this.extraLines ? this.extraLinesKey(view) : null;
-        layers.lay(tiles, look, t => this.paintTile(fin, t, look, extra), this.PATCH_BUDGET_MS, extra);
+        layers.lay(tiles, look, (t, until) => this.paintTile(fin, t, look, extra, until), this.PATCH_BUDGET_MS, extra);
     }
     /** The rivers the tiles draw: their threshold (m³/s), or Infinity where none are drawn — the tiles' valleys are cut
      *  along these alone (a valley with no river in it otherwise). */
@@ -503,13 +504,14 @@ export class PlanetView {
     }
     /** A tile painted for the layer shown (as paintFinished paints the planet), once per look: a SLOT-px canvas — the tile
      *  and a pixel of its neighbours' all round — with the rivers' lines and the grid over it; and the page's own lines
-     *  (`extra`, their key: the region pick's valleys) laid over that again, as they change. */
-    paintTile(fin, t, look, extra = null) {
+     *  (`extra`, their key: the region pick's valleys) laid over that again, as they change. Null while it is still to
+     *  come: its data read back from disk, or its picture painted on past `until` (paintTileBase). */
+    paintTile(fin, t, look, extra = null, until = Infinity) {
         if (t.look === look && t.extra === extra) return extra === null ? t.base : t.canvas;
         if (t.look !== look) {
             const full = this.tiles.full(t);
             if (!full) return null;                                             // (read back from disk: painted once it comes)
-            this.paintTileBase(fin, t, full, look);
+            if (!this.paintTileBase(fin, t, full, look, until)) return null;
             this.tiles.painted(t);
         }
         if (extra === null) { t.extra = null; return t.base; }
@@ -522,16 +524,31 @@ export class PlanetView {
         t.extra = extra;
         return t.canvas;
     }
-    /** The tile's own picture for `look` (paintTile's base), from its whole data (DetailTiles.full). */
-    paintTileBase(fin, t, data, look) {
+    /** The tile's own picture for `look` (paintTile's base), from its whole data (DetailTiles.full) — a band of rows at a
+     *  time, on past `until` only for the first: null until it is done (this.tileJob holds it meanwhile). And null while
+     *  the Satellite's styled colours are still drawn in the background: finished here at once, they stalled the page
+     *  1.5–2.4 s on the first zoomed-in Satellite (the planet's own picture shown until then, as the painter does). */
+    paintTileBase(fin, t, data, look, until = Infinity) {
         const view = this.view, W = t.win.W, lut = heightLutOf(view.layer === 'heightmap' ? 'heightmap' : view.palette), water = view.water && (view.layer === 'terrain' || view.layer === 'satellite');
         const C = CLIMATE_LAYERS.has(view.layer) ? fin.climate : null, geo = GEOLOGY_LAYERS.has(view.layer), farm = FARMING_LAYERS.has(view.layer), tc = this.tileColors;
-        if (tc.look !== look) { tc.look = look; tc.byWidth.clear(); }
-        if ((C || geo || farm) && !tc.byWidth.has(W)) tc.byWidth.set(W, geo ? finishedGeologyColor(view.layer, W, fin, view.deposit, view.age, view.ageRes) : farm ? finishedFarmingColor(view.layer, fin, W)
-            : finishedClimateColor(view.layer, view.season, C, W, lut, fin));
-        if (this.tileImage?.width !== t.win.w || this.tileImage.height !== t.win.h) this.tileImage = new ImageData(t.win.w, t.win.h);
-        paintWindow(data, t.win, this.tileImage.data, lut, { exaggeration: this.SHADING.exaggeration * (view.layer === 'satellite' ? 1.25 : 1), lakes: water || view.layer === 'satellite' || geo || farm, shaded: view.shaded,
-            colorAt: C || geo || farm ? tc.byWidth.get(W) : null });
+        const R = view.layer === 'satellite' && fin.raster?.heightM ? fin.climate?.raster : null;
+        if (R?.sat && !this.satPrepFailed.has(R) && !satelliteReady(R, view.season)) return null;   // (drawn by prepareSatelliteSoon and the painter)
+        let job = this.tileJob;
+        if (job?.t !== t || job.look !== look) {
+            if (tc.look !== look) { tc.look = look; tc.byWidth.clear(); }
+            if ((C || geo || farm) && !tc.byWidth.has(W)) tc.byWidth.set(W, geo ? finishedGeologyColor(view.layer, W, fin, view.deposit, view.age, view.ageRes) : farm ? finishedFarmingColor(view.layer, fin, W)
+                : finishedClimateColor(view.layer, view.season, C, W, lut, fin));
+            if (this.tileImage?.width !== t.win.w || this.tileImage.height !== t.win.h) this.tileImage = new ImageData(t.win.w, t.win.h);
+            job = this.tileJob = { t, look, y: 0, opts: { exaggeration: this.SHADING.exaggeration * (view.layer === 'satellite' ? 1.25 : 1), lakes: water || view.layer === 'satellite' || geo || farm, shaded: view.shaded,
+                colorAt: C || geo || farm ? tc.byWidth.get(W) : null, rows: [0, 0] } };
+        }
+        const h = t.win.h;
+        if (job.y < h) {
+            do { job.opts.rows = [job.y, job.y = Math.min(h, job.y + TILE_BAND)]; paintWindow(data, t.win, this.tileImage.data, lut, job.opts); }
+            while (job.y < h && performance.now() < until);
+            if (job.y < h || performance.now() >= until) return null;    // (the rivers and the grid next frame, in a budget of their own)
+        }
+        this.tileJob = null;
         // (its sea in the alpha, ½ there, 1 on land: the region pick's coast is the tile's own — region-glsl.js; every line
         // after drawn 'source-atop', so it keeps it)
         const px = this.tileImage.data, sea = data.sea;

@@ -15,7 +15,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { stageColour, inSpace, onStage, makeAir } from '../../../js/stage.js';
 import { P as PROJ } from '../view/projections.js';
 import { PROJECTION_GLSL, projectionUniforms } from '../view/projection-glsl.js';
-import { CLOUDS, CLOUD_GLSL, MAX_STORMS, scaleOf, driftRadPerS, cloudNoiseTexture, cloudEdges, cloudQuantileList, cloudStormsAt } from '../view/clouds.js';
+import { CLOUDS, CLOUD_GLSL, MAX_STORMS, scaleOf, driftRadPerS, cloudNoiseTexture, prepareCloudNoise, cloudEdges, cloudQuantileList, cloudStormsAt } from '../view/clouds.js';
 import { REGION_GLSL, regionUniforms, regionTexture } from './region-glsl.js';
 import { PIECE_GLSL, pieceUniforms } from './piece-glsl.js';
 import { drawnPointAt } from './globe-hit.js';
@@ -330,14 +330,36 @@ void main() {
         this.cloudShadow = shell(1.0015, true, 1);
         this.cloudShell = shell(1.004, false, 2);
         this.cloudDrift = true; this._cloudT0 = performance.now(); this._cloudAt = 0;
+        this.cloudNoiseSoon();
+    }
+
+    /** The clouds' noise built a slice at a time while the page is idle (clouds.js prepareCloudNoise); then the clouds
+     *  asked for meanwhile shown. */
+    cloudNoiseSoon() {
+        if (this._noiseSoon) return;
+        this._noiseSoon = true;
+        const later = typeof requestIdleCallback === 'function' ? f => requestIdleCallback(f, { timeout: 50 }) : f => setTimeout(f, 16);
+        const step = idle => {
+            if (!prepareCloudNoise(idle?.timeRemaining && !idle.didTimeout ? Math.max(2, Math.min(8, idle.timeRemaining())) : 6)) { later(step); return; }
+            this._noiseSoon = false;
+            if (this.cloudsWaiting) this.setClouds(this.cloudsWaiting);
+        };
+        later(step);
     }
 
     /** Show the clouds or not; `fields` (cloudFields': the layers' cover and the wind, 360 × 180, rows north → south);
      *  storms: the world's (cloudStorms'); `drift` on the globe (an export is a still moment); lit and shadow: lighter on
      *  a phone. */
-    setClouds({ on, fields = null, storms = null, drift = true, lit = true, shadow = true }) {
-        const U = this.cloudU;
-        // (the noise texture, made once — the first time clouds show)
+    setClouds(args) {
+        const { on, fields = null, storms = null, drift = true, lit = true, shadow = true } = args, U = this.cloudU;
+        // (the noise texture, made once — built ahead from initClouds; asked for before it is done, the clouds stay hidden
+        // and come once it is: built at once here, it stalled the first Satellite ~0.8 s)
+        this.cloudsWaiting = null;
+        if (on && !U.uCloudNoise.value && !prepareCloudNoise(0)) {
+            this.cloudsWaiting = args; this.cloudNoiseSoon();
+            U.uCloudOn.value = 0; this.cloudShell.visible = this.cloudShadow.visible = false; this._dirty = true;
+            return;
+        }
         if (on && !U.uCloudNoise.value) {
             const T = cloudNoiseTexture(), t = new THREE.Data3DTexture(T.data, T.N, T.N, T.N);
             Object.assign(t, { format: THREE.RGBAFormat, type: THREE.UnsignedByteType, magFilter: THREE.LinearFilter, minFilter: THREE.LinearFilter,

@@ -112,6 +112,8 @@ picture is unchanged. Two zooms out and in over land at 2.56M then ran at 60 fps
 
 [switch-without-stall.md](switch-without-stall.md): a finished picture painted a slice at a time between frames, kept
 and painted ahead, so no layer switch stalls the page.
+[view-switch-lag.md](view-switch-lag.md): zoomed in, a switch's tiles painted in bands, Satellite's colours and the
+clouds' noise prepared ahead, and the tiles' disk reads queued.
 
 ## Keep it so
 

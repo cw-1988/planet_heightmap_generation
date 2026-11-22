@@ -138,11 +138,23 @@ function worley(x, y, z, c, s) {
     }
     return Math.max(0, 1 - Math.sqrt(best));
 }
-let noiseTex = null;
-/** The texture (built once, ~1 s): NOISE_N³ RGBA bytes, x fastest — R Perlin fbm (4 → 16 cells, stretched to 0 … 1),
- *  G B A Worley fbm at 4, 8, 16 cells a period (octaves to 32 cells: two texels a cell). */
-export function cloudNoiseTexture() {
-    if (noiseTex) return noiseTex;
+let noiseTex = null, noiseJob = null;
+/** The texture (built once, ~0.8 s): NOISE_N³ RGBA bytes, x fastest — R Perlin fbm (4 → 16 cells, stretched to 0 … 1),
+ *  G B A Worley fbm at 4, 8, 16 cells a period (octaves to 32 cells: two texels a cell). At once (an export's); the globe
+ *  has it built ahead a slice at a time (prepareCloudNoise). */
+export function cloudNoiseTexture() { prepareCloudNoise(Infinity); return noiseTex; }
+/** The noise texture built on for about `ms`: true once it is done. (Built at once on the first Satellite with clouds,
+ *  it stalled the page ~0.8 s.) */
+export function prepareCloudNoise(ms) {
+    if (noiseTex) return true;
+    noiseJob ??= noiseSteps();
+    const end = performance.now() + ms;
+    while (!noiseTex && performance.now() < end) noiseJob.next();
+    return !!noiseTex;
+}
+/** cloudNoiseTexture's work, yielding every NOISE_ROWS rows (~1 ms). */
+const NOISE_ROWS = 4;
+function* noiseSteps() {
     const N = NOISE_N, out = new Uint8Array(N * N * N * 4), R = new Float32Array(N * N * N);
     // (each Worley fbm's octaves no finer than two texels a cell — a cell a texel is noise per texel, faceted where it is cut)
     const wfbm = (u, v, w, c) => {
@@ -152,16 +164,18 @@ export function cloudNoiseTexture() {
         return s / t;
     };
     let mn = Infinity, mx = -Infinity;
-    for (let z = 0, i = 0; z < N; z++) for (let y = 0; y < N; y++) for (let x = 0; x < N; x++, i++) {
-        const u = (x + 0.5) / N, v = (y + 0.5) / N, w = (z + 0.5) / N;
-        let pf = 0, a = 1, t = 0;
-        for (let o = 0, c = 4; o < 3; o++, c *= 2, a *= 0.6) { pf += a * perlin(u * c, v * c, w * c, c, 101 + o); t += a; }
-        R[i] = pf / t; if (R[i] < mn) mn = R[i]; if (R[i] > mx) mx = R[i];
-        out[4 * i + 1] = Math.round(255 * wfbm(u, v, w, 4)); out[4 * i + 2] = Math.round(255 * wfbm(u, v, w, 8)); out[4 * i + 3] = Math.round(255 * wfbm(u, v, w, 16));
+    for (let z = 0, i = 0; z < N; z++) for (let y = 0; y < N; y++) {
+        for (let x = 0; x < N; x++, i++) {
+            const u = (x + 0.5) / N, v = (y + 0.5) / N, w = (z + 0.5) / N;
+            let pf = 0, a = 1, t = 0;
+            for (let o = 0, c = 4; o < 3; o++, c *= 2, a *= 0.6) { pf += a * perlin(u * c, v * c, w * c, c, 101 + o); t += a; }
+            R[i] = pf / t; if (R[i] < mn) mn = R[i]; if (R[i] > mx) mx = R[i];
+            out[4 * i + 1] = Math.round(255 * wfbm(u, v, w, 4)); out[4 * i + 2] = Math.round(255 * wfbm(u, v, w, 8)); out[4 * i + 3] = Math.round(255 * wfbm(u, v, w, 16));
+        }
+        if (y % NOISE_ROWS === NOISE_ROWS - 1) yield;
     }
     for (let i = 0; i < R.length; i++) out[4 * i] = Math.round(255 * (R[i] - mn) / (mx - mn));
     noiseTex = { N, data: out };
-    return noiseTex;
 }
 /** The texture read at (x, y, z) in its periods (repeating), trilinear between texel centres as the GPU reads it — into o. */
 function sample(T, x, y, z, o) {
