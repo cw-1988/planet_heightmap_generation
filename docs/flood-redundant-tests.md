@@ -14,8 +14,9 @@ every sea cell as done, so the first test covers the second:
 The pops and their order are the same. The gain is small and inside run-to-run noise. In one run, rivers took 6.2 s
 (the range had been 6.1–6.6) and sea took 1.5 s (it had been 1.7–1.8).
 
-`hydrology()`'s own flood has the same redundant `ocean[nb]` test. That function was being changed by another session
-at the time, so it was left alone.
+`hydrology()`'s own flood had the same redundant `ocean[nb]` test (its ocean also holds rank −2). It was left alone
+at first, while another session was changing that function, and dropped later with the same hashes:
+[drivers-and-blur-hoists.md](drivers-and-blur-hoists.md).
 
 ## Tried and dropped: one cache line per neighbour
 

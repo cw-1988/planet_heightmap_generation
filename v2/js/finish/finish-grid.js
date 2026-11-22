@@ -67,7 +67,12 @@ export class LatLonGrid {
                     const r = rowR[j]; if (!r) continue;
                     const o = j * w; let sv = 0;
                     for (let d = -r; d <= r; d++) { const i = d < 0 ? d + w : d; sv += v[o + i]; }
-                    for (let i = 0; i < w; i++) {
+                    if (2 * r + 1 < w) {                              // (the wrap's tests hoisted: the window's three stretches)
+                        let i = 0;
+                        for (; i < r; i++) { tmp[i] = sv; sv += v[o + i + r + 1] - v[o + i - r + w]; }
+                        for (; i < w - r - 1; i++) { tmp[i] = sv; sv += v[o + i + r + 1] - v[o + i - r]; }
+                        for (; i < w; i++) { tmp[i] = sv; sv += v[o + i + r + 1 - w] - v[o + i - r]; }
+                    } else for (let i = 0; i < w; i++) {
                         tmp[i] = sv;
                         const out = i - r < 0 ? i - r + w : i - r, inn = i + r + 1 >= w ? i + r + 1 - w : i + r + 1;
                         sv += v[o + inn] - v[o + out];
@@ -80,13 +85,11 @@ export class LatLonGrid {
                     for (let d = 0; d <= colR && d < h; d++) { const o = d * w; for (let i = 0; i < w; i++) S[i] += v[o + i]; cnt++; }
                     for (let j = 0; j < h; j++) {
                         const o = j * w, add = j + colR + 1, drop = j - colR, ra = add * w, rd = (drop % R) * w, rs = (j % R) * w, c = cnt;
-                        for (let i = 0; i < w; i++) {
-                            const ov = S[i] / c;
-                            if (add < h) S[i] += v[ra + i];
-                            if (drop >= 0) S[i] -= ring[rd + i];
-                            ring[rs + i] = v[o + i];
-                            v[o + i] = ov;
-                        }
+                        // (the row's two tests hoisted out of its cells: the same sums in the same order)
+                        if (add < h && drop >= 0) for (let i = 0; i < w; i++) { const ov = S[i] / c; S[i] += v[ra + i]; S[i] -= ring[rd + i]; ring[rs + i] = v[o + i]; v[o + i] = ov; }
+                        else if (add < h) for (let i = 0; i < w; i++) { const ov = S[i] / c; S[i] += v[ra + i]; ring[rs + i] = v[o + i]; v[o + i] = ov; }
+                        else if (drop >= 0) for (let i = 0; i < w; i++) { const ov = S[i] / c; S[i] -= ring[rd + i]; ring[rs + i] = v[o + i]; v[o + i] = ov; }
+                        else for (let i = 0; i < w; i++) { const ov = S[i] / c; ring[rs + i] = v[o + i]; v[o + i] = ov; }
                         if (add < h) cnt++;
                         if (drop >= 0) cnt--;
                     }

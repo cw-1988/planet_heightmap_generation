@@ -58,6 +58,9 @@ the rest of its time is the walk over the cells' neighbours itself.
 The floods' doubled sea tests were dropped; packing the carve flood's reads didn't pay:
 [flood-redundant-tests.md](flood-redundant-tests.md).
 
+`detailDrivers`, the climate grid's blur and hydrology's flood hoisted, the records worked out during the surface:
+detail 2.1 → 1.3 s ([drivers-and-blur-hoists.md](drivers-and-blur-hoists.md)).
+
 ## Water (5.1 s)
 
 Hydrology in `finish-hydro.js`. It was being changed by another session at the time, so only `riverYears` (untouched

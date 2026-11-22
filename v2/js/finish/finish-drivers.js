@@ -44,7 +44,8 @@ export function detailDrivers(o) {
     const out = { w: W, h: H };
     for (const k of DRIVER_FIELDS) out[k] = new Uint8Array(P);
     // (a moment with no history — an imported heightmap: plans/SHARED_CORE_PLAN.md U4 — has no margins or belts to read)
-    const rec = o.frame ? deriveRecords(o.frame, simMesh, o.cfg, o.seed) : null, L0 = rec?.belts[0];
+    // (o.rec: the records worked out ahead — finish.js does it while the surface's workers run; the same call)
+    const rec = o.rec !== undefined ? o.rec : o.frame ? deriveRecords(o.frame, simMesh, o.cfg, o.seed) : null, L0 = rec?.belts[0];
     const [warmC, coldC] = o.cfg.drownColdC ?? [19, 13];
     const near = new Int32Array(P);
     report(0.1);
@@ -52,10 +53,12 @@ export function detailDrivers(o) {
         if ((y & 31) === 0) report(0.1 + 0.7 * y / H);
         const la = (90 - (y + 0.5) * 180 / H) * D2R, cl = Math.cos(la), sl = Math.sin(la);
         for (let x = 0; x < W; x++) {
-            const lo = ((x + 0.5) * 360 / W - 180) * D2R, cosL = Math.cos(lo), sinL = Math.sin(lo), px = cl * cosL, py = cl * sinL, pz = sl, p = y * W + x;
+            const lo = LO[x], cosL = COS[x], sinL = SIN[x], px = cl * cosL, py = cl * sinL, pz = sl, p = y * W + x;
             // (the place's own east and north)
             const ex = -sinL, ey = cosL, nx = -sl * cosL, ny = -sl * sinL, nz = cl;
-            const angleOf = (vx, vy, vz) => { const a = Math.atan2(vx * nx + vy * ny + vz * nz, vx * ex + vy * ey); return ((a % TAU) + TAU) % TAU; };
+    // (a column's longitude and its cosine and sine, worked out once for all its rows: the same values)
+    const LO = new Float64Array(W), COS = new Float64Array(W), SIN = new Float64Array(W);
+    for (let x = 0; x < W; x++) { LO[x] = ((x + 0.5) * 360 / W - 180) * D2R; COS[x] = Math.cos(LO[x]); SIN[x] = Math.sin(LO[x]); }
             const c = mesh.index.nearest(px, py, pz);
             near[p] = c;
             // the ice age
@@ -70,7 +73,7 @@ export function detailDrivers(o) {
                     const d = o.iceS[nb] - o.iceS[c];
                     gx += d * (xyz[3 * nb] - xyz[3 * c]); gy += d * (xyz[3 * nb + 1] - xyz[3 * c + 1]); gz += d * (xyz[3 * nb + 2] - xyz[3 * c + 2]);
                 }
-                if (gx || gy || gz) out.iceDir[p] = Math.round(angleOf(-gx, -gy, -gz) / TAU * 256) & 255;
+                if (gx || gy || gz) out.iceDir[p] = Math.round(angleIn(-gx, -gy, -gz, ex, ey, nx, ny, nz) / TAU * 256) & 255;
             }
             out.cold[p] = byte(smooth(warmC, coldC, o.warmSl[c]));
             const rain = o.rain[c];
@@ -103,7 +106,7 @@ export function detailDrivers(o) {
                     out.fold[p] = byte(g);
                     out.foldKind[p] = rift ? 255 : 0;
                     const ax = L0.across[3 * w], ay = L0.across[3 * w + 1], az = L0.across[3 * w + 2];
-                    if (ax || ay || az) out.foldDir[p] = Math.round(angleOf(ax, ay, az) / TAU * 256) & 255;
+                    if (ax || ay || az) out.foldDir[p] = Math.round(angleIn(ax, ay, az, ex, ey, nx, ny, nz) / TAU * 256) & 255;
                 }
             }
         }
@@ -115,8 +118,10 @@ export function detailDrivers(o) {
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
         let lo = Infinity, hi = -Infinity;
         for (let dy = -1; dy <= 1; dy++) {
-            const yy = Math.min(H - 1, Math.max(0, y + dy));
-            for (let dx = -1; dx <= 1; dx++) { const v = zz[yy * W + ((x + dx) % W + W) % W]; if (v < lo) lo = v; if (v > hi) hi = v; }
+            const r = Math.min(H - 1, Math.max(0, y + dy)) * W;
+            let v = zz[r + xm]; if (v < lo) lo = v; if (v > hi) hi = v;
+            v = zz[r + x]; if (v < lo) lo = v; if (v > hi) hi = v;
+            v = zz[r + xp]; if (v < lo) lo = v; if (v > hi) hi = v;
         }
         out.rugged[y * W + x] = byte(Math.max(0, Math.max(0, hi) - Math.max(0, lo)) / 2);
     }
@@ -126,8 +131,10 @@ export function detailDrivers(o) {
     return out;
 }
 
+    // (the wrap's columns worked out once per column, not per read: the same pixels in the same order)
 /** A field on the climate's grid at (lat, lon) — bilinear, wrapping in longitude. */
 function gridAt(g, field, lat, lon) {
+        const xm = x ? x - 1 : W - 1, xp = x + 1 < W ? x + 1 : 0;
     const { w, h } = g, step = 180 / h;
     const x = (lon + 180) / step - 0.5, y = Math.max(0, Math.min(h - 1, (90 - lat) / step - 0.5));
     const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
@@ -138,6 +145,21 @@ function gridAt(g, field, lat, lon) {
 /** A byte field softened by a 3 × 3 box (wrapping east–west). */
 function blur3(a, W, H) {
     const t = new Uint16Array(a.length);
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) t[y * W + x] = a[y * W + ((x - 1 + W) % W)] + a[y * W + x] + a[y * W + ((x + 1) % W)];
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) a[y * W + x] = Math.round((t[Math.max(0, y - 1) * W + x] + t[y * W + x] + t[Math.min(H - 1, y + 1) * W + x]) / 9);
+    // (the wrap's two ends on their own, the rows' offsets once per row: the same sums)
+    for (let y = 0; y < H; y++) {
+        const o = y * W;
+        t[o] = a[o + W - 1] + a[o] + a[o + 1];
+        for (let x = 1; x < W - 1; x++) t[o + x] = a[o + x - 1] + a[o + x] + a[o + x + 1];
+        t[o + W - 1] = a[o + W - 2] + a[o + W - 1] + a[o];
+    }
+    for (let y = 0; y < H; y++) {
+        const o = y * W, up = Math.max(0, y - 1) * W, dn = Math.min(H - 1, y + 1) * W;
+        for (let x = 0; x < W; x++) a[o + x] = Math.round((t[up + x] + t[o + x] + t[dn + x]) / 9);
+    }
+/** A direction's angle (0 … 2π) in a place's own east (ex, ey, 0) – north (nx, ny, nz) frame. */
+function angleIn(vx, vy, vz, ex, ey, nx, ny, nz) {
+    const a = Math.atan2(vx * nx + vy * ny + vz * nz, vx * ex + vy * ey);
+    return ((a % TAU) + TAU) % TAU;
+}
+
 }

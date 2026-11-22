@@ -175,7 +175,7 @@ export function hydrology(ctx, F) {
         if ((count & 0xffff) === 0) report(0.3 * count / land);
         for (let k = adjOffset[c]; k < adjOffset[c + 1]; k++) {
             const nb = adjList[k];
-            if (rank[nb] !== -1 || ocean[nb]) continue;
+            if (rank[nb] !== -1) continue;                                // (the ocean's cells hold −2)
             const level = Math.max(fill[c], z[nb]), fk = z[nb] <= fill[c] ? flatKm[c] + edgeKmOf(xyz, c, nb) : 0;
             if (parent[nb] === -1 || level < fill[nb] || (level === fill[nb] && fk < flatKm[nb])) { parent[nb] = c; fill[nb] = level; flatKm[nb] = fk; heap.push(flatKey(level, under(nb, fill[c]), fk), nb); }
         }

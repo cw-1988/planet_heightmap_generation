@@ -20,6 +20,7 @@ import { finalCover, corners } from './final-cover.js';
 import { KOPPEN_ID } from '../climate/koppen.js';
 import { terrainMesh } from '../terrain/terrain-mesh.js';
 import { terrainConfig } from '../terrain/terrain-config.js';
+import { deriveRecords } from '../terrain/records.js';
 import { carveLadder, carveSettings } from '../terrain/synthesize.js';
 import { surfaceWarp } from '../terrain/surface-warp.js';
 import { carveTerrain, forgetMesh, meanOnCoarser, prepareCarve } from '../terrain/carve.js';
@@ -102,6 +103,8 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
     const ladder = carveLadder(simMesh, mesh, terrainMesh), broad = broadMesh(ladder, mesh, F);
     let meanderV = null;
     if (n <= PREP_CELLS) { prepareCarve(ladder, broad ? [[broad, mesh]] : []); meanderV = meanderValues(mesh, seed, F, fade); }
+    // (the detail's records — the margins and belts on the sim mesh, which read only the moment: ~0.4 s at any size)
+    const driverRec = frame ? deriveRecords(frame, simMesh, cfg, seed) : null;
     let surf = await surfJob;
     surfDone();
     if (closePool) pool?.terminate();                                 // (its workers' memory back before the heavy stages)
@@ -323,7 +326,7 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
 
     // ── what the detail finer than the mesh is drawn from (finish-drivers.js; plans/V2_FINE_DETAIL_PLAN.md) ──
     onStage('detail');
-    const drivers = detailDrivers({ mesh, z: C.z, ice: I.ice, iceH: I.H, iceS: I.S, erg: W.erg, wind, climGrid, warmSl, rain: pAnn, young, frame, simMesh, cfg, seed, width: driversWidth, coast: Co });
+    const drivers = detailDrivers({ mesh, z: C.z, ice: I.ice, iceH: I.H, iceS: I.S, erg: W.erg, wind, climGrid, warmSl, rain: pAnn, young, frame, simMesh, cfg, seed, rec: driverRec, width: driversWidth, coast: Co });
     lap('detail'); onDrivers?.(drivers);                              // (a page's zoomed tiles need no more: sent now)
 
     // ── the geology (plans/V2_GEOLOGY_PLAN.md G2): what each place is made of at the surface — the history's rock column
