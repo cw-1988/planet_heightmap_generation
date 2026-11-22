@@ -22,7 +22,7 @@ import { GEOLOGY_LAYERS } from '../v2/js/evolution/geology-view.js';
 import { FARMING_LAYERS } from '../v2/js/evolution/farming-view.js';
 import { encodePlanetCode, decodePlanetCode, SEED_MAX } from './planet-code.js';
 import { lakesLabel } from '../v2/js/finish/lake-amount.js';
-import { detailFromSlider, sliderFromDetail } from './detail-scale.js';
+import { DETAIL_STOPS, nearestStop, fitSlider, stopWords, buildStarted, buildEnded } from './detail-stops.js';
 import { showBuildError, describeFailure, holdControls } from './build-error.js';
 import { presentCrustLine } from './present-crust.js';
 import { plateColors, platesLegendHTML, INSPECT, inspectColors, drawPlateLines, platesMap } from './generate-plates.js';
@@ -90,7 +90,7 @@ startWorker();
 /** The sliders, as the worker reads them. */
 function sliders() {
     const v = (id) => +$(id).value;
-    return { N: detailFromSlider(v('sN')), P: v('sP'), jitter: v('sJ'), nMag: v('sNs'), numContinents: v('sCn'), terrainWarp: v('sTw'), smoothing: v('sS'),
+    return { N: DETAIL_STOPS[v('sN')], P: v('sP'), jitter: v('sJ'), nMag: v('sNs'), numContinents: v('sCn'), terrainWarp: v('sTw'), smoothing: v('sS'),
         hydraulicErosion: v('sHEr'), thermalErosion: v('sTEr'), ridgeSharpening: v('sRs'), glacialErosion: v('sGl'), continentSizeVariety: v('sCsv'),
         greenhouse: v('sTmp'), precipitationOffset: v('sPrc'), landCoverage: v('sLc') };
 }
@@ -104,12 +104,13 @@ function generate(seed = Math.floor(Math.random() * SEED_MAX), toggledIndices = 
     if (building === 'generate') { worker.terminate(); startWorker(); rungs.clear(); }
     building = 'generate'; finisher.cancel(); asked = { seed, toggledIndices, keepEdits };
     if (!keepEdits) tools.reset();
-    showBuildOverlay();
+    showBuildOverlay(); buildStarted('generate', DETAIL_STOPS[+$('sN').value]);   // (struck off when its finish ends: detail-stops.js)
     $('generate').disabled = true; $('generate').textContent = 'Building…'; $('generate').classList.remove('restart'); $('generate').classList.add('generating');
     worker.postMessage({ cmd: 'generate', ...sliders(), ...progressive(), seed, toggledIndices, next: true, shared: true, cuts: tools.cuts, strokes: tools.strokes });
 }
 function failed(message) {
     console.error('[generate] build failed:', message);
+    buildEnded('generate');
     building = null; overlay.active = false; holdControls(false); rungs.clear(); dirty = true;
     resetBuildButton();
     showBuildError(describeFailure(message), message); bar.failed();
@@ -180,6 +181,7 @@ async function finish(w) {
     } finally {
         clock.stop();
         if (world === w) { w.finishing = null; if (!quiet || rungs.live) dirty = true; if (!building) rungs.clear(); updateChip(); if (!building) bar.done(w.problem); }
+        if (world === w && !building) buildEnded('generate', !w.problem);
     }
 }
 
@@ -333,12 +335,13 @@ function checkStale() {
     else btn.textContent = 'Build new world';
 }
 const reapplyBtn = $('reapplyBtn');
+fitSlider($('sN'), 'generate');                                      // (Detail ends at this machine's finest stop: detail-stops.js)
 for (const s of ['sN', 'sP', 'sCn', 'sJ', 'sNs', 'sCsv', 'sLc', ...SCULPT, ...FINISHED]) {
     const slider = $(s), v = s.replace('s', 'v');
     sliderTooltip(slider);
     slider.addEventListener('input', (e) => {
         const val = +e.target.value;
-        if (s === 'sN') { const d = detailFromSlider(val); $(v).textContent = d.toLocaleString(); detailWarning(d, IS_TOUCH); }
+        if (s === 'sN') { const d = DETAIL_STOPS[val]; $(v).textContent = stopWords(d); detailWarning(d, 'generate'); }
         else if (s === 'sTmp') $(v).textContent = `${val > 0 ? '+' : val === 0 ? '±' : '−'}${Math.abs(val)} W/m²`;
         else if (s === 'sPrc') { const pct = Math.round(val * 50); $(v).textContent = `${pct > 0 ? '+' : pct === 0 ? '±' : ''}${pct}%`; }
         else if (s === 'sLc') $(v).textContent = `${Math.round(val * 100)}%`;
@@ -387,7 +390,7 @@ function toggledIndices() {
 function updatePlanetCode(flash) {
     if (!world) return;
     const v = (id) => +$(id).value;
-    currentCode = encodePlanetCode(world.seed, detailFromSlider(v('sN')), v('sJ'), v('sP'), v('sCn'), v('sNs'), v('sTw'), v('sS'), v('sGl'), v('sHEr'), v('sTEr'), v('sRs'), 0.75, v('sCsv'), v('sTmp'), v('sPrc'), v('sLc'), toggledIndices(), v('sLk'));
+    currentCode = encodePlanetCode(world.seed, DETAIL_STOPS[v('sN')], v('sJ'), v('sP'), v('sCn'), v('sNs'), v('sTw'), v('sS'), v('sGl'), v('sHEr'), v('sTEr'), v('sRs'), 0.75, v('sCsv'), v('sTmp'), v('sPrc'), v('sLc'), toggledIndices(), v('sLk'));
     seedInput.value = currentCode;
     loadBtn.classList.toggle('ready', false);
     history.replaceState(null, '', `${location.search}#${currentCode}`);
@@ -399,7 +402,7 @@ copyBtn.addEventListener('click', () => {
 });
 seedInput.addEventListener('input', () => { const val = seedInput.value.trim().toLowerCase(); loadBtn.classList.toggle('ready', val.length > 0 && val !== currentCode); seedError.classList.remove('visible'); });
 function setSlidersFrom(params) {
-    const map = { sN: sliderFromDetail(params.N), sJ: params.jitter, sP: params.P, sCn: params.numContinents, sNs: params.roughness, sCsv: params.continentSizeVariety, sLc: params.landCoverage,
+    const map = { sN: Math.min(nearestStop(params.N), +$('sN').max), sJ: params.jitter, sP: params.P, sCn: params.numContinents, sNs: params.roughness, sCsv: params.continentSizeVariety, sLc: params.landCoverage,
         sTw: params.terrainWarp, sS: params.smoothing, sGl: params.glacialErosion, sHEr: params.hydraulicErosion, sTEr: params.thermalErosion, sRs: params.ridgeSharpening, sTmp: params.greenhouse, sPrc: params.precipitationOffset, sLk: params.lakes ?? 0 };
     for (const [id, val] of Object.entries(map)) { const el = $(id); el.value = val; el.dispatchEvent(new Event('input')); }
 }

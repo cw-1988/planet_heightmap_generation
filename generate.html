@@ -203,8 +203,8 @@
             <summary>Shape your world</summary>
             <div class="section-body">
                 <div class="cg">
-                    <label>Detail <span class="tip" data-tip="Resolution of the sphere — more detail means finer coastlines and terrain, but takes longer to generate">?</span> <span class="v" id="vN">204,000</span></label>
-                    <input type="range" id="sN" min="0" max="1000" step="1" value="600">
+                    <label>Detail <span class="tip" data-tip="Resolution of the sphere — more detail means finer coastlines and terrain, but takes longer to generate. Each step is about 1.5× the one before; the slider ends at the finest this machine's memory holds">?</span> <span class="v" id="vN">180K cells · 57 km</span></label>
+                    <input type="range" id="sN" min="0" max="19" step="1" value="9" aria-label="Detail">
                     <div class="slider-hint"><span>Coarse</span><span>Fine</span></div>
                     <div class="detail-warn" id="detailWarn"></div>
                     <label class="detail-progressive"><input type="checkbox" id="progressive" checked> Progressive generation <span class="tip" data-tip="On: shows the planet at low detail first, then sharper step by step up to the Detail chosen. Off: builds the chosen Detail straight away, faster, with nothing shown until it is done">?</span></label>

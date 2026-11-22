@@ -3,6 +3,7 @@
 // desktop, a bottom sheet dragged on a phone), the build overlay with its progress, and the tutorial.
 
 import { holdControls, clearBuildError } from './build-error.js';
+import { memoryShare } from './detail-stops.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -28,12 +29,13 @@ export function sliderTooltip(slider) {
     slider.addEventListener('pointerup', hide); slider.addEventListener('pointercancel', hide);
 }
 
-/** The Detail slider's warning (lower thresholds on a touch device). */
-export function detailWarning(detail, isTouch) {
-    const orange = isTouch ? 200000 : 640000, red = isTouch ? 500000 : 1280000, cg = $('sN').closest('.cg'), warn = $('detailWarn');
+/** The Detail slider's warning, by the share of this machine's memory a build there takes at its peak
+ *  (docs/detail-stops.md: the slider itself ends where it would no longer fit). */
+export function detailWarning(detail, page) {
+    const share = memoryShare(page, detail), cg = $('sN').closest('.cg'), warn = $('detailWarn');
     cg.classList.remove('detail-orange', 'detail-red'); warn.className = 'detail-warn';
-    if (detail > red) { cg.classList.add('detail-red'); warn.classList.add('red'); warn.textContent = 'Very high — generation may be slow and unstable'; }
-    else if (detail > orange) { cg.classList.add('detail-orange'); warn.classList.add('orange'); warn.textContent = 'High detail — generation may be slow and unstable'; }
+    if (share > 0.75) { cg.classList.add('detail-red'); warn.classList.add('red'); warn.textContent = "Near this machine's memory — slow, and the tab may close"; }
+    else if (share > 0.4) { cg.classList.add('detail-orange'); warn.classList.add('orange'); warn.textContent = 'High detail — slow to build'; }
     else warn.textContent = '';
 }
 

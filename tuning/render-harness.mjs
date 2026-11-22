@@ -85,7 +85,7 @@ function startServer() {
 // ---------------------------------------------------------------------------
 // Test cases
 // ---------------------------------------------------------------------------
-const DETAIL_SLIDER_VALUE = 400;   // ~31 000 regions — fast iteration
+const DETAIL_SLIDER_VALUE = 5;     // 37 000 regions (js/detail-stops.js) — fast iteration
 
 const TEST_CASES = [
   {

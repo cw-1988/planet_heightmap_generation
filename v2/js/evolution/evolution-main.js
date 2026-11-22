@@ -32,6 +32,7 @@ import { createLoading } from './loading.js';
 import { savePlanet, planetBytes, openPlanet } from '../save/planet-file.js';
 import { worldKey, findWorld, keepWorld } from '../save/world-cache.js';
 import { pageFast } from '../finish/fast-mode.js';
+import { DETAIL_STOPS, nearestStop, maxStop, fitSlider, stopWords, buildStarted, buildEnded } from '../../../js/detail-stops.js';
 import { PackedFrame } from '../tectonics/frame-pack.js';
 import { SMALL_DEVICE } from '../core/device.js';
 import { seedOf, randomSeed, isWordSeed } from '../core/seed.js';
@@ -214,9 +215,14 @@ function bytesOf(x, seen = new Set(), depth = 0) {
     return s;
 }
 const finishBytes = f => (f.bytes ??= bytesOf({ raster: f.raster, rivers: f.rivers, climate: f.climate }));
-// (phones finish up to 640K: the finer ones need more memory than a phone's tab has)
-if (IS_TOUCH) for (const o of [...$('finishCells').options]) if (Number(o.value) > 640000) o.remove();
-if (IS_TOUCH) $('finishCells').value = '640000';
+// (the Detail slider: the shared stops from 120K, ×1.5 each, up to the finest this machine's memory holds —
+// js/detail-stops.js, docs/detail-stops.md; a phone's at 610K. The Terrain detail's choices likewise)
+const DETAIL_MIN = DETAIL_STOPS.indexOf(120e3);
+fitSlider($('finishCells'), 'evolution', DETAIL_MIN);
+for (const o of [...$('terrainCells').options]) if (nearestStop(Number(o.value)) > maxStop('evolution')) o.remove();
+const TERRAIN_MAX = Math.max(...[...$('terrainCells').options].map(o => Number(o.value)));
+/** The Detail chosen, in cells. */
+const detailCells = () => DETAIL_STOPS[Number($('finishCells').value)];
 let lastScrub = 0;
 const simMeshes = new Map();
 const simMeshOf = n => { if (!simMeshes.has(n)) simMeshes.set(n, buildSimMesh(n, MESH_SEED)); return simMeshes.get(n); };
@@ -495,7 +501,7 @@ async function loadPlanet(file, kept = null) {
     if (planet.historyBytes > HISTORY_BYTES) { refuse(`its history (${mb(planet.historyBytes)} MB) is longer than this device can hold — open it on a desktop`); return; }
     const withDetail = planet.detailBytes > 0 && planet.detailBytes <= DETAIL_BYTES && (!kept || kept.finishOk);
     // (the terrain drawn while scrubbing: as it was, but at most a phone's finest — a kept world's: the page's)
-    const terrainCells = kept ? Number(ui.terrain.value) : IS_TOUCH ? Math.min(640000, s.terrain) : s.terrain;
+    const terrainCells = kept ? Number(ui.terrain.value) : Math.min(TERRAIN_MAX, s.terrain);
     leaveWorld();
     const b = B = newWorld({ simCells: s.sim, endMyr: m.history.toMyr, lengthMyr: s.len, live: false, loading: true, opened: name, cacheable: !!kept?.historyOk,
         seed: s.seed, seedText: s.seedText ?? null, contPct: s.cont, ending: s.ending, moreTo: s.more || 0, simMyr: m.history.simMyr, steps: m.history.steps, stopped: m.history.stopped,
@@ -654,20 +660,22 @@ function terrainDrawn() {
 const CANCEL_GRACE_MS = 600;
 // (Add detail refines as Cycles' viewport does — docs/finish-ladder.md: the Finish run first at coarser Details, each pass
 // shown as it is done and replacing the one before; the last is the detail chosen. A pass costs ~21.5 s whatever its
-// detail (the climate, the ice age, the geology…) plus ~15.6 s per million cells (measured, bench-ladder.mjs), so a
-// coarser Detail is a pass only where it costs at most half the pass after it: 2.5M → 160K, 2.5M; 10M → 160K, 2.5M, 10M;
-// 640K and 160K alone. A coarse pass before the last paints its picture 2048 wide (finer than its cells still): ~8 s
-// less. ?passes=1 — a developer's: the detail chosen alone, as before)
+// detail (the climate, the ice age, the geology…) plus ~15.6 s per million cells (measured, bench-ladder.mjs). The passes
+// are the Detail slider's stops, from the coarsest up: a stop is a pass where it costs at most half the last pass, and at
+// least twice the pass before it — the first picture as soon as can be, each pass then a real step finer: 10M → 120K,
+// 2M, 10M; 6.7M → 120K, 2M, 6.7M; 2M–4.5M → 120K and itself; 1.4M and under alone. A coarse pass before the last
+// paints its picture 2048 wide (finer than its cells still): ~8 s less. ?passes=1 — a developer's: the detail chosen
+// alone, as before)
 const ONE_PASS = url.get('passes') === '1';
 const passWidth = (cells, last) => (IS_TOUCH || (!last && cells < 1e6) ? 2048 : cells >= 5e6 ? 8192 : 4096);
 const passCost = (cells, last = true) => (passWidth(cells, last) === 2048 ? 13.5 : 21.5) + 15.6 * cells / 1e6;
 /** Add detail's passes up to `final` cells, those above `done` (a pass of this moment already shown, same climate). */
 function finishPasses(final, done = 0) {
-    const out = [final];
-    if (ONE_PASS) return out;
-    const rungs = [...$('finishCells').options].map(o => Number(o.value)).filter(c => c > done && c < final).sort((a, b) => b - a);
-    // (judged at full width: the picture's saving would let 640K in before 2.5M, a later first pass than 160K's for more in all)
-    for (const c of rungs) if (passCost(c) <= 0.5 * passCost(out[0])) out.unshift(c);
+    if (ONE_PASS) return [final];
+    // (judged at full width: the picture's saving would let finer stops in, a later first picture for more in all)
+    const out = [], half = 0.5 * passCost(final);
+    for (const c of DETAIL_STOPS.slice(DETAIL_MIN)) if (c > done && c < final && passCost(c) <= half && (!out.length || passCost(c) >= 2 * passCost(out.at(-1)))) out.push(c);
+    out.push(final);
     return out;
 }
 async function finishMoment(again = null) {
@@ -679,12 +687,13 @@ async function finishMoment(again = null) {
     setPlaying(false);
     // (the timeline held on the moment taken: in playback it has run ahead of the one drawn, and would move on from it)
     if (!again) { playTime = frame.time; ui.time.value = playTime; dirty = true; rail(); }
-    const final = Number($('finishCells').value), key = detailKey(), had = b.finishes.get(frame);
+    const final = detailCells(), key = detailKey(), had = b.finishes.get(frame);
     // (a moment shown at a coarser pass — a ladder cancelled — goes on from the next pass up, not from the first)
     const passes = again?.passes ?? finishPasses(final, had && had.climateKey === key ? had.cells : 0);
     // (each pass's share of the bar: its cost)
     const costs = passes.map((c, i) => passCost(c, i === passes.length - 1)), weights = costs.map(c => c / costs.reduce((s, x) => s + x, 0));
     const started = performance.now();
+    buildStarted('evolution', final);                                  // (a closed tab lowers the slider's end: detail-stops.js)
     b.finishNote = null; b.finishOk = false;
     b.finishJob = { frame, cells: final, passes, pass: 0, stage: 'starting', share: 0, startedAt: performance.now() };
     loading.show('detail', { title: `Adding detail to ${frame.time.toFixed(0)} Myr`, label: 'Starting…', share: 0 });
@@ -750,6 +759,7 @@ async function finishMoment(again = null) {
             : oom ? 'Not enough memory for this detail — try a coarser one, or close other tabs (other World Orogen tabs can share this one’s memory)' : `Could not add detail: ${String(err.message).split('\n')[0]}`;
         if (err.name !== 'AbortError') console.error(err);
     } finally {
+        buildEnded('evolution', b.finishOk);
         b.player?.wake();
         loading.hide('detail');
         if (B === b && b.finishJob?.frame === frame) { b.finishJob = null; dirty = true; updateClimateUi(); }
@@ -769,7 +779,7 @@ const showIf = (el, on) => { el.hidden = !on; return on; };
 /** The card, the timeline's button and badge, the Extend history button, the sheet's line and the Satellite tab's lock. */
 function updateCard() {
     const b = B, frame = painted, job = b?.finishJob, det = detailedOf(b), detFrame = det?.[0], fin = det?.[1];
-    const isDet = !!frame && frame === detFrame, cells = Number($('finishCells').value);
+    const isDet = !!frame && frame === detFrame, cells = detailCells();
     // (on a desktop, once the history is there, the Finish's meshes are built ahead — those it keeps, from 2.5M: the first
     // Add detail skips ~3 s of building them — once per world and detail: not again after a cancel or a run out of memory
     // let the worker go)
@@ -1059,7 +1069,12 @@ addEventListener('keydown', e => {
 $('cardAction').addEventListener('click', mainAction);
 $('timelineAction').addEventListener('click', mainAction);
 $('cardAgain').addEventListener('click', () => finishMoment());
+// (the Detail slider: its words as it is dragged — the cells, their spacing, about how long with the passes — the card
+// once it is let go, so the Finish's meshes are built ahead for the stop chosen, not each one passed)
+const detailLabel = () => { const c = detailCells(); $('vDetail').textContent = stopWords(c, finishPasses(c).reduce((s, x, i, a) => s + passCost(x, i === a.length - 1), 0)); };
+$('finishCells').addEventListener('input', detailLabel);
 $('finishCells').addEventListener('change', () => updateCard());
+detailLabel();
 $('cardDetailed').addEventListener('click', e => {
     const a = e.target.closest('a[data-t]');
     if (!a || !B?.frames.length) return;

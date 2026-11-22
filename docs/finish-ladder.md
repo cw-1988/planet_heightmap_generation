@@ -23,12 +23,14 @@ A pass is added below the last only when it costs at most **half** the pass abov
 
 | Detail | Passes | First on screen |
 |--------|--------|-----------------|
-| 160K, 640K | one | as before |
-| 2.5M | 160K → 2.5M | ~16.5 s |
-| 10M | 160K → 2.5M → 10M | ~16.5 s |
+| 120K – 1.4M | one | as before |
+| 2M – 4.5M | 120K → the Detail | ~15 s |
+| 6.7M, 10M | 120K → 2M → the Detail | ~15 s |
 
-640K is never a stop on the way to 2.5M: it costs nearly as much as 160K's fixed part and shows little more, and at
-2048 px it would slip in ahead of 160K (a later first look for more time in all).
+The passes are picked from the shared stops ([detail-stops.md](detail-stops.md)), 120K up. A middle stop such as 610K
+never makes it in on the way to 2M: it costs nearly as much as 120K's fixed part and shows little more, and at 2048 px
+it would slip in ahead of 120K (a later first look for more time in all). The timings below were measured on the older
+menu's 160K, 640K and 2.5M.
 
 ## Timings
 

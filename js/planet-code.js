@@ -189,7 +189,7 @@ function decodeFormat(packed, config, toggleStr) {
 /**
  * Encode planet parameters into a base36 planet code.
  * @param {number} seed - Integer seed 0–2147483645
- * @param {number} N - Detail (5000–2560000, step 1000)
+ * @param {number} N - Detail (5000–2560000, step 1000; above, in 1000s after a ".")
  * @param {number} jitter - Irregularity (0–1, step 0.05)
  * @param {number} P - Plates (4–120, step 1)
  * @param {number} numContinents - Continents (1–10, step 1)
@@ -210,7 +210,8 @@ function decodeFormat(packed, config, toggleStr) {
  * @returns {string} base36 code (22 chars without edits, 22 + '-' + 2*k with k edits)
  */
 export function encodePlanetCode(seed, N, jitter, P, numContinents, roughness, terrainWarp, smoothing, glacialErosion, hydraulicErosion, thermalErosion, ridgeSharpening, soilCreep, continentSizeVariety, greenhouse, precipitationOffset, landCoverage, toggledIndices = [], lakes = 0) {
-    const nIdx  = toIndex(N, SLIDERS[0]);
+    // (a Detail above the field's top, 2.56M — docs/detail-stops.md: the field at its top, the Detail in 1000s after a ".")
+    const nIdx  = Math.min(toIndex(N, SLIDERS[0]), SLIDERS[0].count - 1);
     const jIdx  = toIndex(jitter, SLIDERS[1]);
     const pIdx  = toIndex(P, SLIDERS[2]);
     const cnIdx = toIndex(numContinents, SLIDERS[3]);
@@ -249,6 +250,7 @@ export function encodePlanetCode(seed, N, jitter, P, numContinents, roughness, t
     const lkIdx = toIndex(lakes, SLIDERS[16]);
     if (lkIdx !== 10) packed = packed * 21n + BigInt(lkIdx);  // * 21 (Lakes ±0: index 10)
     let code = packed.toString(36).padStart(lkIdx !== 10 ? LAKES_LEN : BASE_LEN, '0');
+    if (N > fromIndex(SLIDERS[0].count - 1, SLIDERS[0])) code += '.' + Math.round(N / 1000).toString(36);
 
     // Append toggled plate indices: "-" + 2-char base36 per index
     if (toggledIndices.length > 0) {
@@ -272,8 +274,11 @@ export function decodePlanetCode(code) {
 
     // Split base code from optional toggle suffix
     const dashIdx = code.indexOf('-');
-    const base = dashIdx === -1 ? code : code.slice(0, dashIdx);
+    let base = dashIdx === -1 ? code : code.slice(0, dashIdx);
     const toggleStr = dashIdx === -1 ? '' : code.slice(dashIdx + 1);
+    // (a Detail above 2.56M: after a ".", in 1000s)
+    const dotIdx = base.indexOf('.'), fineN = dotIdx === -1 ? 0 : 1000 * parseInt(base.slice(dotIdx + 1), 36);
+    if (dotIdx !== -1) { if (!/^[0-9a-z]+$/.test(base.slice(dotIdx + 1)) || !(fineN > 2560000)) return null; base = base.slice(0, dotIdx); }
 
     const config = DECODE_FORMATS[base.length];
     if (!config) return null;
@@ -288,5 +293,7 @@ export function decodePlanetCode(code) {
         return null;
     }
 
-    return decodeFormat(packed, config, toggleStr);
+    const out = decodeFormat(packed, config, toggleStr);
+    if (out && fineN) out.N = fineN;
+    return out;
 }

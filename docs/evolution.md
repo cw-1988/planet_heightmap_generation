@@ -52,10 +52,12 @@ says it was made with the old ones. Lakes changes only Add detail.
 
 Found a moment you like? Press **Add detail**. It sculpts that moment again, much more finely: rivers and lakes
 (permanent, flooding each year or dry for months, fed by the moment's own rain), glaciers and fjords, sand seas, its own
-climate, and the Satellite, Geology and Food views. Its **Detail** is 160K, 640K, 2.5M (the default) or 10M cells
-(about three minutes); phones go up to 640K. It takes from a few seconds to a few minutes. It refines in passes, the way
-a render sharpens: at 2.5M it first shows the moment at 160K, at 10M at 160K and then 2.5M, each pass shown as soon as it
-is done and replacing the one before (160K and 640K run in one pass: a coarser pass would barely be quicker). During the first pass a loading screen over the planet names
+climate, and the Satellite, Geology and Food views. Its **Detail** slider steps about 1.5× at a time from 120K
+to 10M cells (3M by default); it ends at the finest this machine's memory holds, 610K on phones
+([detail-stops.md](detail-stops.md)). It takes from a few seconds to a few minutes (10M about three). It refines in
+passes, the way a render sharpens: from 2M it first shows the moment at 120K, from 6.7M at 120K and then 2M, each pass
+shown as soon as it is done and replacing the one before (up to 1.4M it runs in one pass: a coarser pass would barely
+be quicker). During the first pass a loading screen over the planet names
 each step as it comes (shaping the surface, working out the climate, carving the rivers, carving with the last ice age,
 mapping the rocks, finding the ore deposits, painting the picture…), with how far along the whole is and the step under
 way ([finish-progress.md](finish-progress.md)); after it, the moment is on screen and the card's

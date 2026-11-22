@@ -72,7 +72,7 @@ async function runSeed(browser, baseUrl, seed) {
     // Set low detail for speed
     await page.evaluate(() => {
       const el = document.getElementById('sN');
-      el.value = 400;
+      el.value = 5;   // (js/detail-stops.js: 37K regions)
       el.dispatchEvent(new Event('input', { bubbles: true }));
     });
 

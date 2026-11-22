@@ -1,7 +1,8 @@
 # How high a Detail can go (the ceiling)
 
 What the finish's top Details cost in time and memory, and how to measure a machine's own ceiling. The page's top
-Detail is 10M (`evolution.html`, `#finishCells`). Back to [finish-ladder.md](finish-ladder.md).
+Detail is 10M (`evolution.html`, `#finishCells`), lowered to what the machine's memory holds
+([detail-stops.md](detail-stops.md)). Back to [finish-ladder.md](finish-ladder.md).
 
 ## Measured
 
@@ -33,8 +34,8 @@ The 10M ladder (160K → 2.5M → 10M) took 185 s in all, the menu's "~3 min". A
 - **In Node:** the machine's memory only. Typed arrays sit outside V8's heap, so `--max-old-space-size` matters little.
 - **In the browser:** one tab's finishing worker holds the mesh and every array. A worker's own heap is capped near
   4 GB, but the typed arrays live outside it, so the true limit is what the browser lets one tab take (Chrome kills a
-  tab that grows past what the system can spare). Touch devices stop at 640K (`DETAIL_BYTES`, `IS_TOUCH` in
-  `evolution-main.js`).
+  tab that grows past what the system can spare). Each page's slider ends at the stop that fits half the
+  machine's reported memory, touch devices at 610K (`maxStop` in `js/detail-stops.js`).
 - **Waiting:** each doubling of the cells nearly doubles the wait: ~5 min for a 20M ladder, ~9–10 min for 40M.
 - **The picture:** 8192 px wide from 5M cells up. At 10M a cell is already ~8 km, about 2 px of that picture, so a finer
   mesh needs a wider picture to show anything new (16384 px: a 4× larger picture and texture).

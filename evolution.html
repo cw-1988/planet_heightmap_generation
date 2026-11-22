@@ -188,13 +188,9 @@
             <div class="evo-card-head"><span id="cardTitle">Starting…</span><span id="cardBadge" class="evo-badge" hidden></span></div>
             <div id="cardText" class="evo-card-text"></div>
             <div class="cg" id="detailGroup">
-                <label>Detail <span class="tip" data-tip="How finely Add detail sculpts the moment: warped and roughened, its rivers carving longer with the climate's rain, sediment laid down, an ice age's glaciers and fjords, the wind's sand seas and loess, and its own climate and Satellite view. Finer detail takes longer — 10M cells about three minutes the first time">?</span></label>
-                <select id="finishCells">
-                    <option value="160000">160K cells · 61 km</option>
-                    <option value="640000">640K cells · 30 km</option>
-                    <option value="2500000" selected>2.5M cells · 15 km</option>
-                    <option value="10000000">10M cells · 8 km (~3 min)</option>
-                </select>
+                <label>Detail <span class="tip" data-tip="How finely Add detail sculpts the moment: warped and roughened, its rivers carving longer with the climate's rain, sediment laid down, an ice age's glaciers and fjords, the wind's sand seas and loess, and its own climate and Satellite view. Finer detail takes longer — 10M cells about three minutes the first time. Each step is about 1.5× the one before; the slider ends at the finest this machine's memory holds">?</span> <span class="v" id="vDetail">3M cells · 14 km</span></label>
+                <input type="range" id="finishCells" min="8" max="19" value="16" step="1" aria-label="Detail">
+                <div class="slider-hint"><span>Faster</span><span>Finer</span></div>
             </div>
             <div id="cardDetailed" class="evo-card-note evo-card-replace" hidden></div>
             <button id="cardAction" class="evo-card-btn" disabled>Add detail</button>

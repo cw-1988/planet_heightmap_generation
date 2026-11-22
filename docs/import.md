@@ -29,7 +29,8 @@ see [shared.md](shared.md). Back to the [README](../README.md).
 
 ## Controls
 
-- **Detail**: how finely the image is laid onto the sphere, from Coarse to Fine (204,000 regions by default), then
+- **Detail**: how finely the image is laid onto the sphere, in steps about 1.5× apart from 5,000 to 10M regions (180,000 by default), ending at what the machine's
+  memory holds ([detail-stops.md](detail-stops.md)), then
   **Import**.
 - **Terrain sculpting**: Terrain warp, Smoothing and Ridge sharpening shape the image; Glacial, Hydraulic and Thermal
   Erosion are read by the finish's carving (how far fjords reach, how long its rivers work, how gentle the valley sides

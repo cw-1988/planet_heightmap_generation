@@ -16,7 +16,7 @@ import { initEvolutionExport } from '../v2/js/evolution/export.js';
 import { heightLutOf } from '../v2/js/evolution/looks.js';
 import { CLIMATE_LAYERS } from '../v2/js/evolution/climate-view.js';
 import { FARMING_LAYERS } from '../v2/js/evolution/farming-view.js';
-import { detailFromSlider } from './detail-scale.js';
+import { DETAIL_STOPS, fitSlider, stopWords, buildStarted, buildEnded } from './detail-stops.js';
 import { showBuildError, describeFailure, holdControls } from './build-error.js';
 import { state } from './state.js';
 import { sliderTooltip, detailWarning, progressiveSwitch, redrawFoldedSliders, sidePanel, buildOverlay } from './page-chrome.js';
@@ -64,6 +64,7 @@ const climateOptions = () => ({ greenhouseWm2: v('sTmp'), precipScale: Math.max(
 
 function failed(message) {
     console.error('[import] failed:', message);
+    buildEnded('import');
     building = null; overlay.active = false; holdControls(false); rungs.clear(); dirty = true;
     importBtn.disabled = !gray; importBtn.textContent = 'Import';
     showBuildError(describeFailure(message, 'import this heightmap'), message); bar.failed();
@@ -108,6 +109,7 @@ async function finish(w) {
     } finally {
         clock.stop();
         if (world === w) { w.finishing = null; if (!quiet || rungs.live) dirty = true; if (!building) rungs.clear(); updateChip(); if (!building) bar.done(w.problem); }
+        if (world === w && !building) buildEnded('import', !w.problem);
     }
 }
 function updateChip() {
@@ -174,11 +176,13 @@ importBtn.addEventListener('click', () => {
     reapplyBtn.disabled = true; reapplyBtn.classList.remove('ready');
     overlay.show(); bar.start(); panel.collapse();
     const g = new Uint8Array(gray);                                 // (a copy: the worker is handed it)
-    worker.postMessage({ cmd: 'importHeightmap', shared: true, N: detailFromSlider(v('sN')), ...progressive(), jitter: +($('sJ')?.value ?? 0.75), grayscale: g, imageWidth: grayW, imageHeight: grayH, ...sculpt() }, [g.buffer]);
+    buildStarted('import', DETAIL_STOPS[v('sN')]);                 // (struck off when its finish ends: detail-stops.js)
+    worker.postMessage({ cmd: 'importHeightmap', shared: true, N: DETAIL_STOPS[v('sN')], ...progressive(), jitter: +($('sJ')?.value ?? 0.75), grayscale: g, imageWidth: grayW, imageHeight: grayH, ...sculpt() }, [g.buffer]);
 });
 { const img = new Image(); img.onload = () => { loadImage(img, 'Earth (default)'); importBtn.click(); }; img.src = 'assets/earth.png'; }
 
 // ── the sliders: Detail, the sculpting (Reapply), the climate (the finish again) ──
+fitSlider($('sN'), 'import');                                        // (Detail ends at this machine's finest stop: detail-stops.js)
 const reapplyBtn = $('reapplyBtn'), SCULPT = ['sTw', 'sS', 'sGl', 'sHEr', 'sTEr', 'sRs'];
 for (const s of ['sN', ...SCULPT, 'sTmp', 'sPrc', 'sLk']) {
     const slider = $(s);
@@ -186,7 +190,7 @@ for (const s of ['sN', ...SCULPT, 'sTmp', 'sPrc', 'sLk']) {
     sliderTooltip(slider);
     slider.addEventListener('input', (e) => {
         const val = +e.target.value, out = $(s.replace('s', 'v'));
-        if (s === 'sN') { const d = detailFromSlider(val); out.textContent = d.toLocaleString(); detailWarning(d, IS_TOUCH); }
+        if (s === 'sN') { const d = DETAIL_STOPS[val]; out.textContent = stopWords(d); detailWarning(d, 'import'); }
         else if (s === 'sTmp') out.textContent = `${val > 0 ? '+' : val === 0 ? '±' : '−'}${Math.abs(val)} W/m²`;
         else if (s === 'sPrc') { const pct = Math.round(val * 50); out.textContent = `${pct > 0 ? '+' : pct === 0 ? '±' : ''}${pct}%`; }
         else if (s === 'sLk') out.textContent = lakesLabel(val);

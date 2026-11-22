@@ -32,7 +32,7 @@ Core world parameters that control the planet's structure (changing these requir
 
 | Control | Range | Default | Description |
 |---------|-------|---------|-------------|
-| Detail | 5,000 – 2,560,000 | 204,000 | Number of Voronoi cells on the sphere. Only affects rendering resolution — continent shapes are stable across detail levels (generated on a fixed ~20K reference grid) |
+| Detail | 5,000 – 10,000,000, 20 stops ~1.5× apart, ending at what the machine's memory holds ([detail-stops.md](detail-stops.md)) | 180,000 | Number of Voronoi cells on the sphere. Only affects rendering resolution — continent shapes are stable across detail levels (generated on a fixed ~20K reference grid) |
 | Irregularity | 0 – 1 | 0.75 | Randomization of Fibonacci point positions |
 | Plates | 4 – 120 | 80 | Number of tectonic plates |
 | Continents | 1 – 10 | 4 | Target number of separate landmasses |
@@ -224,7 +224,7 @@ js/
   planet-worker.js      The worker: the present-day world (v2/js/present/) or an imported heightmap, sent with the finish's job
   state.js              The touch device and edit mode
   planet-code.js        Planet code encode/decode (seed + sliders + edits → base36)
-  detail-scale.js       Non-linear (power-curve) Detail slider mapping
+  detail-stops.js       The Detail stops every page shares and each page's machine-dependent top stop
   build-error.js        A failed build or import shown in the build overlay, with a Close button; the controls held during a build (Generate leaves its panel live)
   view-strip.js         The view strip above the layer tabs (every page), folded behind an arrow: Globe | Map and what applies,
                         the projection picker; in the sheet on phones
