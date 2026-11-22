@@ -73,7 +73,9 @@ function infoOf(mesh) {
 export function carveLevel(mesh, f, route, cfg) {
     const { adjOffset, adjList, numCells: n } = mesh, { dist, area: cellArea } = infoOf(mesh);
     // (closed basins' floors are outlets like the sea, each at its own level: the finish's dry basins)
-    const sink = f.sink ?? null, land = sink ? c => f.z[c] > 0 && !(sink[c] > 0.5) : c => f.z[c] > 0;
+    const sink = f.sink ?? null, isLand = new Uint8Array(n);
+    for (let c = 0; c < n; c++) isLand[c] = f.z[c] > 0 && !(sink && sink[c] > 0.5) ? 1 : 0;
+    const land = c => isLand[c] === 1;
     const baseOf = sink ? c => (sink[c] > 0.5 ? f.base[c] : 0) : () => 0;
     // ── the priority flood: from the sea inward, lowest spill first ──
     const fill = new Float32Array(n), rank = new Int32Array(n).fill(-1), parent = new Int32Array(n).fill(-1), order = new Int32Array(n);
@@ -99,10 +101,12 @@ export function carveLevel(mesh, f, route, cfg) {
         }
     }
     report(0.4);                                                      // (a finish's progress: the flood is most of a level)
-    // ── receivers: the steepest way down to a neighbour already reached (or the sea); on a flat, the flood's way ──
+    // ── receivers: the steepest way down to a neighbour already reached (or the sea); on a flat, the flood's way. Each cell's
+    // its own, so taken in the cells' order, not the flood's (the same receivers, read from memory in order: 0.47 → 0.08 s at 2.5M) ──
     const recv = new Int32Array(n).fill(-1), recvKm = new Float32Array(n);
-    for (let i = 0; i < count; i++) {
-        const c = order[i];
+    for (let c = 0; c < n; c++) {
+        const i = rank[c];
+        if (i < 0) continue;
         let pick = -1, km = 0, steepest = 0;
         for (let k = adjOffset[c]; k < adjOffset[c + 1]; k++) {
             const nb = adjList[k], fn = rank[nb] === -2 ? baseOf(nb) : fill[nb];
@@ -166,10 +170,11 @@ export function carveLevel(mesh, f, route, cfg) {
     }
     report(0.8);
     // ── the history's rivers: a bed is at least as deep as they cut it (a canyon where a river held its way) ──
-    for (let i = 0; i < count; i++) { const c = order[i], old = f.z[c] - f.inc[c]; if (old < bed[c]) bed[c] = Math.max(baseAt ? baseAt[c] : 0, old); }
+    // (this pass and the next three: each cell its own — or a min over its neighbours — so in the cells' order)
+    for (let c = 0; c < n; c++) { if (rank[c] < 0) continue; const old = f.z[c] - f.inc[c]; if (old < bed[c]) bed[c] = Math.max(baseAt ? baseAt[c] : 0, old); }
     // ── an active belt rises as fast as its rivers cut: its beds stand higher — by activeHold at full activity (f.hold):
     // the range is shaped, not trenched (developer, 8b round 3) ──
-    for (let i = 0; i < count; i++) { const c = order[i]; bed[c] = f.z[c] - (1 - cfg.activeHold * f.hold[c]) * (f.z[c] - bed[c]); }
+    for (let c = 0; c < n; c++) if (rank[c] >= 0) bed[c] = f.z[c] - (1 - cfg.activeHold * f.hold[c]) * (f.z[c] - bed[c]);
     // ── rivers run downhill: where the wave left a bed below the reach it drains into (it carried a dip of the surface
     // upstream), the bed stands at that reach's height — never above the tectonic surface: a pit in the tectonic
     // surface itself stays, a basin a lake would fill ──
@@ -182,8 +187,9 @@ export function carveLevel(mesh, f, route, cfg) {
     // drops to the bed; a stream's is a sliver of it and the cell hardly drops. No threshold: every river counts, in
     // proportion; and a coarse cell, holding more than a valley, drops less — its mean, as at any resolution ──
     const perCell = cfg.valleyKm / Math.sqrt(cellArea);
-    for (let i = 0; i < count; i++) {
-        const c = order[i], share = Math.min(1, perCell * Math.sqrt(area[c] / 1e4));
+    for (let c = 0; c < n; c++) {
+        if (rank[c] < 0) continue;
+        const share = Math.min(1, perCell * Math.sqrt(area[c] / 1e4));
         z[c] = f.z[c] - share * Math.max(0, f.z[c] - bed[c]);
     }
     // ── a valley wider than its cell (cfg.valleySides, the finish's: 0 none … 1): its sides carried into the cells beside it
@@ -191,8 +197,9 @@ export function carveLevel(mesh, f, route, cfg) {
     // valley crammed into its own cell ──
     if (cfg.valleySides > 0) {
         const { xyz } = mesh, cellKm = Math.sqrt(cellArea), before = z.slice();
-        for (let i = 0; i < count; i++) {
-            const c = order[i], half = 0.5 * cfg.valleyKm * Math.sqrt(area[c] / 1e4);
+        for (let c = 0; c < n; c++) {
+            if (rank[c] < 0) continue;
+            const half = 0.5 * cfg.valleyKm * Math.sqrt(area[c] / 1e4);
             if (half < 0.6 * cellKm) continue;
             const x = xyz[3 * c], y = xyz[3 * c + 1], w = xyz[3 * c + 2], reach = Math.min(half, 4 * cellKm);
             for (let k = adjOffset[c]; k < adjOffset[c + 1]; k++) {
@@ -215,7 +222,7 @@ export function carveLevel(mesh, f, route, cfg) {
     }
     // (land stays land: a river cut to its base level stands just above the sea — or above its basin's floor)
     if (!baseAt) { for (let c = 0; c < n; c++) if (f.z[c] > 0 && z[c] < LAND_FLOOR) z[c] = Math.min(f.z[c], LAND_FLOOR); }
-    else for (let i = 0; i < count; i++) { const c = order[i], fl = baseAt[c] + LAND_FLOOR; if (z[c] < fl) z[c] = Math.min(f.z[c], fl); }
+    else for (let c = 0; c < n; c++) { if (rank[c] < 0) continue; const fl = baseAt[c] + LAND_FLOOR; if (z[c] < fl) z[c] = Math.min(f.z[c], fl); }
     return { z, recv, area, order: order.subarray(0, count) };
 }
 const LAND_FLOOR = 0.002;

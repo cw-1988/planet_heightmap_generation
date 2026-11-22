@@ -43,8 +43,8 @@ export function closedBasins(mesh, z, runoff, pet, rain, cellKm2, F, broad = nul
     if (broad) {
         const bf = spillLevels(broad.mesh, broad.z).fill, deep = new Uint8Array(broad.mesh.numCells);
         for (let c = 0; c < deep.length; c++) if (broad.z[c] > 0 && bf[c] > broad.z[c] + F.tectonicHollowKm) deep[c] = 1;
-        for (let i = 0; i < count; i++) { const c = order[i]; tectonic[c] = deep[broad.nearest[c]]; }
-    } else for (let i = 0; i < count; i++) { const c = order[i]; if (fill[c] > z[c] + F.tectonicHollowKm) tectonic[c] = 1; }
+        for (let c = 0; c < n; c++) if (done[c] === 1) tectonic[c] = deep[broad.nearest[c]];     // (each cell its own: in the cells' order)
+    } else for (let c = 0; c < n; c++) if (done[c] === 1 && fill[c] > z[c] + F.tectonicHollowKm) tectonic[c] = 1;
     // ── the hollows: cells under their spill level, in patches of one level (one lake each, if it were full) ──
     const EPS = 1e-4, lake = new Int32Array(n).fill(-1), lakes = [];
     for (let i = 0; i < count; i++) {
