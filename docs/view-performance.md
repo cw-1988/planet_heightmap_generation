@@ -72,6 +72,42 @@ The guard: `v2/tools/check-river-joins.mjs` builds a main stem and a tributary t
 confluence. It fails if any segment is 2 px long or more. `riverSegments` logs `[rivers] a drawn segment … px long`
 when the longest segment is over a quarter of the map.
 
+## Zoomed in: every segment tested for every tile
+
+With that fixed, zooming in still stuttered as the tiles streamed in: frames of 60–85 ms, nearly all of it
+`DetailService.pump` (`v2/js/evolution/detail-view.js`). Before posting a tile to a worker, `pump` crops the rivers to its
+window on the main thread (`cropSource` → `cropLines`, `v2/js/finish/river-valleys.js`). `cropLines` tested all of the
+planet's ~258,000 segments three times (once per date-line turn): ~15 ms a tile, several tiles a frame.
+
+The fix: `cropLines` indexes the segments once per lines array by their middles on a 4 px grid of the texture
+(`lineGrid`, cached in a WeakMap) and reads only the cells under the window, out to the farthest a segment reaches from
+its middle. It returns the same segments in the same order.
+
+| `cropLines`, 2.56M, one window | Time |
+|--------------------------------|------|
+| before | 14.3 ms |
+| after | 1.06 ms (the grid once: 12 ms) |
+
+The guard: `v2/tools/check-river-joins.mjs` compares the grid's crop with testing every segment for windows at every
+level, across the date line and at the poles.
+
+## Zoomed in: a canvas copied into the sRGB patch
+
+The last stutter: when a zoom settled at the deepest level, the page froze for 0.6–0.75 s with the main thread idle (no
+long task). `TileLayers.lay` lays again the tiles it already holds (79 of them), and each was copied straight from its
+canvas into the patch atlas (`putPatchTile`, `v2/js/app/globe-view.js`), a texture three.js makes `SRGB8_ALPHA8`. A
+canvas kept in memory (`TILE_CTX`, above) copied into an sRGB texture takes Chrome's slow path: ~11 ms of the GPU
+process per tile, which `lay`'s budget can't see, since the call itself returns at once.
+
+| 258 × 258 tiles into a 4644 × 4902 texture | Longest frame |
+|--------------------------------------------|---------------|
+| 79 canvases → sRGB | 904 ms |
+| 8 canvases → sRGB | 40 ms |
+| 79 canvases → RGBA, or 79 pixel arrays → sRGB | 17 ms |
+
+The fix: `putPatchTile` sends the canvas's pixels (`getImageData`, ~1–1.5 ms a tile, counted in `lay`'s budget). The
+picture is unchanged. Two zooms out and in over land at 2.56M then ran at 60 fps with no frame over 40 ms.
+
 ## Switching layers
 
 [switch-without-stall.md](switch-without-stall.md): a finished picture painted a slice at a time between frames, kept
@@ -81,7 +117,11 @@ and painted ahead, so no layer switch stalls the page.
 
 - A shader loop in code that reaches the globe or the map: give it a bound fxc can't fold (a uniform), and read
   textures in it with `textureLod`.
-- A canvas that is uploaded to a texture over and over: make its context with `willReadFrequently: true`.
+- A canvas that is uploaded to a texture over and over: make its context with `willReadFrequently: true`, and send it
+  as pixels (`getImageData`), never as the canvas, into an sRGB texture.
+- Time a texture upload by the frames after it, not the call: its GPU cost shows as a gap with no long task.
 - Test on the land, zoomed in, with fast drags; the ocean has no detail tiles and hides the cost.
 - No drawn line may cross the map's edge. A window's margin grows with the longest segment, so one wrapped segment
   makes every tile draw everything. Run `node v2/tools/check-river-joins.mjs` after any change to `riverParts`.
+- Nothing done per tile on the main thread may walk all of the planet's lines or cells: index them once, read the
+  window's part.

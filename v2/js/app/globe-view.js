@@ -463,11 +463,15 @@ void main() {
         const P = this.patchLayers[k], d = P.tab.image.data, o = 4 * (sy * P.cols + sx), c = ((tx % 65536) + 65536) % 65536, S = this.patch.uPatchSlot.value;
         // (straight to the texture, on whichever unit is active, that unit's texture bound again after: three.js's
         // copyTextureToTexture trusts its record of what is bound, and that record can be stale here — the tile then went
-        // to another texture)
-        const gl = this.renderer.getContext(), was = gl.getParameter(gl.TEXTURE_BINDING_2D);
+        // to another texture). Its pixels go as an array, not the canvas: a canvas kept in memory (planet-view.js TILE_CTX)
+        // copied into this sRGB texture took Chrome's slow path, ~11 ms of GPU a tile — the 79 tiles a zoom lays again on
+        // settling stalled the page 0.75 s (docs/view-performance.md). getImageData of such a canvas: ~1 ms, in lay's budget
+        const gl = this.renderer.getContext(), was = gl.getParameter(gl.TEXTURE_BINDING_2D), w = image.width, h = image.height;
+        const px = image.getContext ? image.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, w, h).data : image.data;
         gl.bindTexture(gl.TEXTURE_2D, this.renderer.properties.get(P.atl).__webglTexture);
         gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
-        gl.texSubImage2D(gl.TEXTURE_2D, 0, sx * S, sy * S, gl.RGBA, gl.UNSIGNED_BYTE, image);
+        for (const p of [gl.UNPACK_ROW_LENGTH, gl.UNPACK_SKIP_PIXELS, gl.UNPACK_SKIP_ROWS]) gl.pixelStorei(p, 0);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, sx * S, sy * S, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
         gl.bindTexture(gl.TEXTURE_2D, was);
         d[o] = c & 255; d[o + 1] = c >> 8; d[o + 2] = ty & 255; d[o + 3] = 128 | (ty >> 8);
         P.tab.needsUpdate = true;

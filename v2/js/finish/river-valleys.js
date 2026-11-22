@@ -67,7 +67,7 @@ export function riverParts(R, i0, i1, q0, extra = () => 0) {
         const head = pts.head, tail = !!pts.tail;
         const inJoin = pts === first && head === 'reach' && drawn(u) ? joinAt(R, J.starts[u + 1] - 2, i0, i0 + 1) : null;
         // (only a part that holds the reach's last point: one crossing the map's edge at that point leaves it a part of one
-        // point, dropped, and the part before lies across the map ? its join drawn there was a line 2,047 px long, which
+        // point, dropped, and the part before lies across the map — its join drawn there was a line 2,047 px long, which
         // drawRiversWindow's margin (half the longest segment) took for every tile: every river drawn into each one)
         const outJoin = pts === last && pts.end === i1 - 1 && !tail && intoOut ? joinAt(R, J.starts[mu + 1] - 2, i1 - 1, J.starts[d] + 1) : null;
         const runOn = outJoin && mu === k, ghost = (p, i) => { const g = p.slice(), x = (R.lon[i] + 180) / 360 * TEX_W; g[0] = x - TEX_W * Math.round((x - p[0]) / TEX_W); g[1] = (90 - R.lat[i]) / 180 * TEX_H; return g; };
@@ -182,20 +182,55 @@ const reachOf = (q, d) => { const f = channelKm(q) / 2; return { f, d, out: f + 
  * the date line to where the window sees them — small enough to send to a worker with the window.
  */
 export function cropLines(lines, { W, x0, y0, w, h }, mPx) {
-    // (out to the widest valley, and the farthest a meander moves its line — 0.3 for a latitude's narrower pixels east–west)
-    const k = W / TEX_W, pad = (mPx + (LEVEL_OUT * reachOf(2e5, VALLEY.depthMax).out + MEANDER_PAD_KM / 0.3) / (40030 / W)) / k, out = [];
-    const ya = (y0 / k) - pad, yb = (y0 + h) / k + pad;
+    const k = W / TEX_W, pad = cropPad(W, mPx), out = [];
+    const ya = (y0 / k) - pad, yb = (y0 + h) / k + pad, G = lineGrid(lines), r = G.reach, at = (v, n) => Math.min(n - 1, Math.max(0, Math.floor(v / GRID_PX)));
     for (const turn of [-1, 0, 1]) {
-        const xa = x0 / k - turn * TEX_W - pad, xb = (x0 + w) / k - turn * TEX_W + pad;
-        for (let s = 0; s < lines.length; s += LINE) {
-            // (out to its curve's bulge too: a third of its length at most, river-meander.js curveMaxKm)
-            const ax = lines[s], ay = lines[s + 1], bx = lines[s + 2], by = lines[s + 3], cb = 0.3 * Math.hypot(bx - ax, by - ay);
-            if (Math.max(ax, bx) + cb < xa || Math.min(ax, bx) - cb > xb || Math.max(ay, by) + cb < ya || Math.min(ay, by) - cb > yb) continue;
-            out.push(ax + turn * TEX_W, ay, bx + turn * TEX_W, by);
+        const xa = x0 / k - turn * TEX_W - pad, xb = (x0 + w) / k - turn * TEX_W + pad, hit = [];
+        if (xb + r < 0 || xa - r > TEX_W) continue;
+        // (the cells holding the middles of the segments that may touch it, then each tested as before: in their order)
+        for (let cy = at(ya - r, G.GH); cy <= at(yb + r, G.GH); cy++) for (let cx = at(xa - r, G.GW); cx <= at(xb + r, G.GW); cx++) {
+            const c = cy * G.GW + cx;
+            for (let j = G.start[c]; j < G.start[c + 1]; j++) {
+                const s = G.idx[j] * LINE;
+                // (out to its curve's bulge too: a third of its length at most, river-meander.js curveMaxKm)
+                const ax = lines[s], ay = lines[s + 1], bx = lines[s + 2], by = lines[s + 3], cb = 0.3 * Math.hypot(bx - ax, by - ay);
+                if (Math.max(ax, bx) + cb < xa || Math.min(ax, bx) - cb > xb || Math.max(ay, by) + cb < ya || Math.min(ay, by) - cb > yb) continue;
+                hit.push(G.idx[j]);
+            }
+        }
+        hit.sort((a, b) => a - b);
+        for (const i of hit) {
+            const s = i * LINE;
+            out.push(lines[s] + turn * TEX_W, lines[s + 1], lines[s + 2] + turn * TEX_W, lines[s + 3]);
             for (let e = 4; e < LINE; e++) out.push(lines[s + e]);
         }
     }
     return Float64Array.from(out);
+}
+// (cropLines' margin in the texture's px: out to the widest valley, and the farthest a meander moves its line — 0.3 for a
+// latitude's narrower pixels east–west)
+export const cropPad = (W, mPx) => (mPx + (LEVEL_OUT * reachOf(2e5, VALLEY.depthMax).out + MEANDER_PAD_KM / 0.3) / (40030 / W)) / (W / TEX_W);
+
+// (the lines indexed once by their middles on a coarse grid of the texture: a window reads the cells under it, not the
+// planet's every segment three times — at 2.56M ~260k segments, ~16 ms a tile on the page's main thread as each was sent
+// to a worker, ~70 ms a frame: the zoomed view's stutter. `reach`: how far a segment and its bulge lie from its middle)
+const GRID_PX = 4, grids = new WeakMap();
+function lineGrid(lines) {
+    let G = grids.get(lines);
+    if (G) return G;
+    const GW = TEX_W / GRID_PX, GH = TEX_H / GRID_PX, n = lines.length / LINE, cell = new Int32Array(n), start = new Int32Array(GW * GH + 1), idx = new Int32Array(n);
+    let reach = 0;
+    for (let i = 0; i < n; i++) {
+        const s = i * LINE, dx = lines[s + 2] - lines[s], dy = lines[s + 3] - lines[s + 1];
+        reach = Math.max(reach, Math.max(Math.abs(dx), Math.abs(dy)) / 2 + 0.3 * Math.hypot(dx, dy));
+        const cx = Math.min(GW - 1, Math.max(0, Math.floor((lines[s] + dx / 2) / GRID_PX))), cy = Math.min(GH - 1, Math.max(0, Math.floor((lines[s + 1] + dy / 2) / GRID_PX)));
+        cell[i] = cy * GW + cx; start[cell[i] + 1]++;
+    }
+    for (let c = 0; c < GW * GH; c++) start[c + 1] += start[c];
+    const fill = start.slice(0, GW * GH);
+    for (let i = 0; i < n; i++) idx[fill[cell[i]]++] = i;
+    grids.set(lines, G = { GW, GH, start, idx, reach });
+    return G;
 }
 
 /**

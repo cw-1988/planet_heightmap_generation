@@ -7,7 +7,7 @@
 //     any two of its steps (river-valleys.js joinAt, river-meander.js curveAt).
 // Two tributaries meet and run on to the sea. Usage: node v2/tools/check-river-joins.mjs
 
-import { riverParts, pushSegments, LINE, carveValleys } from '../js/finish/river-valleys.js';
+import { riverParts, pushSegments, LINE, carveValleys, cropLines, cropPad } from '../js/finish/river-valleys.js';
 import { bendSegment, meanderAt } from '../js/finish/river-meander.js';
 import { channelKm, channelDepthKm, braidSlope, meanderShare } from '../js/finish/river-hydraulics.js';
 
@@ -83,6 +83,37 @@ if (corner > CORNER_DEG) fail(`the main stem turns ${corner.toFixed(1)}° betwee
         for (let o = 0; o < g.length; o += LINE) longest = Math.max(longest, Math.hypot(g[o + 2] - g[o], g[o + 3] - g[o + 1]));
     }
     if (!(longest < 2)) fail(`a river crossing the map's edge drawn with a segment ${longest.toFixed(1)} px long`);
+}
+
+// (cropLines reads its grid's cells, not every segment: the same segments in the same order as testing them all, for
+// windows anywhere — across the date line, at the poles — at every level, whatever their margin)
+{
+    let seed = 3, bad = 0;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647, L = [];
+    for (let i = 0; i < 20000; i++) {
+        const x = rnd() * 2052 - 2, y = rnd() * 1024, a = rnd() * 2 * Math.PI, len = 0.05 + 2 * rnd() ** 4;
+        L.push(x, y, x + len * Math.cos(a), y + len * Math.sin(a), ...Array.from({ length: LINE - 4 }, (_, e) => i * LINE + e));
+    }
+    const lines = Float64Array.from(L);
+    for (const lv of [1, 4, 8, 12, 15]) {
+        const W = 256 << lv;
+        for (let i = 0; i < 24; i++) {
+            const win = { W, x0: [-2, W - 130][i % 2] + (i < 4 ? 0 : Math.floor(rnd() * W)), y0: i % 3 ? Math.floor(rnd() * (W / 2 - 260)) : [-2, W / 2 - 258][i % 2], w: 260, h: 260 }, m = [0, 40, 160][i % 3];
+            const all = [], k = W / 2048, A = cropLines(lines, win, m);
+            // (the reference: cropLines' own test on every segment, turn by turn)
+            const pad = cropPad(W, m), ya = win.y0 / k - pad, yb = (win.y0 + win.h) / k + pad;
+            for (const turn of [-1, 0, 1]) {
+                const xa = win.x0 / k - turn * 2048 - pad, xb = (win.x0 + win.w) / k - turn * 2048 + pad;
+                for (let s = 0; s < lines.length; s += LINE) {
+                    const ax = lines[s], ay = lines[s + 1], bx = lines[s + 2], by = lines[s + 3], cb = 0.3 * Math.hypot(bx - ax, by - ay);
+                    if (Math.max(ax, bx) + cb < xa || Math.min(ax, bx) - cb > xb || Math.max(ay, by) + cb < ya || Math.min(ay, by) - cb > yb) continue;
+                    all.push(ax + turn * 2048, ay, bx + turn * 2048, by, ...lines.subarray(s + 4, s + LINE));
+                }
+            }
+            if (A.length !== all.length || A.some((v, j) => v !== all[j])) bad++;
+        }
+    }
+    if (bad) fail(`cropLines' grid differs from testing every segment in ${bad} windows`);
 }
 
 // (the laws: Moody & Troutman's 1,000 m³/s ~228 m wide, ~3.9 m deep; a bend's waves on a gentle river, none on a steep one)
