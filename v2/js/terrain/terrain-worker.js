@@ -70,9 +70,24 @@ function sampleChunks({ cfg, seed, samplerKey, chunkIds }) {
         if (chunk.samplerKey === samplerKey) continue;
         chunk.cells = new Int32Array(3 * k); chunk.weights = new Float32Array(3 * k);
         sampleRange(state.sim, chunk.xyz, cfg, seed, 0, k, chunk.cells, chunk.weights);
+        chunk.order ??= sweepOrder(chunk.xyz);
         chunk.samplerKey = samplerKey; fresh.add(id);
     }
     return fresh;
+}
+
+/** The order surfaceRange visits a chunk's points in. A chunk is a run of the Fibonacci sphere's indices, so a band of
+ *  latitude whose consecutive points lie ~137° apart; swept by longitude instead (a stable counting sort into 4096
+ *  bins), neighbours follow each other and their sim cells, records and rasters stay in cache. */
+function sweepOrder(xyz) {
+    const k = xyz.length / 3, BINS = 4096, bin = new Uint16Array(k), start = new Int32Array(BINS + 1), order = new Int32Array(k);
+    for (let t = 0; t < k; t++) {
+        const b = Math.floor((Math.atan2(xyz[3 * t + 1], xyz[3 * t]) / (2 * Math.PI) + 0.5) * BINS);
+        bin[t] = b < 0 ? 0 : b >= BINS ? BINS - 1 : b; start[bin[t] + 1]++;
+    }
+    for (let b = 0; b < BINS; b++) start[b + 1] += start[b];
+    for (let t = 0; t < k; t++) order[start[bin[t]]++] = t;
+    return order;
 }
 
 function runJob(job, plan) {
@@ -83,7 +98,7 @@ function runJob(job, plan) {
         const heightKm = new Float32Array(k);
         const parts = wantParts ? surfaceParts(k) : null;
         const carve = wantCarve ? carveInputs(k, cfg) : null, rec = wantRec ? new Int32Array(k) : null, cue = wantRec ? new Int8Array(3 * k) : null;
-        surfaceRange(plan, cfg, seed, edgeKm, chunk.xyz, chunk.cells, chunk.weights, 0, k, heightKm, parts, carve, rec, cue);
+        surfaceRange(plan, cfg, seed, edgeKm, chunk.xyz, chunk.cells, chunk.weights, 0, k, heightKm, parts, carve, rec, cue, chunk.order);
         const out = { type: 'chunk', jobId, id, heightKm, parts, carve, rec, cue, cells: fresh ? chunk.cells.slice() : null, weights: fresh ? chunk.weights.slice() : null };
         const transfer = [heightKm.buffer, ...(parts ? Object.values(parts).map(a => a.buffer) : []), ...(carve ? Object.values(carve).map(a => a.buffer) : []), ...(rec ? [rec.buffer, cue.buffer] : []), ...(fresh ? [out.cells.buffer, out.weights.buffer] : [])];
         post(out, transfer);

@@ -6,7 +6,8 @@ Each stage was timed with temporary timers, since removed. What each line led to
 
 ## Stages (s)
 
-finish ~50 (now ~40) · surface 10.7–11.3 (now 9.3, [surface-warp-workers.md](surface-warp-workers.md)) · climate 6.6 ·
+finish ~50 (now ~40) · surface 10.7–11.3 (now 9.3, [surface-warp-workers.md](surface-warp-workers.md), then ~8.6,
+[surface-visit-order.md](surface-visit-order.md)) · climate 6.6 ·
 rivers 7.8 (now 6.1–6.6) · water 5.1 · picture 5.8 · mesh 5.1 (absent in the
 page: prebuilt) · final climate 3.7 · sea 2.2 · detail 2.1 · coast 1.8 · ice age 1.7 · wind 1.3 · farming 1.1.
 
@@ -45,7 +46,8 @@ instead: [carve-cell-order.md](carve-cell-order.md).
 `node --cpu-prof`, the finish's thread, self time: carving's levels 4.3 s · hydrology 2.4 · the coast's waves 1.8 · the
 climate's relax 1.6 · `oceanMask` 1.4 over its three calls · `spillFlood` 1.4 · `riverYears` 1.35 · closed basins
 1.0 · `detailDrivers` 0.9 · the wind 0.65 · the ice age 0.5 · farming's reach 0.4; idle (waiting on workers) 10 s. A
-terrain worker: `surfaceRange` 2.3 · noise 1.7 · `runJob` 1.4 (its own lines, not yet explained) · garbage collection 0.6.
+terrain worker: `surfaceRange` 2.3 · noise 1.7 · `runJob` 1.4 · garbage collection 0.6. `runJob`'s time is all on its call of `surfaceRange`, mostly reads missing the
+cache: [surface-visit-order.md](surface-visit-order.md).
 
 `oceanMask` was moved to a typed queue (exactly the same order): measured alone at 2.5M, 280–360 → 230–315 ms a call;
 the rest of its time is the walk over the cells' neighbours itself.

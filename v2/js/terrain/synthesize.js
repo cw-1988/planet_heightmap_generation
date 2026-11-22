@@ -322,7 +322,7 @@ function curveOf(mesh, m, field, a, b, c, wa, wb, wc) {
  * a shield's grain (1…127: its greenstone keels high; 0 off a shield), if given) — all indexed alike. Every cell depends
  * only on its own position and the plan, so any split of the cells gives the same heights.
  */
-export function surfaceRange(plan, cfg, seed, edgeKm, xyz, sCells, sWeights, from, to, heightKm, parts = null, carve = null, recCell = null, cue = null) {
+export function surfaceRange(plan, cfg, seed, edgeKm, xyz, sCells, sWeights, from, to, heightKm, parts = null, carve = null, recCell = null, cue = null, order = null) {
     const { rec, Ks, V, A, L, mesh: simMesh } = plan, { cell } = A, p = [0, 0, 0], d = [0, 0, 0], cross = [0, 0];
     const warpN = warpField(seed, cfg, simMesh.edgeKm), loc3 = [0, 0, 0], locw3 = [0, 0, 0], local = [0, 0, 0], warped = [0, 0, 0], r3 = [0, 0, 0], rw3 = [0, 0, 0], q3 = [0, 0, 0], qw3 = [0, 0, 0];
     const anchorOn = cfg.anchorRecords !== false;
@@ -451,7 +451,11 @@ export function surfaceRange(plan, cfg, seed, edgeKm, xyz, sCells, sWeights, fro
     const carry = cfg.stripeCarry ? (plan.carry ??= new Map()) : null, cr3 = [0, 0, 0], cw3 = [0, 0, 0];
     let carryO = -1;
 
-    for (let t = from; t < to; t++) {
+    // (`order`, if given: the points of from…to in the order to visit them — terrain-worker.js sweeps a chunk by longitude,
+    // so the records, rasters and sim cells read for one point are still in cache for the next; each point is written at
+    // its own index and depends on nothing read for another, so any order gives the same values)
+    for (let i = from; i < to; i++) {
+        const t = order === null ? i : order[i];
         let c0 = sCells[3 * t], c1 = sCells[3 * t + 1], c2 = sCells[3 * t + 2];
         let w0 = sWeights[3 * t], w1 = sWeights[3 * t + 1], w2 = sWeights[3 * t + 2];
         const px = xyz[3 * t], py = xyz[3 * t + 1], pz = xyz[3 * t + 2];

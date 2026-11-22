@@ -52,7 +52,8 @@ rivers 7.0 · water 4.2 · final climate 10.5 (since on workers: 3.6, [final-cov
 ([carve-cell-order.md](carve-cell-order.md)); the finish's thread drawing picture bands too: 6.1 → 5.7, and
 workers for the picture at every Detail: 9.7 → 4.6 at 250K ([picture-shares.md](picture-shares.md)); with the `?isolate=1` toggle, shared memory for the picture's workers: 5.7 → 4.0
 ([shared-memory.md](shared-memory.md)); the surface's warp on the pool's workers and the edge lengths kept: surface 10.25 → 9.3
-([surface-warp-workers.md](surface-warp-workers.md)); where the rest goes: [finish-profile.md](finish-profile.md).
+([surface-warp-workers.md](surface-warp-workers.md)); the surface's points swept by longitude: about 0.7 s more
+([surface-visit-order.md](surface-visit-order.md)); where the rest goes: [finish-profile.md](finish-profile.md).
 
 In the page, while the history was still being simulated beside it: 160K on screen at 21 s, 2.5M done at 114 s (both
 slowed by the history's own worker).
