@@ -11,7 +11,10 @@ import { terrainMeshAsync } from './terrain-mesh.js';
 import { report } from '../core/progress.js';
 
 const IS_NODE = typeof window === 'undefined' && typeof process !== 'undefined' && !!process.versions?.node;
-const CHUNKS_PER_WORKER = 8;          // more chunks than workers, dealt round-robin: land and sea even out between workers
+// more chunks than workers, dealt round-robin: land and sea even out between workers — 8 a worker, and up to 32 on a fine
+// mesh, chunks of at least ~10K cells (8 left 1.2 s between the first and last of 8 workers on a 2.5M-cell surface; a
+// small mesh's frames keep few messages, 2026-11-22)
+const chunksPerWorker = (n, W) => Math.min(32, Math.max(8, Math.ceil(n / (W * 10000))));
 // the Frame fields terrain synthesis reads (a worker is sent only these)
 // (every frame field the terrain reads — records.js, volcanoes.js — including the evolved heights; plus each plate's
 // rotation, below)
@@ -252,7 +255,7 @@ export class TerrainPool {
     async runHeld(frame, tMesh, { cfg, seed, wantParts, records, carveInputs: wantCarve, recCells: wantRec }, started, W, n) {
         let mesh = this.meshes.get(tMesh);
         if (!mesh) {                              // first time on this mesh: deal out its chunks, and each worker's positions
-            const count = W * CHUNKS_PER_WORKER, chunks = [];
+            const count = W * chunksPerWorker(n, W), chunks = [];
             for (let i = 0; i < count; i++) chunks.push({ id: `${n}:${i}`, from: Math.floor(i * n / count), to: Math.floor((i + 1) * n / count) });
             this.workers.forEach((w, wi) => {
                 const mine = chunks.filter((_, i) => i % W === wi).map(c => ({ id: c.id, xyz: tMesh.xyz.slice(3 * c.from, 3 * c.to) }));

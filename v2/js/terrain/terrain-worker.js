@@ -37,7 +37,11 @@ function handle(msg) {
             const data = planToData(plan);
             for (const p of state.peers) p.postMessage({ jobId: msg.jobId, plan: data });
             runJob(msg, plan);
-        } else if (msg.type === 'job') { state.jobs.set(msg.jobId, msg); ready(msg.jobId); }
+        } else if (msg.type === 'job') {
+            // (the samplers need no plan: built while the planner plans — they were 0.5 s of a 0.8 s wait at 2.5M cells)
+            msg.fresh = sampleChunks(msg);
+            state.jobs.set(msg.jobId, msg); ready(msg.jobId);
+        }
     } catch (err) {
         post({ type: 'error', jobId: msg.jobId, message: err.stack ?? String(err) });
     }
@@ -56,16 +60,25 @@ function ready(jobId) {
     try { runJob(job, planFromData(got.plan, state.sim, job.seed)); } catch (err) { post({ type: 'error', jobId, message: err.stack ?? String(err) }); }
 }
 
-function runJob({ jobId, cfg, seed, edgeKm, parts: wantParts, carve: wantCarve, recCells: wantRec, samplerKey, chunkIds }, plan) {
+/** The samplers of a job's chunks: warp + point location, which depend on the mesh, the seed and the warp settings
+ *  only, so kept between frames. Returns the ids of the chunks sampled anew (their sampler goes back to the pool). */
+function sampleChunks({ cfg, seed, samplerKey, chunkIds }) {
+    const fresh = new Set();
     for (const id of chunkIds) {
         const chunk = state.chunks.get(id), k = chunk.xyz.length / 3;
-        // the sampler (warp + point location) depends on the mesh, the seed and the warp settings only: kept between frames
-        let fresh = false;
-        if (chunk.samplerKey !== samplerKey) {
-            chunk.cells = new Int32Array(3 * k); chunk.weights = new Float32Array(3 * k);
-            sampleRange(state.sim, chunk.xyz, cfg, seed, 0, k, chunk.cells, chunk.weights);
-            chunk.samplerKey = samplerKey; fresh = true;
-        }
+        if (chunk.samplerKey === samplerKey) continue;
+        chunk.cells = new Int32Array(3 * k); chunk.weights = new Float32Array(3 * k);
+        sampleRange(state.sim, chunk.xyz, cfg, seed, 0, k, chunk.cells, chunk.weights);
+        chunk.samplerKey = samplerKey; fresh.add(id);
+    }
+    return fresh;
+}
+
+function runJob(job, plan) {
+    const { jobId, cfg, seed, edgeKm, parts: wantParts, carve: wantCarve, recCells: wantRec, chunkIds } = job;
+    const sampled = job.fresh ?? sampleChunks(job);
+    for (const id of chunkIds) {
+        const chunk = state.chunks.get(id), k = chunk.xyz.length / 3, fresh = sampled.has(id);
         const heightKm = new Float32Array(k);
         const parts = wantParts ? surfaceParts(k) : null;
         const carve = wantCarve ? carveInputs(k, cfg) : null, rec = wantRec ? new Int32Array(k) : null, cue = wantRec ? new Int8Array(3 * k) : null;
