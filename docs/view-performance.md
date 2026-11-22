@@ -50,9 +50,38 @@ them in memory, so the upload is a plain copy.
 | after, map | 176 | 0.15 ms avg | 1 (146 ms) |
 | after, globe | 149 | 0.16 ms avg, 3.4 max | 0 |
 
+## Zoomed in: one river segment across the map
+
+At Detail 2.56M the zoomed view lagged constantly: a **~330 ms main-thread task every ~400 ms**, nearly all of it
+`drawRiversWindow` (`v2/js/evolution/river-draw.js`) inside `paintTileBase`, ~340 ms per tile. A window takes the
+segments whose middle lies within a margin of it, and that margin is half the longest segment (`S.maxLen`). Two of
+the 347,009 segments were 2,047 px long (99th percentile: 0.49 px), so the margin covered the whole map. Every tile
+then drew every river in the world, three times over (once per date-line turn).
+
+The cause was the confluence smoothing from 2026-11-20 (`riverParts`, `v2/js/finish/river-valleys.js`). In one case a
+reach crosses the map's edge at its last raw point, which is the confluence. That point then makes a one-point part,
+which is dropped. The join point `M1` went onto the part before it, which lies on the far side of the map. Now only a
+part that holds the reach's last point (`pts.end === i1 - 1`) gets the join.
+
+| Zoomed in on land, 2.56M | Per tile | Long tasks | Frames |
+|--------------------------|----------|------------|--------|
+| before | ~340 ms | ~330 ms every ~400 ms | — |
+| after | 9 ms avg, 23 max | one of ~60 ms in 6 s | 57 fps |
+
+The guard: `v2/tools/check-river-joins.mjs` builds a main stem and a tributary that cross the date line, one at the
+confluence. It fails if any segment is 2 px long or more. `riverSegments` logs `[rivers] a drawn segment … px long`
+when the longest segment is over a quarter of the map.
+
+## Switching layers
+
+[switch-without-stall.md](switch-without-stall.md): a finished picture painted a slice at a time between frames, kept
+and painted ahead, so no layer switch stalls the page.
+
 ## Keep it so
 
 - A shader loop in code that reaches the globe or the map: give it a bound fxc can't fold (a uniform), and read
   textures in it with `textureLod`.
 - A canvas that is uploaded to a texture over and over: make its context with `willReadFrequently: true`.
 - Test on the land, zoomed in, with fast drags; the ocean has no detail tiles and hides the cost.
+- No drawn line may cross the map's edge. A window's margin grows with the longest segment, so one wrapped segment
+  makes every tile draw everything. Run `node v2/tools/check-river-joins.mjs` after any change to `riverParts`.

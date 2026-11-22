@@ -64,6 +64,27 @@ for (const px of [0.25, 0.05]) {
 }
 if (corner > CORNER_DEG) fail(`the main stem turns ${corner.toFixed(1)}° between two drawn steps (a corner)`);
 
+// (no drawn segment across the map: a main stem crossing the date line at its last point — the confluence — then running
+// on, and a tributary crossing mid-reach. One wrapped segment is a line ~2,048 px long, and drawRiversWindow's margin, half
+// the longest segment, then draws every river into each tile: the zoomed view's lag)
+{
+    const lon = (a, b, n) => Array.from({ length: n + 1 }, (_, k) => [a + (b - a) * k / n, 10]);
+    const W = { start: [], lat: [], lon: [], q: [], z: [] }, rs = [lon(179, 179.95, 19).concat([[-179.95, 10]]), lon(-179.95, -178, 30), lon(179.5, 180.4, 18).map(([x, y]) => [x > 180 ? x - 360 : x, 9.5]).concat([[-179.95, 10]])];
+    rs[2][rs[2].length - 2][1] = 9.9;
+    for (const [k, r] of rs.entries()) {
+        W.start.push(W.lat.length);
+        for (const [j, [x, y]] of r.entries()) { W.lat.push(y); W.lon.push(x); W.q.push([900, 2000, 500][k]); W.z.push(0.1 * (1 - j / r.length)); }
+    }
+    const ws = [...W.start, W.lat.length];
+    let longest = 0;
+    for (let k = 0; k < rs.length; k++) {
+        const g = [];
+        for (const p of riverParts(W, ws[k], ws[k + 1], 1)) pushSegments(g, p);
+        for (let o = 0; o < g.length; o += LINE) longest = Math.max(longest, Math.hypot(g[o + 2] - g[o], g[o + 3] - g[o + 1]));
+    }
+    if (!(longest < 2)) fail(`a river crossing the map's edge drawn with a segment ${longest.toFixed(1)} px long`);
+}
+
 // (the laws: Moody & Troutman's 1,000 m³/s ~228 m wide, ~3.9 m deep; a bend's waves on a gentle river, none on a steep one)
 const w = channelKm(1000), d = channelDepthKm(1000);
 if (Math.abs(w - 0.228) > 0.002 || Math.abs(d - 0.0039) > 0.0003) fail(`channel of 1,000 m³/s ${(w * 1000).toFixed(0)} m wide, ${(d * 1000).toFixed(1)} m deep`);

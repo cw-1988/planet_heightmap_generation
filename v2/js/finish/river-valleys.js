@@ -53,7 +53,7 @@ export function riverParts(R, i0, i1, q0, extra = () => 0) {
         if (cur.length && Math.abs(p[0] - cur[cur.length - 1][0]) > TEX_W / 2) { const nw = []; nw.head = 'edge'; parts.push(nw); }
         const into = parts[parts.length - 1];
         if (!into.length) into.head ??= i === i0 ? 'reach' : 'gap';
-        into.push(p);
+        into.push(p); into.end = i;
     }
     // (a confluence is smoothed as any other point of the river that runs on through it — the biggest reach into it and
     // the one out — with the neighbour's next point as a ghost, each reach then cut at the one point both share, joinAt;
@@ -66,7 +66,10 @@ export function riverParts(R, i0, i1, q0, extra = () => 0) {
         if (pts.length < 2) continue;
         const head = pts.head, tail = !!pts.tail;
         const inJoin = pts === first && head === 'reach' && drawn(u) ? joinAt(R, J.starts[u + 1] - 2, i0, i0 + 1) : null;
-        const outJoin = pts === last && !tail && intoOut ? joinAt(R, J.starts[mu + 1] - 2, i1 - 1, J.starts[d] + 1) : null;
+        // (only a part that holds the reach's last point: one crossing the map's edge at that point leaves it a part of one
+        // point, dropped, and the part before lies across the map ? its join drawn there was a line 2,047 px long, which
+        // drawRiversWindow's margin (half the longest segment) took for every tile: every river drawn into each one)
+        const outJoin = pts === last && pts.end === i1 - 1 && !tail && intoOut ? joinAt(R, J.starts[mu + 1] - 2, i1 - 1, J.starts[d] + 1) : null;
         const runOn = outJoin && mu === k, ghost = (p, i) => { const g = p.slice(), x = (R.lon[i] + 180) / 360 * TEX_W; g[0] = x - TEX_W * Math.round((x - p[0]) / TEX_W); g[1] = (90 - R.lat[i]) / 180 * TEX_H; return g; };
         const M0 = inJoin && [inJoin[0], inJoin[1], ...pts[0].slice(2)];
         const M1 = outJoin && [outJoin[0], outJoin[1], ...pts[pts.length - 1].slice(2)];

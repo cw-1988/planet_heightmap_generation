@@ -81,6 +81,9 @@ function riverSegments(fin, q0) {
             }
         }
     }
+    // (a segment across the map — riverParts splits there; check-river-joins.mjs — makes the windows' margin, half the
+    // longest, take every river into each tile: the zoomed view lags)
+    if (maxLen > W / 4) console.error(`[rivers] a drawn segment ${maxLen.toFixed(0)} px long: it crosses the map, every tile draws every river`);
     const S = { count: bucket.length, xy: Float32Array.from(xy), bucket: Uint16Array.from(bucket), prev: Int32Array.from(prev), joined: Uint8Array.from(joined), along: Float32Array.from(along), g: Float64Array.from(g), maxLen,
         buckets: buckets.map(({ strength, regime }) => ({ strength, regime })), order: buckets.map((b, i) => i).sort((a, b) => buckets[a].strength - buckets[b].strength), grid: null };
     fin.segments.set(q0, S);
