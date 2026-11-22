@@ -15,6 +15,17 @@ The grid's temperature, winds and ocean solved together: 3.3 · rain 0.7 · temp
 Köppen 0.6 · the rest under 0.1 each. The per-cell part, which workers could split exactly, is only 0.6 s. The rest
 is the grid's solve (`v2/js/climate/`), whose cost does not grow with the Detail.
 
+A CPU profile of a 250K finish (`node --cpu-prof`) puts the multigrid solver (`solver.js` relax, residual and the rest)
+at about 2.2 s over the climate's runs. It is spread over the temperature, ocean and rain stages, and most of their
+solves start from the round before. The only solves that don't depend on each other are the temperature's three
+harmonics, well under 1 s, so moving them to workers isn't worth restructuring the stage. No single line costs over
+0.13 s. Left as it is.
+
+## Mesh (5.1 s)
+
+Only the bench pays it. The page builds the 2.5M meshes ahead (`finisher.prepare`, `evolution-main.js`) while it is
+idle on a moment, so a finish starts with them built.
+
 ## Rivers (7.8 s)
 
 - Closed basins (`finish-basins.js`): 0.9–1.1 s, mostly its priority flood.
