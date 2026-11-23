@@ -9,6 +9,9 @@ tuning/climate/data/
 tuning/climate/maps/
 v2/out/
 
+# Build output and helper scripts moved over from FFT-Like's Art/Builds/Orogen (~3.7 GB, local only)
+builds/
+
 # Private research and reports (kept locally, never committed)
 reports/
 research_notes/
