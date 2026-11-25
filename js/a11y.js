@@ -8,6 +8,8 @@
 // The tips: each "?" a button the keyboard reaches, named "About <its control>", its words its description; its
 // words show beside it (above it on a phone, never off the screen) on hover, on focus or on a tap, and Escape hides them.
 
+import { fillTip } from './tip-text.js';
+
 const $ = (id) => document.getElementById(id);
 const narrow = matchMedia('(max-width: 768px)');
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
@@ -120,22 +122,26 @@ function wireTips() {
         if (current && current !== tip) current.classList.remove('is-open');
         if (current !== tip) openedAt = performance.now();
         current = tip; tip.classList.add('is-open');
-        pop.textContent = tip.dataset.tip; pop.hidden = false;
+        fillTip(pop, tip.dataset.tip ?? tip.dataset.hoverTip); pop.hidden = false;
         place(tip);
     };
     const hide = () => { clearTimeout(hideTimer); if (current) current.classList.remove('is-open'); current = null; pop.hidden = true; };
     const hideSoon = () => { clearTimeout(hideTimer); hideTimer = setTimeout(hide, 150); };
     const tipOf = (e) => e.target.closest?.('.tip[data-tip]');
+    // (a control whose words show over the control itself, no "?" beside it — `data-hover-tip` (the owner, 2026-11-20:
+    // "WITHOUT THE FUCKIGN ?"): hover or focus only; a click still works the control)
+    const hoverOf = (e) => e.target.closest?.('[data-hover-tip]');
+    const anyOf = (n) => n?.closest?.('.tip[data-tip], [data-hover-tip]');
     // a mouse: over the tip (or its words, so they can be read and copied)
-    document.addEventListener('pointerover', (e) => { if (e.pointerType === 'mouse') { const t = tipOf(e); if (t) show(t); else if (e.target === pop || pop.contains(e.target)) clearTimeout(hideTimer); } });
+    document.addEventListener('pointerover', (e) => { if (e.pointerType === 'mouse') { const t = tipOf(e) || hoverOf(e); if (t) show(t); else if (e.target === pop || pop.contains(e.target)) clearTimeout(hideTimer); } });
     document.addEventListener('pointerout', (e) => {
         if (e.pointerType !== 'mouse' || !current) return;
         const to = e.relatedTarget;
-        if ((tipOf(e) || e.target === pop) && !(to && (to === pop || pop.contains(to) || to.closest?.('.tip') === current))) hideSoon();
+        if ((anyOf(e.target) || e.target === pop) && !(to && (to === pop || pop.contains(to) || anyOf(to) === current))) hideSoon();
     });
     // the keyboard: focus shows it, Enter or Space too
-    document.addEventListener('focusin', (e) => { const t = tipOf(e); if (t) show(t); });
-    document.addEventListener('focusout', (e) => { if (tipOf(e) === current) hide(); });
+    document.addEventListener('focusin', (e) => { const t = tipOf(e) || hoverOf(e); if (t) show(t); });
+    document.addEventListener('focusout', (e) => { if ((tipOf(e) || hoverOf(e)) === current) hide(); });
     // a tap or a click: shows or hides it — and does nothing else (not the label's control, not the section's fold)
     document.addEventListener('click', (e) => {
         const t = tipOf(e);

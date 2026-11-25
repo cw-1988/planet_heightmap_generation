@@ -22,9 +22,16 @@ had cost as much as painting the planet.
 - **The piece grid** (`js/piece-overlay.js`): the piece + 1 under each pixel of a 2048 × 1024 grid (RG bytes, the first
   row the south). It is read off the grid's nearest cells (`js/region-grid.js` `pixelCells`), which are built a few
   rows per frame and shared with the region pick. It goes to the GPU once per world, when the world is finished or
-  an edit needs it. It is not rebuilt for each step of a build under way.
+  an edit needs it. It is not rebuilt for each step of a build under way. (The waiting cuts of the Split tool, removed
+  in 2026-11, were drawn on it too, as violet parts.)
+- **The paint layer** (`js/piece-overlay.js` `paint`): the grid's B byte is the character last painted on each pixel
+  (0 none, + 128 while it waits for Apply), each stroke's discs laid in order, the eraser's writing 0. A new stroke
+  adds only its new discs; a changed list draws them all again. A stroke kept to chosen plates writes only the pixels
+  whose piece is one of them. The shader blends the four texels' character colours
+  (`uPaintCols`, the categorical tokens), at 0.5 while waiting and 0.38 once applied (0 when Layer is off).
 - **The state** (one texel per piece, 256 wide): RGB the tint (sRGB), A its share (0.38; 0 when not pending). It is
-  sent again only when the set of pending pieces changes.
+  sent again only when the set of pending pieces changes. While Paint is on, the plates chosen to paint in are tinted
+  amber (a pending piece's green or blue wins over it).
 - **The hover**: one uniform.
 - **The shader** (`v2/js/app/piece-glsl.js` `withPieces`, called in both the globe's and the flat map's shaders under
   `withRegion`): it reads the four bilinear texels around the point, blends the pending tints by share, and draws a

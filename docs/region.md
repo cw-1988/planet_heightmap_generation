@@ -7,7 +7,8 @@ and roads. In that last step the region's rivers and passes go back to the plane
 
 ## Use
 
-- **Region** (the button under the layer tabs, `js/region-pick.js`) turns picking on. The land is cut into valleys
+- **Region** (the button under the layer tabs, `js/region-pick.js`) turns picking on (the Empire view turns it on
+  too, and focuses on the same valleys: [generate.md](generate.md#empire-fork-addition)). The land is cut into valleys
   along its natural borders: divides, thick rivers and coasts. Each side of a thick river is its own valley, so a
   river can be a region's edge. The valley under the pointer is lightened with a white rim, and a click takes it in or
   out (the sea is refused); a drag still turns the globe. The chosen valleys are tinted magenta, each with a darker

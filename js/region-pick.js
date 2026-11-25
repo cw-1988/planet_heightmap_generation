@@ -25,7 +25,8 @@ const D = Math.PI / 180, KM_MIN = 200, KM_MAX = 6000;
 // (km²; region-basin.js keeps a valley at least a dozen of the planet's cells, so its shape follows the land at any detail)
 const SIZES = [['small', 30000], ['medium', 150000], ['large', 600000]];
 
-/** The bar and its clicks. Hooks: world() the world shown. (The tint is region-overlay.js's, read off `regionChosen`.) */
+/** The bar and its clicks. Hooks: world() the world shown; changed() after the valleys chosen change (the Empire view's
+ *  focus). (The tint is region-overlay.js's, read off `regionChosen`.) Returns { setOn(v), isOn(), refresh() }. */
 export function mountRegionPick(pv, hooks) {
     const bar = document.createElement('div');
     bar.className = 'terrain-tools region-pick';
@@ -36,9 +37,24 @@ export function mountRegionPick(pv, hooks) {
         + '<label>Detail <select data-k="n"><option value="1024" selected>1024</option><option value="2048">2048</option></select></label>'
         + '<button data-open disabled>Open</button><button data-clear disabled>Clear</button></span>';
     document.body.append(bar);
-    const $ = (s) => bar.querySelector(s), onBtn = $('[data-on]'), more = $('.region-more'), border = $('[data-k="border"]'), detail = $('[data-k="n"]'), size = $('[data-k="size"]');
+    // (on a phone, just under the layer bar, however tall its rows wrap — the Terrain row would otherwise run under it;
+    // on a desktop it keeps its place beside the tabs, styles.css)
+    const layerBar = document.getElementById('layerBar');
+    if (layerBar) {
+        // (and the legend under it while it is open there: --region-pick-bottom, styles.css)
+        const place = () => {
+            const b = layerBar.getBoundingClientRect(); bar.style.top = innerWidth <= 768 && b.height ? `${Math.round(b.bottom) + 8}px` : '';
+            document.documentElement.style.setProperty('--region-pick-bottom', `${Math.round(bar.getBoundingClientRect().bottom) + 8}px`);
+        };
+        const ro = new ResizeObserver(place);
+        ro.observe(layerBar); ro.observe(bar);
+        addEventListener('resize', place);
+        place();
+    }
+    const $ =(s) => bar.querySelector(s), onBtn = $('[data-on]'), more = $('.region-more'), border = $('[data-k="border"]'), detail = $('[data-k="n"]'), size = $('[data-k="size"]');
     const openBtn = $('[data-open]'), clearBtn = $('[data-clear]'), C = regionChosen;
     let on = false, open = null, note = '';
+    const changed = () => hooks.changed?.();
 
     /** The partition for this world and size (a new planet or size: the choice starts again). */
     function valleys(w) {
@@ -46,7 +62,9 @@ export function mountRegionPick(pv, hooks) {
         if (C.world !== w || C.size !== +size.value) {
             const V = valleysOf(w, +size.value);
             Object.assign(C, { unit: V.unit, cells: V.cells, V, hover: -1, world: w, size: +size.value });
+            const had = C.ids.size;
             C.ids.clear();
+            if (had) changed();
         }
         return C;
     }
@@ -72,7 +90,7 @@ export function mountRegionPick(pv, hooks) {
     border.addEventListener('input', refresh);
     detail.addEventListener('change', refresh);
     size.addEventListener('change', refresh);
-    clearBtn.addEventListener('click', () => { C.ids.clear(); refresh(); });
+    clearBtn.addEventListener('click', () => { C.ids.clear(); refresh(); changed(); });
     openBtn.addEventListener('click', () => build(hooks.world()));
     bar.addEventListener('pointerenter', () => { if (on) refresh(); });       // (the planet may have finished since)
 
@@ -103,7 +121,7 @@ export function mountRegionPick(pv, hooks) {
         const u = unitUnder(e, w);
         if (u === -2) return;
         if (u === -1) note = 'That is sea: choose land';
-        else if (C.ids.has(u)) C.ids.delete(u); else C.ids.add(u);
+        else { if (C.ids.has(u)) C.ids.delete(u); else C.ids.add(u); changed(); }
         refresh();
     }, true);
 
@@ -152,4 +170,5 @@ export function mountRegionPick(pv, hooks) {
         worker.postMessage({ frame: F, crop, seed, synth }, cropBuffers(crop));
     }
     refresh();
+    return { setOn: (v) => { if (v !== on) setOn(v); }, isOn: () => on, refresh };
 }

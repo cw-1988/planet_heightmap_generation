@@ -16,13 +16,13 @@ import { DETAIL_NOISE_DAMPEN_STRENGTH } from './terrain-config.js';
 import { elevToHeightKm } from './color-map.js';
 import { buildPresentPlates, classifyBoundaries, arrowAnchors, cellLandNow, motionsOf } from '../v2/js/present/plates.js';
 import { presentLayout, presentSimMesh } from '../v2/js/present/layout.js';
-import { presentWorld, presentTerrainMesh, presentGroundOf, presentTerrainOverrides, uneditedLayout } from '../v2/js/present/world.js';
+import { presentWorld, presentTerrainMesh, presentGroundOf, presentSurfaceRest, presentTerrainOverrides, uneditedLayout } from '../v2/js/present/world.js';
 import { storyFrame, finishFrame } from '../v2/js/present/layers.js';
 import { finishConfigOf, finishOverrides, reliefShareOf } from '../v2/js/present/knobs.js';
 import { hillshade } from '../v2/js/view/terrain-shade.js';
 import { buildSimMesh } from '../v2/js/core/sim-mesh.js';
-import { applyStroke } from './terrain-brush.js';
-import { applyCuts } from './region-cut.js';
+import { paintLayer } from './terrain-brush.js';
+import { applyShapes } from './piece-shapes.js';
 import { sketchGround } from './world-sketch.js';
 import { TerrainPool } from '../v2/js/terrain/terrain-pool.js';
 import Delaunator from 'https://cdn.jsdelivr.net/npm/delaunator@5.0.1/+esm';
@@ -34,14 +34,28 @@ let W = null;
 
 // The ground's surface drawn on worker threads (v2/js/terrain/terrain-pool.js, on the fixed sim mesh): started with the
 // worker, so it is ready by the time a Frame is; the same ground, bit for bit. Without one (a pool that failed or broke)
-// the ground is drawn here, as before.
-let pool = null;
-const poolReady = TerrainPool.create(presentSimMesh()).then(p => { p.onBroken = () => { pool = null; }; return (pool = p); }, e => { console.warn('[terrain] no worker pool, the ground drawn on this thread:', e.message); return null; });
+// the ground is drawn here, as before. Let go while a finish runs (sendSurface: its workers' heaps and the meshes kept on
+// them, ~1 GB at 10M cells, docs/generate-memory.md) and started again by the next ground that needs it.
+let pool = null, poolReady = null;
+function startPool() {
+    const asked = TerrainPool.create(presentSimMesh()).then(p => {
+        if (poolReady !== asked) { p.terminate(); return null; }   // (let go while it started: a finish began)
+        p.onBroken = () => { if (pool === p) { pool = null; poolReady = null; } };
+        return (pool = p);
+    }, e => { console.warn('[terrain] no worker pool, the ground drawn on this thread:', e.message); return null; });
+    return asked;
+}
+poolReady = startPool();
 /** The pool for a ground on `mesh`: what it and its workers keep of earlier meshes let go (each Detail step's, too). */
 async function poolFor(mesh, r_xyz) {
-    await poolReady;
-    pool?.keepOnly(presentTerrainMesh(mesh, r_xyz));
-    return pool;
+    const p = await (poolReady ??= startPool());
+    p?.keepOnly(presentTerrainMesh(mesh, r_xyz));
+    return p;
+}
+/** The pool let go: a finish is starting, and nothing draws ground until the next command. */
+function dropPool() {
+    pool?.terminate();
+    pool = null; poolReady = null;
 }
 
 const progress = (pct, label) => self.postMessage({ type: 'progress', pct, label });
@@ -74,7 +88,7 @@ async function presentGround(present, plateIsOcean, mesh, r_xyz, seed, knobs, dr
     const regionLand = regionLandOf(present.r_plate, plateIsOcean);
     present.world = unread(await presentWorld(present, pieceLand, mesh, r_xyz, { seed, knobs, regionLand, regionCell: present.regionCell, regionPlate: present.regionPlate, finish: finishConfigOf(knobs), unedited: present.base, pool: await poolFor(mesh, r_xyz) }));
     present.knobs = knobs;
-    present.world.shade = hillshade(presentTerrainMesh(mesh, r_xyz), present.world.heightKm);
+    shapeDrawn(present, present.world, mesh, r_xyz, present.r_plate, seed);
     if (drawn) groundDrawn(present, mesh, r_xyz);
 }
 /** A world as the worker keeps it: without the carving's own results (its drainage, receivers, order, lava, young
@@ -92,6 +106,8 @@ async function climbTo(present, ns, build, plateIsOcean, seed, knobs, t0, water)
         progress(40 + 55 * i / ns.length, `Detail ${ns[i].toLocaleString('en-US')}…`);
         const tb = performance.now(), m = await build(ns[i]), tg = performance.now();
         const g = await groundOnMesh(present, m, plateIsOcean, seed, knobs, await poolFor(m.mesh, m.r_xyz));
+        if (m.n !== N) shapeGround(g, presentTerrainMesh(m.mesh, m.r_xyz), m.r_plate, seed);
+        else shapeDrawn(present, g, m.mesh, m.r_xyz, m.r_plate, seed);
         if (m.n !== N) { sendRung(m.mesh, m.r_xyz, g.heightKm, g.shade, m.n, N, t0, { mesh: tg - tb, ground: performance.now() - tg }, water && presentRungJob(present, g.surface, seed)); continue; }
         const w = present.world;
         Object.assign(w, { mask: g.mask, heightKm: g.heightKm, surface: g.surface, shade: g.shade, ms: { ...w.ms, ...g.ms, mesh: tg - tb } });
@@ -99,32 +115,59 @@ async function climbTo(present, ns, build, plateIsOcean, seed, knobs, t0, water)
         return m;
     }
 }
-// ── the terrain brushes (js/terrain-brush.js): the ground as drawn kept, the strokes replayed onto it ──
-/** A ground just drawn: kept unbrushed (an undo replays from it), the strokes so far laid on it. */
+// ── the pieces' characters (js/piece-shapes.js): laid on the ground as drawn, before the strokes ──
+let pendingShapes = [];                                        // (a Generate's characters, before W holds them)
+const shapesNow = () => W?.shapes ?? pendingShapes;
+/** The page's characters ({ i: the piece's index in the layout's list, c, lv }) onto the pieces' ids. */
+const shapesOf = (list, seeds) => (list ?? []).filter(s => s.i < seeds.length).map(s => ({ piece: seeds[s.i], c: s.c, lv: s.lv }));
+/** The characters onto a ground `g` ({ heightKm, surface, shade }); its shade drawn again if they changed it. */
+function shapeGround(g, tm, r_plate, seed) {
+    if (applyShapes(shapesNow(), tm, r_plate, g.heightKm, g.surface?.heightKm, seed) || !g.shade) g.shade = hillshade(tm, g.heightKm);
+}
+/** A world's ground as drawn: kept unshaped (a change of characters starts from it), then shaped. */
+function shapeDrawn(present, g, mesh, r_xyz, r_plate, seed) {
+    const shaped = shapesNow().some(s => s.c || s.lv);
+    present.unshaped = shaped ? { h: g.heightKm.slice(), s: g.surface.heightKm === g.heightKm ? null : g.surface.heightKm.slice() } : null;
+    shapeGround(g, presentTerrainMesh(mesh, r_xyz), r_plate, seed);
+}
+/** New characters on the same world: the ground as drawn again (unshaped), shaped, the strokes replayed. */
+function reshape(present, mesh, r_xyz, seed) {
+    const w = present.world, from = present.unshaped ?? present.unbrushed;
+    w.heightKm.set(from.h);
+    if (from.s) w.surface.heightKm.set(from.s);
+    w.shade = null;
+    shapeDrawn(present, w, mesh, r_xyz, present.r_plate, seed);
+    groundDrawn(present, mesh, r_xyz);
+}
+// ── the paint layer (js/terrain-brush.js): the ground as drawn kept, the layer laid on it whole ──
+/** A ground just drawn: kept unpainted (a changed layer is laid from it), the layer laid on it. */
 function groundDrawn(present, mesh, r_xyz) {
     const w = present.world;
     present.unbrushed = { h: w.heightKm.slice(), s: w.surface.heightKm === w.heightKm ? null : w.surface.heightKm.slice() };
     present.brushed = 0;
     brushTo(present, mesh, r_xyz, W?.strokes ?? pendingStrokes);
 }
-let pendingStrokes = [];                                       // (a Generate's strokes, before W holds them)
-/** The ground brushed with `strokes`: only the new ones if it holds a prefix of them, else from the unbrushed ground. */
+let pendingStrokes = [], pendingSeed = 0, pendingSeeds = [];  // (a Generate's paint layer, seed and pieces, before W holds them)
+/** The ground painted with the layer `strokes`: the unpainted ground again, the layer laid on it whole (a stroke
+ *  composes with every one before it, so the layer is never laid a piece at a time). */
 function brushTo(present, mesh, r_xyz, strokes) {
     const w = present.world, tm = presentTerrainMesh(mesh, r_xyz);
-    let changed = false;
-    if (strokes.length < present.brushed) {
+    if (!present.brushed && !strokes.length) return;
+    if (present.brushed) {
         w.heightKm.set(present.unbrushed.h);
         if (present.unbrushed.s) w.surface.heightKm.set(present.unbrushed.s);
-        present.brushed = 0; changed = true;
     }
-    for (let i = present.brushed; i < strokes.length; i++) { applyStroke(strokes[i], tm, w.heightKm, w.surface.heightKm); changed = true; }
+    // (a stroke kept to chosen pieces: their ids from the layout's list)
+    const pieces = present.r_plate ? { r_plate: present.r_plate, seeds: W?.plateSeeds ?? pendingSeeds } : null;
+    if (strokes.length) paintLayer(strokes, tm, w.heightKm, w.surface.heightKm, W?.seed ?? pendingSeed, pieces);
     present.brushed = strokes.length;
-    if (changed) w.shade = hillshade(tm, w.heightKm);
+    w.shade = hillshade(tm, w.heightKm);
 }
 /** Reapply (G6): the same Frame, only the ground drawn again with the sculpting knobs. */
 async function presentReground(present, mesh, r_xyz, seed, knobs) {
     const g = await presentGroundOf(present.world.frame, present.L.sim, mesh, r_xyz, { seed, knobs, mask: present.world.mask, frontKm: present.world.frontKm, finish: finishConfigOf(knobs), pool: await poolFor(mesh, r_xyz) });
-    Object.assign(present.world, { heightKm: g.heightKm, surface: g.surface, shade: hillshade(presentTerrainMesh(mesh, r_xyz), g.heightKm) });
+    Object.assign(present.world, { heightKm: g.heightKm, surface: g.surface, shade: null });
+    shapeDrawn(present, present.world, mesh, r_xyz, present.r_plate, seed);
     present.knobs = knobs;
     groundDrawn(present, mesh, r_xyz);
 }
@@ -159,19 +202,22 @@ function presentMessage(present, plateIsOcean) {
  * What the page needs of a world (js/main.js; plans/SHARED_CORE_PLAN.md U3): its mesh in Evolution's z-up frame (the
  * planet view paints it, the hover locates on it), the first picture (the ground in km and its hillshade), the record the
  * hover's stories read (layers.js storyFrame), each region's sim cell, and the finish's job — the Frame, the sim mesh and
- * the configs it was drawn with. Copies, sent as transfers (the worker keeps its own). The uncarved surface stays here,
+ * the configs it was drawn with. Copies, sent as transfers (the worker keeps its own) — but the mesh, where it is in
+ * shared memory: that one mesh read by all (docs/generate-memory.md). The uncarved surface stays here,
  * sent only when a finish starts (sendSurface).
  */
 function sharedPayload(present, mesh, r_xyz, seed) {
     const w = present.world, tm = presentTerrainMesh(mesh, r_xyz), sim = present.L.sim, transfer = [];
     const copy = (a) => { const c = a.slice(); transfer.push(c.buffer); return c; };
+    // (the mesh, where it is in shared memory, the planet worker's own: the page and its finish read it, nothing copied)
+    const copyOrShare = (a) => (a.buffer instanceof ArrayBuffer ? copy(a) : a);
     // (the Frame on the history's clock, as Evolution's finish reads it — its `time` the history's length: v2/js/present/layers.js)
     const ff = finishFrame(w.frame, w.belts.record);
     const frame = Object.fromEntries(Object.entries(ff).map(([k, v]) => [k, ArrayBuffer.isView(v) ? copy(v) : v]));
     const story = storyFrame(ff);
     for (const v of Object.values(story)) if (ArrayBuffer.isView(v)) transfer.push(v.buffer);
     const payload = {
-        mesh: { numCells: tm.numCells, xyz: copy(tm.xyz), adjOffset: copy(tm.adjOffset), adjList: copy(tm.adjList) },
+        mesh: { numCells: tm.numCells, xyz: copyOrShare(tm.xyz), adjOffset: copyOrShare(tm.adjOffset), adjList: copyOrShare(tm.adjList) },
         heightKm: copy(w.heightKm), shade: copy(w.shade), story, regionCell: copy(present.regionCell),
         finish: { frame, simMesh: { numCells: sim.numCells, xyz: copy(sim.xyz), adjOffset: copy(sim.adjOffset), adjList: copy(sim.adjList) }, seed,
             terrain: presentTerrainOverrides({ knobs: present.knobs }), finish: finishOverrides(present.knobs ?? {}),
@@ -202,19 +248,20 @@ async function handleGenerate(data) {
     const seed = overrideSeed ?? Math.floor(Math.random() * SEED_MAX);
     progress(10, 'Generating coarse plates…');
     const coarseLayout = generateCoarsePlates(seed, P, numContinents, continentSizeVariety, landCoverage);
-    applyCuts(data.cuts, coarseLayout);                       // (the region cuts, before the first land is read off it)
     const { coarseMesh, coarse_xyz, coarse_r_plate, coarsePlateSeeds, coarsePlateVec, coarsePlateIsOcean } = coarseLayout;
     const coarse = { coarseMesh, coarse_xyz, coarse_r_plate, coarsePlateSeeds };
-    W = null; pendingStrokes = data.strokes ?? [];
+    W = null; pendingStrokes = data.strokes ?? []; pendingSeed = seed;
     progress(20, 'Projecting plates…');
     // (the Detail ladder, js/detail-ladder.js: coarsest step first, then finer up to N; N alone with Progressive off)
     const ns = detailSteps(N, data.progressive), meshes = meshesFor(ns, jitter, seed), build = async (n) => piecesOn(n, await meshes[ns.indexOf(n)], seed, coarse, P);
     let { mesh, r_xyz, r_plate } = await build(ns[0]);
-    const plateSeeds = coarsePlateSeeds, plateIsOcean = coarsePlateIsOcean, originalPlateIsOcean = new Set(plateIsOcean);
+    const plateSeeds = coarsePlateSeeds, plateIsOcean = coarsePlateIsOcean, originalPlateIsOcean = new Set(plateIsOcean), seedList = Array.from(plateSeeds);
+    const toggled = toggledIndices;
+    pendingShapes = shapesOf(data.shapes, seedList); pendingSeeds = seedList;
     // (a planet code's edits: pieces raised or sunk, by their index in the layout)
-    if (toggledIndices?.length) {
+    if (toggled?.length) {
         const seedArr = Array.from(plateSeeds);
-        for (const i of toggledIndices) if (i < seedArr.length) { const r = seedArr[i]; if (plateIsOcean.has(r)) plateIsOcean.delete(r); else plateIsOcean.add(r); }
+        for (const i of toggled) if (i < seedArr.length) { const r = seedArr[i]; if (plateIsOcean.has(r)) plateIsOcean.delete(r); else plateIsOcean.add(r); }
     }
     sendSketch(mesh, r_xyz, r_plate, plateIsOcean, seed);
     progress(28, 'Moving the plates…');
@@ -231,7 +278,7 @@ async function handleGenerate(data) {
         ({ mesh, r_xyz, r_plate } = await climbTo(present, ns.slice(1), build, plateIsOcean, seed, knobs, t0, data.progressiveWater));
         groundDrawn(present, mesh, r_xyz);
     }
-    W = { mesh, r_xyz, seed, nMag, plateIsOcean: new Set(plateIsOcean), present, r_plate: new Int32Array(r_plate), strokes: pendingStrokes };
+    W = { mesh, r_xyz, seed, nMag, plateIsOcean: new Set(plateIsOcean), present, r_plate: new Int32Array(r_plate), strokes: pendingStrokes, shapes: pendingShapes, plateSeeds: seedList };
     present.r_plate = W.r_plate;
     progress(95, 'Done');
     sendWorld('done', { r_plate, plateSeeds: Array.from(plateSeeds), plateIsOcean: Array.from(plateIsOcean), originalPlateIsOcean: Array.from(originalPlateIsOcean), _workerTotal: performance.now() - t0, _ms: present.world.ms });
@@ -251,6 +298,7 @@ async function handleEditRecompute(data) {
     const t0 = performance.now();
     progress(0, 'Rebuilding…');
     W.plateIsOcean = new Set(data.plateIsOcean);
+    if (data.shapes) W.shapes = shapesOf(data.shapes, W.plateSeeds);
     W.nMag = data.nMag;                                       // (Reapply after a Rebuild reads the Roughness it was built with)
     // the plates regrouped and moved on the layout as edited (as loading the code would), then the ground again
     const E = W.present.edit;
@@ -259,12 +307,22 @@ async function handleEditRecompute(data) {
     sendWorld('editDone', { _workerTotal: performance.now() - t0 });
 }
 
-/** The terrain brushes: all strokes so far (fewer than before: an undo). */
+/** The paint layer changed (a stroke applied, one taken back, the layer cleared): laid again, whole. */
 function handleBrush(data) {
     if (!W?.present) { self.postMessage({ type: 'error', message: 'No retained state for brush' }); return; }
     const t0 = performance.now();
     W.strokes = data.strokes;
     brushTo(W.present, W.mesh, W.r_xyz, W.strokes);
+    sendWorld('editDone', { _workerTotal: performance.now() - t0 });
+}
+
+/** New characters for the pieces (no piece raised or sunk): the same ground, shaped again. */
+function handleShape(data) {
+    if (!W?.present) { self.postMessage({ type: 'error', message: 'No retained state for shape' }); return; }
+    const t0 = performance.now();
+    W.shapes = shapesOf(data.shapes, W.plateSeeds);
+    if (data.strokes) W.strokes = data.strokes;
+    reshape(W.present, W.mesh, W.r_xyz, W.seed);
     sendWorld('editDone', { _workerTotal: performance.now() - t0 });
 }
 
@@ -330,11 +388,12 @@ async function importGround(data, again = false) {
     importSim ??= buildSimMesh(IMPORT_SIM_CELLS, 12345);
     const knobs = knobsOf(data, 0.4);
     W.surface = plainSurface(tm, heightKm.slice(), knobs, seed);   // (kept here, sent when a finish starts: sendSurface)
-    const transfer = [], copy = (a) => { const c = a.slice(); transfer.push(c.buffer); return c; };
+    W.knobs = knobs;
+    const transfer = [], copy = (a) => { const c = a.slice(); transfer.push(c.buffer); return c; }, copyOrShare = (a) => (a.buffer instanceof ArrayBuffer ? copy(a) : a);
     const shade = hillshade(tm, heightKm);
     transfer.push(heightKm.buffer, shade.buffer);
     const shared = {
-        mesh: { numCells: n, xyz: copy(tm.xyz), adjOffset: copy(tm.adjOffset), adjList: copy(tm.adjList) },
+        mesh: { numCells: n, xyz: copyOrShare(tm.xyz), adjOffset: copyOrShare(tm.adjOffset), adjList: copyOrShare(tm.adjList) },
         heightKm, shade, story: null, regionCell: null,
         finish: { frame: null, simMesh: { numCells: importSim.numCells, xyz: copy(importSim.xyz), adjOffset: copy(importSim.adjOffset), adjList: copy(importSim.adjList) }, seed,
             terrain: presentTerrainOverrides({ knobs }), finish: finishOverrides(knobs) },
@@ -343,18 +402,31 @@ async function importGround(data, again = false) {
     self.postMessage({ type: again ? 'reapplyDone' : 'done', seed, shared, _workerTotal: performance.now() - t0 }, transfer);
 }
 
-/** The uncarved surface of the world held here, for a finish starting on the page (js/surface-ask.js): copies, sent as
- *  transfers — the page keeps none between finishes. */
-function sendSurface({ id }) {
-    const s = W.present?.world.surface ?? W.surface, transfer = [], copy = (a) => { const c = a.slice(); transfer.push(c.buffer); return c; };
-    const surface = { heightKm: copy(s.heightKm), recCell: s.recCell && copy(s.recCell), cues: s.cues && copy(s.cues), carveIn: Object.fromEntries(Object.entries(s.carveIn).map(([k, a]) => [k, copy(a)])) };
+/** The uncarved surface of the world held here, for a finish starting on the page (js/surface-ask.js). Its heights a
+ *  copy (the brushes edit them, and a second finish starts from them); the rest — the carving's inputs, each cell's
+ *  record and cues, ~0.5 GB at 10M cells — sent as it is, and drawn again here, the same bit for bit, if another
+ *  finish on this ground asks (docs/generate-memory.md). The terrain pool is let go too: nothing draws ground while the
+ *  finish runs, and the next ground starts it again. */
+async function sendSurface({ id }) {
+    const s = W.present?.world.surface ?? W.surface;
+    if (!s.carveIn) Object.assign(s, await surfaceRest());
+    const heightKm = s.heightKm.slice(), surface = { heightKm, recCell: s.recCell, cues: s.cues, carveIn: s.carveIn };
+    const transfer = [heightKm, s.recCell, s.cues, ...Object.values(s.carveIn)].filter(Boolean).map(a => a.buffer);
+    s.carveIn = s.recCell = s.cues = null;
+    dropPool();
     self.postMessage({ type: 'surface', id, surface }, transfer);
+}
+/** The surface's rest drawn again (sendSurface sent the last away): Generate's from its Frame, Import's plain. */
+async function surfaceRest() {
+    const { present, mesh, r_xyz, seed } = W;
+    if (!present) { const { carveIn, recCell, cues } = plainSurface(presentTerrainMesh(mesh, r_xyz), null, W.knobs, seed); return { carveIn, recCell, cues }; }
+    return presentSurfaceRest(present.world.frame, present.L.sim, mesh, r_xyz, { seed, knobs: present.knobs, finish: finishConfigOf(present.knobs ?? {}), pool: await poolFor(mesh, r_xyz) });
 }
 
 // (the commands one after another, as they came: a ground drawn on the pool is awaited, and the next waits for it)
 let queue = Promise.resolve();
 self.onmessage = (e) => {
-    const handlers = { generate: handleGenerate, reapply: handleReapply, editRecompute: handleEditRecompute, brush: handleBrush, importHeightmap: (d) => importGround(d), surface: sendSurface };
+    const handlers = { generate: handleGenerate, reapply: handleReapply, editRecompute: handleEditRecompute, brush: handleBrush, shape: handleShape, importHeightmap: (d) => importGround(d), surface: sendSurface };
     const run = handlers[e.data.cmd];
     if (!run) { self.postMessage({ type: 'error', message: `Unknown command: ${e.data.cmd}` }); return; }
     queue = queue.then(() => run(e.data)).catch(err => self.postMessage({ type: 'error', message: err.message, stack: err.stack }));

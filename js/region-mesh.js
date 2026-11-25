@@ -8,30 +8,32 @@ const MIN_EDGE = 0.4;
 /** w.tMesh with only its true neighbours (adjOffset, adjList); the rest as is. Kept on the world. */
 export function edgeMesh(w) {
     if (w._edgeMesh) return w._edgeMesh;
-    const mesh = w.tMesh, { adjOffset, adjList, xyz, numCells: n } = mesh, keep = new Uint8Array(adjList.length);
-    const pair = new Map();                                     // (c·n + d, c < d → kept?)
+    const mesh = w.tMesh, { adjOffset, adjList, numCells: n } = mesh, m = adjList.length;
+    // Typed arrays only, no Map or per-cell arrays: at 10M cells the mesh has ~60M listed pairs, past a Map's ~16.7M.
+    // Each pair {c, d} is judged once, the first time the loop meets it (c's list, or d's list when d < c lists c), and
+    // every listing of it takes that verdict. first: the listing where the pair is met first, the one that joins it.
+    const find = (a, b, end) => { for (let e = adjOffset[a]; e < end; e++) if (adjList[e] === b) return e; return -1; };
+    const keep = new Uint8Array(m), first = new Uint8Array(m), count = new Int32Array(n);
     for (let c = 0; c < n; c++) {
         for (let e = adjOffset[c]; e < adjOffset[c + 1]; e++) {
-            const d = adjList[e], key = Math.min(c, d) * n + Math.max(c, d);
-            let k = pair.get(key);
-            if (k === undefined) {
-                const s = edgeSpan(mesh, c, d);
-                k = s && s.hi - s.lo >= MIN_EDGE * s.dist;
-                pair.set(key, k);
-            }
-            keep[e] = k ? 1 : 0;
+            const d = adjList[e];
+            let f = find(c, d, e);                              // (c lists d twice: the earlier)
+            if (f < 0 && d < c) f = find(d, c, adjOffset[d + 1]);
+            if (f >= 0) { keep[e] = keep[f]; continue; }
+            const s = edgeSpan(mesh, c, d);
+            keep[e] = s && s.hi - s.lo >= MIN_EDGE * s.dist ? 1 : 0;
+            if (keep[e]) { first[e] = 1; count[c]++; count[d]++; }
         }
     }
-    // (both ways, even where only one of the two lists the other)
-    const lists = Array.from({ length: n }, () => []);
-    for (let c = 0; c < n; c++) for (let e = adjOffset[c]; e < adjOffset[c + 1]; e++) {
-        const d = adjList[e];
-        if (keep[e] && !lists[c].includes(d)) { lists[c].push(d); lists[d].push(c); }
-    }
+    // (both ways, even where only one of the two lists the other; each list in the order the loop joins them)
     const off = new Int32Array(n + 1);
-    for (let c = 0; c < n; c++) off[c + 1] = off[c] + lists[c].length;
-    const list = new Int32Array(off[n]);
-    for (let c = 0; c < n; c++) list.set(lists[c], off[c]);
+    for (let c = 0; c < n; c++) off[c + 1] = off[c] + count[c];
+    const list = new Int32Array(off[n]), at = off.slice(0, n);
+    for (let c = 0; c < n; c++) for (let e = adjOffset[c]; e < adjOffset[c + 1]; e++) {
+        if (!first[e]) continue;
+        const d = adjList[e];
+        list[at[c]++] = d; list[at[d]++] = c;
+    }
     return (w._edgeMesh = { ...mesh, adjOffset: off, adjList: list });
 }
 
