@@ -24,7 +24,7 @@ export class DetailTiles {
     /** Forget every tile in memory (another moment, or other rivers drawn: other valleys) — those on disk too if another moment. */
     reset(fin = null, seed = 0, riverQ = Infinity) {
         for (const t of this.tiles.values()) t.ctl?.abort();
-        if (fin !== this.fin) this.store.reset();
+        if (fin !== this.fin) this.store.reset(fin?.keptId ?? null);          // (a world kept in the world cache: its tiles kept with it)
         this.tiles.clear(); this.fin = fin; this.seed = seed; this.riverQ = riverQ; this.range = null;
     }
 
@@ -76,6 +76,8 @@ export class DetailTiles {
     async fetch(t, at, signal, ticket) {
         const kept = await this.store.get(at, signal);
         if (kept) return kept;
+        if (signal?.aborted) throw new DOMException('The detail was cancelled', 'AbortError');
+        await this.service.ready(this.fin, this.riverQ);
         if (signal?.aborted) throw new DOMException('The detail was cancelled', 'AbortError');
         const data = await this.service.run(this.service.source(this.fin, this.seed, this.riverQ), t.win, signal, ticket);
         if (this.tiles.get(t.key) === t) this.store.put(at, data);

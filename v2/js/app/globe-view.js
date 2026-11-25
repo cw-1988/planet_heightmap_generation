@@ -593,6 +593,11 @@ void main() {
         U.uPieceOn.value = U.uPieceId.value ? 1 : 0;
         this._dirty = true;
     }
+    /** The grid sent again after its bytes changed in place (B: the waiting paint), and the paint's tint (sRGB 0–1). */
+    refreshPieceGrid() { const t = this.patch.uPieceId.value; if (t) { t.needsUpdate = true; this._dirty = true; } }
+    /** The paint layer's colours (sRGB 0…1, [[r, g, b], …] by character) and whether the applied paint shows. */
+    setPaintColours(list) { list.forEach((c, i) => { if (c && i < 16) this.patch.uPaintCols.value[i].setRGB(c[0] ** 2.2, c[1] ** 2.2, c[2] ** 2.2); }); this._dirty = true; }
+    setPaintShown(on) { this.patch.uPaintOn.value = on ? 1 : 0; this._dirty = true; }
     /** The piece under the pointer (−1: none). */
     setPieceHover(id) { this.patch.uPieceHover.value = id < 0 ? -2 : id; this._dirty = true; }
 
@@ -742,6 +747,7 @@ void main() {
             const eq = this.map.projection === 'equirect';
             return { kind: 'map', id: this.map.projection, opts: this.map.projOpts || {}, centre: this.map.centerLon * Math.PI / 180, toClient, fromClient,
                 xRange: eq ? [pb[0] + v.panX * pw, pb[0] + (v.panX + 1) * pw] : null,
+                clip: [box.left, box.top, box.left + box.width, box.top + box.height],   // (the map's frame on screen: what lies outside is matted)
                 key: [this.map.projection, JSON.stringify(this.map.projOpts), this.map.centerLon, v.zoom, v.panX, v.panY, box.left, box.top, box.width, box.height].join('|') };
         }
         const cam = this.camera, d = cam.position.length(), q = new THREE.Vector3();

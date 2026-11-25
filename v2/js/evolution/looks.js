@@ -91,7 +91,7 @@ const luts = new Map();
 const TONE_STRENGTH = 0.75;
 const TONE_SEA = [[-5.5, 1], [-5, 1], [-4.5, 1], [-4, 1], [-3.5, 1], [-3, 1], [-2, 1], [-1, 0.5], [-0.5, 0.5], [-0.2, 0.5]];
 const TONE_LAND = [[0.05, 1], [0.15, 1], [0.3, 1], [0.5, 1], [0.8, 1], [1.2, 1], [1.8, 1], [2.5, 1], [3.5, 0.5], [5, 0.5]];
-const toLinear = v => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+export const toLinear = v => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
 const toByte = v => 255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(Math.max(0, v), 1 / 2.4) - 0.055);
 const lumOf = c => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
 const chromaOf = c => { const l = lumOf(c); return Math.hypot(c[0] - l, c[1] - l, c[2] - l); };
@@ -109,7 +109,7 @@ function toneFor(stops, samples) {
     return { exposure, saturation };
 }
 // (saturation is calmed in OKLab, whose hues hold as chroma falls — in plain RGB a vivid blue greyed drifts to violet)
-function toOklab([r, g, b]) {
+export function toOklab([r, g, b]) {
     const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b), m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b), s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
     return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s, 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s];
 }

@@ -7,7 +7,7 @@ self.onmessage = ({ data }) => {
     if (data.type !== 'window') return;
     try {
         const out = fineWindow(data.src, data.win);
-        self.postMessage({ type: 'done', id: data.id, out }, [out.h.buffer, out.sea.buffer, out.wat.buffer, ...(out.lev ? [out.lev.buffer] : [])]);
+        self.postMessage({ type: 'done', id: data.id, out }, [out.h.buffer, out.sea.buffer, out.wat.buffer, out.shore.buffer, ...(out.lev ? [out.lev.buffer] : []), ...(out.lit ? [out.lit.buffer] : [])]);
     } catch (err) {
         self.postMessage({ type: 'error', id: data.id, message: err?.stack ?? String(err) });
     }

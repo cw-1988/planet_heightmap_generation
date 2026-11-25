@@ -5,6 +5,9 @@
 // what it needs of the moment (cropSource: the picture's and the drivers' pixels under it), so no worker holds a copy of it.
 
 import { detailSource, cropSource } from '../finish/fine-detail.js';
+import { LIT_N } from '../finish/littoral.js';
+import { riverLinesSteps } from '../finish/river-valleys.js';
+import { stepAsync } from '../core/steps.js';
 
 /** A tile's side (px). Level L draws the planet TILE · 2^L pixels wide: 2^L tiles across, 2^(L−1) down. */
 export const TILE = 256;
@@ -14,7 +17,7 @@ export const SLOT = TILE + 2;
 
 export class DetailService {
     /** @param {number} n  how many workers draw at once */
-    constructor(n) { this.n = Math.max(1, n); this.workers = []; this.idle = []; this.queue = []; this.jobs = new Map(); this.next = 1; this.sources = new WeakMap(); }
+    constructor(n) { this.n = Math.max(1, n); this.workers = []; this.idle = []; this.queue = []; this.jobs = new Map(); this.next = 1; this.sources = new WeakMap(); this.readies = new WeakMap(); }
 
     /** Whether a detailed moment can be drawn finer: one made before the drivers were (a planet file from before) cannot. */
     static can(fin) { return !!fin?.raster?.drivers; }
@@ -27,6 +30,18 @@ export class DetailService {
         let s = m.get(riverQ);
         if (!s) m.set(riverQ, s = detailSource(fin, seed, riverQ));
         return s;
+    }
+
+    /** A promise for when source(fin, …, riverQ) can be made at once: its rivers' valley lines traced first, in slices
+     *  between tasks (at 10 M cells ~0.8 s, the page stalled behind them on the first tiles of a kept world opened). */
+    ready(fin, riverQ) {
+        if (!fin.rivers || this.sources.get(fin)?.has(riverQ) || fin.rivers._valleyLines?.has(riverQ)) return Promise.resolve();
+        // (one promise for every tile that asks meanwhile: a loop of slices each, they queued up behind one another and
+        // starved the page's own timers and frames)
+        let m = this.readies.get(fin);
+        if (!m) this.readies.set(fin, m = new Map());
+        if (!m.has(riverQ)) m.set(riverQ, stepAsync(riverLinesSteps(fin.rivers, riverQ, fin.raster)).finally(() => m.delete(riverQ)));
+        return m.get(riverQ);
     }
 
     /**
@@ -80,21 +95,23 @@ export class DetailService {
 
     /**
      * A window ({W, x0, y0, w, h}: W the width of the planet it is a window of) drawn in bands of rows across the
-     * workers, put together: { h, sea, wat }.
+     * workers, put together: { h, sea, wat, shore (shore-ramp.js), lev, lit (littoral.js, or none) }.
      */
     async window(fin, seed, win, signal = null, onBand = null, riverQ = Infinity) {
         // (bands of at most ~1.5 million pixels — a worker's band holds ~60 bytes a pixel — and at least one per worker it
         // uses: at most 4 at a time, whatever the tiles' workers)
+        await this.ready(fin, riverQ);
         const n = Math.min(4, this.n), src = this.source(fin, seed, riverQ), parts = Math.max(Math.min(n, Math.floor(win.h / 64)), Math.ceil(win.w * win.h / 1.5e6), 1), rows = Math.max(16, Math.ceil(win.h / parts)), bands = [];
         for (let y = 0; y < win.h; y += rows) bands.push({ y, win: { W: win.W, x0: win.x0, y0: win.y0 + y, w: win.w, h: Math.min(rows, win.h - y) } });
-        const out = { h: new Float32Array(win.w * win.h), sea: new Uint8Array(win.w * win.h), wat: new Uint8Array(win.w * win.h), lev: fin.raster.waterLevel ? new Float32Array(win.w * win.h) : null };
+        const out = { h: new Float32Array(win.w * win.h), sea: new Uint8Array(win.w * win.h), wat: new Uint8Array(win.w * win.h), shore: new Float32Array(win.w * win.h), lev: fin.raster.waterLevel ? new Float32Array(win.w * win.h) : null };
         // (at most n bands asked for at a time, each next one once one comes back: queued all at once, they held every
         // worker until the last band, and the view's tiles waited — from PR #155)
         let done = 0, next = 0;
         const one = async () => {
             while (next < bands.length) {
                 const b = bands[next++], o = await this.run(src, b.win, signal), at = b.y * win.w;
-                out.h.set(o.h, at); out.sea.set(o.sea, at); out.wat.set(o.wat, at); if (out.lev && o.lev) out.lev.set(o.lev, at);
+                out.h.set(o.h, at); out.sea.set(o.sea, at); out.wat.set(o.wat, at); out.shore.set(o.shore, at); if (out.lev && o.lev) out.lev.set(o.lev, at);
+                if (o.lit) (out.lit ??= new Uint8Array(LIT_N * win.w * win.h)).set(o.lit, LIT_N * at);   // (the shore's colours: littoral.js)
                 done++;                                   // (not inside onBand?.(): with no onBand it never counts)
                 onBand?.(done / bands.length);
             }

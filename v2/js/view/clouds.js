@@ -50,6 +50,15 @@ const sm = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
  * its northward wind, ± 40 m/s about 128); and offset, where the season reads the noise (CLOUD_SEASON_OFFSET).
  */
 export function cloudFields(C, season = 'year') {
+    // (kept per climate and season: a switch back to Satellite, or between its seasons, not made again)
+    const byC = C && (fieldsKept.get(C) ?? fieldsKept.set(C, new Map()).get(C));
+    if (byC?.has(season)) return byC.get(season);
+    const made = makeCloudFields(C, season);
+    byC?.set(season, made);
+    return made;
+}
+const fieldsKept = new WeakMap();
+function makeCloudFields(C, season) {
     const w = 360, h = 180, G = w * h, f = k => C?.[k]?.[season];
     const P = f('P'), T = f('T'), Ts = f('Tsea') ?? T, S = f('slp'), U = f('u'), V = f('v'), up = f('upwelling'), sa = f('sstAnom'), ice = f('seaIce'), sea = C?.sea;
     const L = [0, 1, 2, 3].map(() => new Float32Array(G)), wind = new Uint8Array(4 * G);
@@ -84,7 +93,14 @@ export function cloudFields(C, season = 'year') {
     // (each smoothed — ±3°, the cirrus ±5° — so the climate's coasts and its 1° grid are not drawn in cloud)
     const tmp = new Float32Array(G), blur = (a, r) => {
         for (let pass = 0; pass < 2; pass++) {
-            for (let j = 0; j < h; j++) { const cl = Math.max(0.2, Math.cos((90 - (j + 0.5)) * Math.PI / 180)), rx = Math.min(90, Math.round(r / cl)); for (let i = 0; i < w; i++) { let t = 0; for (let d = -rx; d <= rx; d++) t += a[j * w + ((i + d) % w + w) % w]; tmp[j * w + i] = t / (2 * rx + 1); } }
+            // (along the row a running sum, wrapping round the planet: the window 2rx+1 ≤ 181 of 360 — one add and one drop a
+            // cell, not up to 181 adds; the per-cell sum made the clouds ~40 ms of every switch to Satellite)
+            for (let j = 0; j < h; j++) {
+                const cl = Math.max(0.2, Math.cos((90 - (j + 0.5)) * Math.PI / 180)), rx = Math.min(90, Math.round(r / cl)), row = j * w, n = 2 * rx + 1;
+                let t = 0;
+                for (let d = -rx; d <= rx; d++) t += a[row + (d + w) % w];
+                for (let i = 0; i < w; i++) { tmp[row + i] = t / n; t += a[row + (i + rx + 1) % w] - a[row + (i - rx + w) % w]; }
+            }
             for (let i = 0; i < w; i++) for (let j = 0; j < h; j++) { let t = 0, n = 0; for (let d = -r; d <= r; d++) { const jj = j + d; if (jj < 0 || jj >= h) continue; t += tmp[jj * w + i]; n++; } a[j * w + i] = t / n; }
         }
     };

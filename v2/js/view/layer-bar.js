@@ -14,7 +14,6 @@ import { FARMING_LAYERS, farmOptions } from '../evolution/farming-view.js';
 import { CITY_REACH, reachText } from '../evolution/city-view.js';
 import { saveLayer, loadLayer, restoreLayer } from './layer-memory.js';
 import { REGIME_STYLE } from '../evolution/river-draw.js';
-import { beachSlidersHTML } from './beach-controls.js';
 // (the By regime tip: one line per colour, its name in that colour — js/tip-text.js)
 const REGIME_TIP = ['permanent', "permanent with a yearly flood season (the Nile's, from rains far upstream; a snowmelt flood)",
     'seasonal, dry some months', 'dry most of the year'];
@@ -23,20 +22,53 @@ const REGIME_TIP = ['permanent', "permanent with a yearly flood season (the Nile
 export const CLIMATE_SUB = new Set([...CLIMATE_LAYERS].filter(l => !FINISHED_ONLY_LAYERS.has(l)));
 /** The Civilizations tab's views (the owner, 2026-11-20: City size moved there from Food) — drawn from the food's
  *  pictures, so still farming layers to the painter; the Food tab's are the rest. */
-export const CIV_LAYERS = new Set(['farmCity']);
+export const CIV_LAYERS = new Set(['farmCity', 'farmEmpire', 'farmStates']);
 const FOOD_TAB = new Set([...FARMING_LAYERS].filter(l => !CIV_LAYERS.has(l)));
 
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 const opt = (value, label, selected = false) => `<option value="${value}"${selected ? ' selected' : ''}>${esc(label)}</option>`;
 const CLIMATE_MORE = [['Atmosphere', [['pressure', 'Pressure']]], ['Ocean', [['upwelling', 'Upwelling'], ['ice', 'Ice']]],
     ['Land', [['tempRange', 'Temperature range'], ['rainShadow', 'Rain shadow'], ['aridity', 'Aridity'], ['growing', 'Growing season'], ['rainSeason', 'Rain seasonality']]]];
-const DEPOSIT_KINDS = [['metal', 'from the history'], ['mineral', 'climate and rivers'], ['fuel', 'fuel'], ['stone', 'stone'], ['gem', 'gems'], ['building', 'building stone, sand and gravel']];
+const DEPOSIT_KINDS = [['metal', 'From the history'], ['mineral', 'Climate and rivers'], ['fuel', 'Fuel'], ['stone', 'Stone'], ['gem', 'Gems'], ['building', 'Building stone, sand and gravel']];
 
-/** The Deposits view's menu: everything, each metal or fuel, each kind of deposit by how it formed — from their lists. */
-function depositOptions() {
-    const metals = g => METALS.filter(m => m.group === g).map(m => opt(`m.${m.id}`, m.name)).join('');
-    return opt('all', 'All metals and minerals', true) + `<optgroup label="Metals and minerals">${metals('metal')}</optgroup><optgroup label="Fuel">${metals('fuel')}</optgroup>` +
-        DEPOSIT_KINDS.map(([g, words]) => `<optgroup label="By kind of deposit: ${words}">${DEPOSITS.filter(d => d.group === g).map(d => opt(d.id, d.name)).join('')}</optgroup>`).join('');
+/** The Deposits view's checklist, in groups — each metal or fuel, each kind of deposit by how it formed — from their
+ *  lists: [key, name, [[value, name]…]]. Its picks: "all" (the metals and minerals), or the values ticked joined by
+ *  commas (one alone as the old menu had it). */
+const DEPOSIT_GROUPS = [
+    ['metals', 'Metals and minerals', METALS.filter(m => m.group === 'metal').map(m => [`m.${m.id}`, m.name])],
+    ['fuels', 'Fuel', METALS.filter(m => m.group === 'fuel').map(m => [`m.${m.id}`, m.name])],
+    ...DEPOSIT_KINDS.map(([g, words]) => [`kind.${g}`, words, DEPOSITS.filter(d => d.group === g).map(d => [d.id, d.name])])];
+const DEPOSIT_VALUES = DEPOSIT_GROUPS.flatMap(([, , list]) => list.map(([v]) => v));
+const DEPOSIT_NAME = new Map(DEPOSIT_GROUPS.flatMap(([, , list]) => list));
+const ALL_METAL_VALUES = DEPOSIT_GROUPS[0][2].map(([v]) => v);
+/** A Deposits pick as the values it ticks. */
+const depositTicks = pick => (pick === 'all' ? ALL_METAL_VALUES : String(pick ?? '').split(',').filter(v => DEPOSIT_NAME.has(v)));
+/** Whether a saved pick still names deposits this page offers ("all", nothing, or known values). */
+export const validDepositPick = pick => pick === 'all' || pick === '' || (typeof pick === 'string' && pick.split(',').every(v => DEPOSIT_NAME.has(v)));
+/** The checklist's button's words for a pick: All, nothing, one by name, whole groups by theirs, else how many. */
+function depositSummary(pick) {
+    if (pick === 'all') return 'All metals and minerals';
+    const t = new Set(depositTicks(pick));
+    if (!t.size) return 'Nothing picked';
+    if (t.size === 1) return DEPOSIT_NAME.get([...t][0]);
+    const whole = DEPOSIT_GROUPS.filter(([, , list]) => list.every(([v]) => t.has(v)));
+    if (whole.reduce((n, [, , list]) => n + list.length, 0) === t.size && whole.length <= 2) return whole.map(([, name]) => name).join(' + ');
+    return `${t.size} picked`;
+}
+
+/** The Deposits view's checklist: a button with what is picked, and under it the groups, each with a box for all of it. */
+function depositChecklist() {
+    const box = (v, name, on) => `<label class="dep-pick-item"><input type="checkbox" value="${esc(v)}"${on ? ' checked' : ''}><span>${esc(name)}</span></label>`;
+    const group = ([key, name, list], k) => `${k === 2 ? '<div class="dep-pick-sub">By kind of deposit, by how it formed</div>' : ''}<fieldset class="dep-pick-group" data-dep-group="${key}">
+        <legend><label class="dep-pick-item dep-pick-head"><input type="checkbox" data-dep-all-of="${key}"${k === 0 ? ' checked' : ''}><span>${esc(name)}</span></label></legend>
+        <div class="dep-pick-list">${list.map(([v, n]) => box(v, n, k === 0)).join('')}</div></fieldset>`;
+    return `<button type="button" id="depositPickBtn" class="dep-pick-btn" aria-haspopup="true" aria-expanded="false" aria-controls="depositMenu" title="Which deposits: all the metals and minerals together (each place its richest), or tick any metals, fuels and kinds of deposit (by how they formed): one alone, or several together, each place its richest">
+            <span class="dep-pick-label">Deposits</span> <span id="depositPickText">All metals and minerals</span>
+            <svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M1.5 3.5 5 7l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <div id="depositMenu" class="dep-pick-menu" role="group" aria-label="Which deposits" hidden>
+            <div class="dep-pick-quick"><button type="button" data-dep-set="all">All metals and minerals</button><button type="button" data-dep-set="">Clear</button></div>
+            ${DEPOSIT_GROUPS.map(group).join('')}
+        </div>`;
 }
 
 /**
@@ -44,7 +76,7 @@ function depositOptions() {
  * #legendCard. `o.comes`: how the detailed layers come (Evolution: "Comes with Add detail"); `o.platesTip`: the Plates tab's
  * title.
  */
-export function mountLayerBar({ comes = 'Comes with Add detail', platesTip = '', without = [] } = {}) {
+export function mountLayerBar({ comes = 'Comes with Add detail', platesTip = '', without = [], empire = false } = {}) {
     const $ = id => document.getElementById(id);
     $('layerBar').innerHTML = `
         <div id="viewStrip" class="view-strip" role="toolbar" aria-label="View">
@@ -65,6 +97,9 @@ export function mountLayerBar({ comes = 'Comes with Add detail', platesTip = '',
                 <option value="5">5&deg;</option>
                 <option value="2.5">2.5&deg;</option>
             </select></span>
+            <label class="toggle-label" id="statesOverlayRow" title="The States view's map over this one: each state's border in its colour and its regions' finer, the state's and its regions' names across their land, its capital's and towns' names beside them (the States view's knobs set them)"><input type="checkbox" id="chkStates"><span class="toggle-track"><span class="toggle-thumb"></span></span>States</label>
+            <label class="toggle-label" id="statesRegionsRow" title="The states' regions: their finer borders, their names across their land, and the one under the pointer lit. Off, only the states show"><input type="checkbox" id="chkRegions"><span class="toggle-track"><span class="toggle-thumb"></span></span>Regions</label>
+            <label class="vs-item" id="statesNamesGroup" title="How strongly the states' and regions' names painted on the land show, from none to full"><span>Names</span> <input type="range" id="sStatesNames" min="0" max="1" value="1" step="0.05" aria-label="Names opacity"><span class="v" id="vStatesNames">100%</span></label>
             <span class="vs-item" id="paletteGroup" title="How heights are coloured on the Terrain view"><label for="palette">Colours</label> <select id="palette">
             <optgroup label="Maps">
             <option value="relief" selected>Relief</option>
@@ -89,8 +124,6 @@ export function mountLayerBar({ comes = 'Comes with Add detail', platesTip = '',
             </select></span>
             <label class="toggle-label" title="Shade the planet by its relief, lit from the north-west. Off, every view is flat colour, the mountains shown by their colours alone and no sun glinting on the sea (a texture to light in a 3D program; the export has its own Hillshade switch)"><input type="checkbox" id="chkShade" checked><span class="toggle-track"><span class="toggle-thumb"></span></span>Hillshade</label>
             <label class="toggle-label" title="Clouds over the planet, from its climate — more where it rains, fewer under the dry highs — drifting slowly with the winds. On the Satellite view; the export has a Clouds layer and Satellite with clouds"><input type="checkbox" id="chkClouds" checked><span class="toggle-track"><span class="toggle-thumb"></span></span>Clouds</label>
-            <span class="vs-item" id="beachGroup">${beachSlidersHTML()}
-            </span>
             <span class="vs-item" id="waterGroup">
                 <label class="toggle-label"><input type="checkbox" id="chkWater" checked><span class="toggle-track"><span class="toggle-thumb"></span></span>Rivers &amp; lakes</label>
                 <span class="vs-item" id="riverDensityGroup" title="Which rivers are drawn, by how much water they carry: Few — 150 m³/s and more; Normal — 40 m³/s; Many — 8 m³/s. The bigger a river, the stronger its line; seasonal rivers are dashed, and those dry most of the year dotted"><select id="riverDensity">
@@ -98,7 +131,6 @@ export function mountLayerBar({ comes = 'Comes with Add detail', platesTip = '',
                 <option value="40" selected>Normal</option>
                 <option value="8">Many</option>
                 </select></span>
-                <label class="vs-item" id="riverWidthGroup" title="How thick the rivers' lines are drawn: ×1 as made, down to ×0.1 hairlines, up to ×2. Zoomed in, a river wider than its line is drawn as wide as its bed, whatever this says">River width <input type="range" id="riverWidth" min="0.1" max="2" value="1" step="0.1" aria-label="River width"><span class="v" id="vRiverWidth">×1</span></label>
                 <label class="toggle-label" id="regimeRow"><input type="checkbox" id="chkRegime"><span class="toggle-track"><span class="toggle-thumb"></span></span>By regime <span class="tip" data-tip="Colour the rivers by their year — each month's rain and snowmelt, run down the rivers:
 ${REGIME_STYLE.map((s, k) => `{${s.rgb}}${['Blue', 'Violet', 'Cyan', 'Brown'][k]}: ${REGIME_TIP[k]}`).join('\n')}
 Hover a river for its flood months">?</span></label>
@@ -134,7 +166,7 @@ Hover a river for its flood months">?</span></label>
                 <button class="map-tab" data-layer="geoDeposits" title="Where the ores, fuels and minerals lie — each system from the history's arcs, belts, basins, plumes and cratons, and from the climate and the rivers: poor, moderate or rich">Deposits</button>
                 <button class="map-tab" data-layer="geoAges" title="What a people of each technological age could reach — Stone, Copper, Bronze, Iron, Industrial — and fuel, gems and building stone: each one's resources, poor to rich, and where bronze or iron could be made">Ages</button>
             </div>
-            <select id="depositPick" aria-label="Which deposits" title="Which deposits: all the metals and minerals together (each place its richest), one metal or fuel alone — or a kind of deposit, by how it formed" hidden>${depositOptions()}</select>
+            <div id="depositPick" class="dep-pick" hidden>${depositChecklist()}</div>
             <select id="agePick" aria-label="Age" title="The technological age: what its people could reach — deeper and poorer ore as technology grows" hidden>${AGES.map(a => opt(a.id, a.name, a.id === 'bronze')).join('')}</select>
             <select id="ageRes" aria-label="Which resource" title="All of the age's resources (each place its richest), one alone, or where its metal could be made" hidden></select>
             <div class="map-tabs" id="farmingTabs" hidden>
@@ -148,6 +180,8 @@ Hover a river for its flood months">?</span></label>
             </div>
             <div class="map-tabs" id="civTabs" hidden>
                 <button class="map-tab" data-layer="farmCity" title="How big a city each place could feed: the people the land within the reach could feed, summed — set the reach with its slider or Shift+scroll over the planet">City size</button>
+                <button class="map-tab" data-layer="farmEmpire" title="Where to found cities: a heat map of the sites, weighing the food within reach, fresh water, trade and the ground, and the best spots ranked — click valleys on the planet to focus on a region">Empire</button>
+                <button class="map-tab" data-layer="farmStates" title="States drawn for the whole planet as it is now: capitals at the best-fed sites, each holding the land cheapest to hold from it — mountains, marsh, desert and open sea dear — with the bottlenecks and contested riches between them; click to place or drop a capital">States</button>
                 <span class="evo-beta">Beta</span>
             </div>
             <label id="cityReach" class="city-reach" title="The City size view's reach: how many days by cart its food may cost to bring — far further by river, lake or sea, as cheaper; Shift+scroll over the planet sets it too" hidden>Reach
@@ -167,12 +201,15 @@ Hover a river for its flood months">?</span></label>
         <optgroup label="Climate">${[['koppen', 'Köppen'], ['temperature', 'Temperature'], ['rain', 'Rain'], ['wind', 'Wind'], ['currents', 'Currents']].map(([v, l]) => opt(v, l)).join('')}</optgroup>
         <optgroup id="mobileGeology" label="Geology">${[['geoRocks', 'Rocks'], ['geoDeposits', 'Deposits'], ['geoAges', 'Ages']].map(([v, l]) => opt(v, l)).join('')}</optgroup>
         <optgroup id="mobileFarming" label="Food">${[['farmLand', 'Farmland'], ['farmStaple', 'Staple food'], ['farmLife', 'Lifestyle'], ['farmPeople', 'People'], ['farmSoil', 'Soil'], ['farmSeason', 'Growing season']].map(([v, l]) => opt(v, l)).join('')}</optgroup>
-        <optgroup id="mobileCiv" label="Civilizations">${opt('farmCity', 'City size')}</optgroup>
+        <optgroup id="mobileCiv" label="Civilizations">${opt('farmCity', 'City size')}${opt('farmEmpire', 'Empire')}${opt('farmStates', 'States')}</optgroup>
         <optgroup label="Climate: more">${CLIMATE_MORE.flatMap(([, list]) => list).map(([v, l]) => opt(v, l)).join('')}</optgroup>`;
     $('legendCard').innerHTML = '<div id="climateLegend" class="viz-legend"></div><div id="regimeLegend" class="evo-koppen evo-regime-legend" hidden></div>';
     // (the tabs say which is shown: aria-pressed, kept by LayerBar.setLayer)
     for (const b of document.querySelectorAll('#layerBar .map-tab')) { b.type = 'button'; b.setAttribute('aria-pressed', String(b.classList.contains('active'))); }
     // (the layers a page has nothing for — an imported heightmap has no plates and no history for its rocks: `without`)
+    // (Empire focuses on valleys chosen with the Region pick, which only Generate has: `empire`)
+    if (!empire) { $('statesOverlayRow')?.remove(); $('statesRegionsRow')?.remove(); $('statesNamesGroup')?.remove(); }
+    if (!empire) for (const id of ['farmEmpire', 'farmStates']) { document.querySelector(`#civTabs [data-layer="${id}"]`)?.remove(); $('mobileViewSwitch').querySelector(`option[value="${id}"]`)?.remove(); }
     for (const id of without) {
         document.querySelector(`#mapTabs [data-layer="${id}"]`)?.remove();
         $('mobileViewSwitch').querySelector(`option[value="${id}"]`)?.remove();
@@ -200,7 +237,20 @@ export class LayerBar {
         $('mobileViewSwitch').addEventListener('change', e => this.setLayer(e.target.value));
         $('climateMore').addEventListener('change', e => { if (e.target.value) this.setLayer(e.target.value); });
         $('season').addEventListener('change', e => { view.season = e.target.value; onPick(); });
-        $('depositPick').addEventListener('change', e => { view.deposit = e.target.value; onPick(); });
+        // the Deposits view's checklist: open and shut by its button (outside it or Escape shuts it); each tick redraws
+        const menu = $('depositMenu'), btn = $('depositPickBtn');
+        const openMenu = on => { menu.hidden = !on; btn.setAttribute('aria-expanded', String(on)); };
+        btn.addEventListener('click', () => openMenu(menu.hidden));
+        document.addEventListener('pointerdown', e => { if (!menu.hidden && !$('depositPick').contains(e.target)) openMenu(false); });
+        $('depositPick').addEventListener('keydown', e => { if (e.key === 'Escape' && !menu.hidden) { openMenu(false); btn.focus(); } });
+        menu.addEventListener('change', e => {
+            const all = e.target.dataset.depAllOf;
+            if (all) for (const b of menu.querySelectorAll(`[data-dep-group="${all}"] .dep-pick-list input`)) b.checked = e.target.checked;
+            const on = [...menu.querySelectorAll('.dep-pick-list input:checked')].map(b => b.value);
+            // (exactly the metals and minerals: "All", drawn by family as ever)
+            this.setDeposit(on.length === ALL_METAL_VALUES.length && ALL_METAL_VALUES.every(v => on.includes(v)) ? 'all' : on.join(','));
+        });
+        menu.addEventListener('click', e => { const b = e.target.closest('[data-dep-set]'); if (b) this.setDeposit(b.dataset.depSet); });
         // the Ages view: the age, then its resources (all, one alone, or its potential) — the legend's entries switch them too
         $('agePick').addEventListener('change', e => { view.age = e.target.value; view.ageRes = 'all'; this.fillAgeRes(); onPick(); });
         $('ageRes').addEventListener('change', e => { view.ageRes = e.target.value; onPick(); });
@@ -216,6 +266,25 @@ export class LayerBar {
         $('climateLegend').addEventListener('click', e => { const el = e.target.closest('[data-age-res]'); if (el) pickAgeRes(el); });
         $('climateLegend').addEventListener('keydown', e => { const el = e.target.closest('[data-age-res]'); if (el && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); pickAgeRes(el); } });
         this.fillAgeRes();
+        this.showDeposit();
+    }
+
+    /** The Deposits view's pick set — the checklist's boxes and button kept to it — and drawn (`draw` false: only shown). */
+    setDeposit(pick, draw = true) {
+        this.view.deposit = pick;
+        this.showDeposit();
+        if (draw) this.onPick();
+    }
+
+    /** The checklist's boxes, its groups' boxes (part-ticked where some are) and its button's words, from the view's pick. */
+    showDeposit() {
+        const $ = this.$, t = new Set(depositTicks(this.view.deposit));
+        for (const b of $('depositMenu').querySelectorAll('.dep-pick-list input')) b.checked = t.has(b.value);
+        for (const f of $('depositMenu').querySelectorAll('[data-dep-group]')) {
+            const boxes = [...f.querySelectorAll('.dep-pick-list input')], n = boxes.filter(b => b.checked).length, head = f.querySelector('[data-dep-all-of]');
+            head.checked = n === boxes.length; head.indeterminate = n > 0 && n < boxes.length;
+        }
+        $('depositPickText').textContent = depositSummary(this.view.deposit);
     }
 
     /** The resource menu for the age picked. */
@@ -269,7 +338,8 @@ export class LayerBar {
         $('civTabs').hidden = !civ;
         $('season').hidden = !SEASONAL_LAYERS.has(layer);
         $('depositPick').hidden = layer !== 'geoDeposits';
+        if ($('depositPick').hidden) { $('depositMenu').hidden = true; $('depositPickBtn').setAttribute('aria-expanded', 'false'); }
         $('agePick').hidden = $('ageRes').hidden = layer !== 'geoAges';
-        $('cityReach').hidden = layer !== 'farmCity';
+        $('cityReach').hidden = layer !== 'farmCity' && layer !== 'farmEmpire';
     }
 }

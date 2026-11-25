@@ -9,6 +9,7 @@
 // layers) come as each cell's colour, and its own lines over the picture through `extraLines`.
 
 import { SmoothMapRaster } from './map-raster.js';
+import { LOOK } from './look-config.js';
 import { GpuPainter } from './gpu-paint.js';
 import { locate } from '../core/mesh-locate.js';
 import { paintRelief } from './terrain-shade.js';
@@ -18,12 +19,13 @@ import { paintPalette, heightLutOf, PALETTES } from '../evolution/looks.js';
 import { CLIMATE_LAYERS, FINISHED_ONLY_LAYERS, ARROW_LAYERS, paintClimate, paintUnavailable, drawArrows, drawItcz, drawLegend, finishedClimateColor, finishedClimateLines } from '../evolution/climate-view.js';
 import { prepareSatellite, satelliteReady } from '../evolution/sat-style.js';
 import { cloudFields, cloudStorms } from './clouds.js';
-import { paintFinished, paintWindow, riverPaths, drawRivers, drawRiversWindow, riverAt, finishedAt, REGIME_STYLE, riverYearWords } from '../evolution/finish-view.js';
+import { FinishedPainter, paintSpec } from './finished-painter.js';
+import { paintWindow, riverPaths, drawRivers, drawRiversWindow, drawOnLand, riverAt, riversReady, riversSoon, finishedAt, REGIME_STYLE, riverYearWords } from '../evolution/finish-view.js';
 import { DetailService, TileLayers, SLOT } from '../evolution/detail-view.js';
 import { DetailTiles } from '../evolution/detail-tiles.js';
 import { GEOLOGY_LAYERS, finishedGeologyColor, geologyLegendHTML, geologyLines, rockAt, rockLine, recAt, depositLines, ageLines, districtLines } from '../evolution/geology-view.js';
 import { stepByWheel } from './wheel-step.js';
-import { FARMING_LAYERS, finishedFarmingColor, farmingLegendHTML, farmingLines, farmChipClicked, farmOptionsKey } from '../evolution/farming-view.js';
+import { FARMING_LAYERS, finishedFarmingColor, farmingLegendHTML, farmingLines, farmChipClicked, farmPictureKey } from '../evolution/farming-view.js';
 import { initViewStrip, initProjectionPicker } from '../../../js/view-strip.js';
 import { LayerBar } from './layer-bar.js';
 import { restoreViewOptions, showRestoredMode } from './view-memory.js';
@@ -32,6 +34,8 @@ import { inSpace } from '../../../js/stage.js';
 import { openLeft, openShift, onOpenArea, planetWidthFrom, planetChanged } from '../../../js/open-area.js';
 import { createMapBand, navHeight } from '../../../js/map-band.js';
 import { installViewScale } from './view-scale.js';
+import { wireBeach, beachKey } from './beach-controls.js';
+import { coastCoverAt, COVER_WORDS } from '../finish/coast-readout.js';
 // (the zoomed tiles' canvases kept in memory, not on the GPU: uploading a GPU-backed 2D canvas into the patch texture cost
 // ~9 ms of GPU a tile — readback through the shared GPU — and lagged every pan and zoom; docs/view-performance.md)
 const TILE_CTX = { willReadFrequently: true };
@@ -42,16 +46,18 @@ const SEASONS = ['year', 'jan', 'jul'];
 // seldom idle — a steady slice, short enough that its frames keep coming)
 const PREP_MS = 7, PREP_EVERY_MS = 16;
 const TILE_BAND = 16;           // (a tile is painted this many rows at a time, ~1–3 ms: the frame's budget stops between bands)
-const PATCH_EVERY_MS = 50;      // (a moving view asks for its tiles this often)
-
-/** A canvas texture `width` wide (×width/2), its 2D context and an image to paint into it. */
-export function texture(width) {
+const PATCH_EVERY_MS = 50;     // (a moving view asks for its tiles this often)
 const PATCH_SETTLE_MS = 200;    // (a zoom on its way to another level of tiles waits until the view has been still this long:
                                 // no wheel, drag or pinch, and its zoom within a hundredth of where it is going — PR #155's)
+
+/** A canvas texture `width` wide (×width/2), its 2D context and an image to paint into it — made when first painted into
+ *  (the GPU's painting never does: 8 MB a 2048 texture held for nothing, docs/page-memory.md). */
+export function texture(width) {
     const canvas = document.createElement('canvas');
     canvas.width = width; canvas.height = width >> 1;
     const ctx = canvas.getContext('2d');
-    return { canvas, ctx, image: ctx.createImageData(width, width >> 1), width };
+    let image = null;
+    return { canvas, ctx, width, get image() { return (image ??= ctx.createImageData(width, width >> 1)); } };
 }
 
 export class PlanetView {
@@ -97,7 +103,7 @@ export class PlanetView {
         const stored = (() => { try { return localStorage.getItem(paletteKey); } catch { return null; } })();
         /** The view: what is shown and how. */
         this.view = { deposit: 'all', age: 'bronze', ageRes: 'all', layer: 'terrain', palette: PALETTES[stored] ? stored : 'relief', mode: 'globe', grid: true, gridStep: 15, centerLon: 0, projection: 'equirect', projOpts: {}, season: 'year', finished: true,
-            water: true, riverQ: 40, byRegime: false,                    // (rivers and lakes on finished moments: the density's threshold, m³/s; coloured by regime)
+            water: true, riverQ: 40, byRegime: false, riverWidth: LOOK.riverWidth,     // (rivers and lakes on finished moments: the density's threshold, m³/s; coloured by regime; the lines' width ×)
             shaded: true,                                                // (the hillshade; off, every view flat colour)
             clouds: true };                                              // (the clouds over the Satellite view — view/clouds.js)
         this.flat = null;
@@ -121,6 +127,7 @@ export class PlanetView {
         this.tileImage = null; this.tileColors = { look: -1, byWidth: new Map() };
         this.cloudsShown = { on: null, C: undefined, season: null };
         this.satPrep = null; this.satPrepFailed = new WeakSet();
+        this.painter = new FinishedPainter();           // (the finished pictures, painted without stalling: finished-painter.js)
         this.wire();
         installViewScale(this);                         // (the km bar and the C key's copied place: view/view-scale.js)
     }
@@ -133,11 +140,11 @@ export class PlanetView {
         $('climateLegend').addEventListener('click', e => { if (farmChipClicked(e.target)) changed('farm'); });
         // (the City size view: Shift+scroll over the planet sets its reach instead of zooming — as the edit tools' brush)
         addEventListener('wheel', e => {
-            if (view.layer !== 'farmCity' || !e.shiftKey || e.ctrlKey || e.metaKey || !(this.ui.canvas.contains(e.target) || this.ui.map.contains(e.target))) return;
+            if ((view.layer !== 'farmCity' && view.layer !== 'farmEmpire') || !e.shiftKey || e.ctrlKey || e.metaKey || !(this.ui.canvas.contains(e.target) || this.ui.map.contains(e.target))) return;
             e.preventDefault(); e.stopPropagation();
             stepByWheel(this.bar.reach, e);
         }, { capture: true, passive: false });
-        restoreViewOptions(view);                        // (the strip's options as last left: view/view-memory.js)
+        restoreViewOptions(view); wireBeach(view, () => changed('view'));   // (the strip's options as last left: view/view-memory.js; the Beach sliders)
         $('chkWater').addEventListener('change', e => { view.water = e.target.checked; changed('water'); });
         $('riverDensity').addEventListener('change', e => { view.riverQ = Number(e.target.value); changed('view'); });
         $('chkRegime').addEventListener('change', e => { view.byRegime = e.target.checked; changed('regime'); });
@@ -167,6 +174,8 @@ export class PlanetView {
         // the view strip under the layer bar (Globe | Map and what applies to it; on a phone, in the bottom sheet)
         initViewStrip();
         showRestoredMode();
+        // (the layer last left, as its tab would show it — once the page's own start has run: view/layer-memory.js)
+        setTimeout(() => this.bar.restore(), 0);
     }
 
     /** Show a layer (as its tab does). */
@@ -197,6 +206,7 @@ export class PlanetView {
         this.legendFin = null; this.patchClimate = null;
         this.tileColors = { look: -1, byWidth: new Map() };
         this.satPrep = null;
+        this.painter.forget();
     }
 
     /** A plain sea, while a new world starts (the old world's finished moment let go). */
@@ -245,6 +255,7 @@ export class PlanetView {
      */
     paintLive({ T, tMesh, table = null, C = null, cells = null, sharpTable = null, legendHead = '' }) {
         this.underOf = null;                                                            // (relayLines: no finished picture now)
+        this.painter.cancel();                                                          // (a finished picture under way: not wanted now)
         const view = this.view, out = this.cellRgb?.length === 3 * tMesh.numCells ? this.cellRgb : (this.cellRgb = new Uint8Array(3 * tMesh.numCells));
         const shade = view.shaded ? T.shade : this.flatShade(tMesh.numCells);
         // (the terrain and the heightmap are coloured per pixel from the heights — their coasts crisp; the other layers per cell)
@@ -339,25 +350,31 @@ export class PlanetView {
     }
 
     /** The legend's key for a finished moment's view (a legend made for another is made again). */
-    finishedLegendKey(fin, farm, id = '') { const v = this.view; return `finished|${v.layer}|${v.season}|${v.deposit}|${v.age}|${v.ageRes}|${id}|${fin.cells}${farm ? `|${farmOptionsKey()}` : ''}`; }
+    finishedLegendKey(fin, farm, id = '') { const v = this.view; return `finished|${v.layer}|${v.season}|${v.deposit}|${v.age}|${v.ageRes}|${id}|${fin.cells}${farm ? `|${farmPictureKey(v.layer)}` : ''}`; }
 
     /** A finished moment: its picture, coloured and shaded as the live terrain is — or its climate, per pixel. `id`: the
      *  moment's (its legend kept while it is shown). */
     paintFinished(fin, sharp, id = '') {
-        const view = this.view, t = sharp ? (this.tex.sharp ??= texture(this.SHARP_WIDTH)) : this.tex.lo;
-        const lut = heightLutOf(view.layer === 'heightmap' ? 'heightmap' : view.palette), water = view.water && (view.layer === 'terrain' || view.layer === 'satellite');
-        const C = CLIMATE_LAYERS.has(view.layer) ? fin.climate : null, geo = GEOLOGY_LAYERS.has(view.layer), farm = FARMING_LAYERS.has(view.layer);
-        this.glint(view.layer === 'terrain' || view.layer === 'satellite');
-        // (the satellite view shows the lakes always — they are its ground — the rivers with Rivers & Lakes; the geology and
-        // farming views their lakes too, as water)
-        paintFinished(fin.raster, t, lut, { seaImage: this.glinting ? this.seaMask.image.data : null, seaWidth: this.MAP_WIDTH, exaggeration: this.SHADING.exaggeration * (view.layer === 'satellite' ? 1.25 : 1), lakes: water || view.layer === 'satellite' || geo || farm,
-            shaded: view.shaded, keep: true, colorAt: geo ? finishedGeologyColor(view.layer, t.width, fin, view.deposit, view.age, view.ageRes) : farm ? finishedFarmingColor(view.layer, fin, t.width) : C ? finishedClimateColor(view.layer, view.season, C, t.width, lut, fin) : null });
-        if (this.glinting) { this.seaMask.ctx.putImageData(this.seaMask.image, 0, 0); this.globe.seaMaskChanged(); }
-        t.ctx.putImageData(t.image, 0, 0);
-        // (the rivers' lines on the Terrain view — and on Farmland, the water its canals and floods come from; from space they
-        // are ground, not lines — the Satellite view draws none: drawn at a 2048-wide texture's scale, as thick on the sharper one)
-        const rivers = view.water && (view.layer === 'terrain' || view.layer === 'farmLand') && fin.rivers, q = view.riverQ;
-        const drawRiversOn = () => { const k = t.width / this.MAP_WIDTH * (this.MAP_WIDTH / 2048); t.ctx.save(); t.ctx.scale(k, k); drawRivers(t.ctx, riverPaths(fin, q), view.byRegime && view.layer === 'terrain'); t.ctx.restore(); };
+        const view = this.view, s = paintSpec(view, this.SHADING.exaggeration, fin, view.layer, sharp ? this.SHARP_WIDTH : this.MAP_WIDTH);
+        // (the picture painted a slice at a time between frames, or a kept one at once — the switch never stalls the page,
+        // the picture before it shown meanwhile: view/finished-painter.js; the legend at once, as the tab)
+        this.finishedLegend(fin, s, id);
+        this.painter.paint(s, fin, this.MAP_WIDTH, pic => this.showFinished(fin, sharp, s, pic));
+        this.prepareSatelliteSoon(fin);
+    }
+
+    /** A finished moment's picture `pic` (of spec `s`) put on screen, the rivers and lines over it; then its Satellite
+     *  picture painted ahead. */
+    showFinished(fin, sharp, s, pic) {
+        const view = this.view, t = sharp ? (this.tex.sharp ??= texture(this.SHARP_WIDTH)) : this.tex.lo, C = s.C;
+        this.glint(s.glinting);
+        if (this.glinting && pic.glint) { this.seaMask.ctx.putImageData(pic.glint, 0, 0); this.globe.seaMaskChanged(); }
+        t.ctx.putImageData(pic.image, 0, 0);
+        // (the rivers' lines on the Terrain view — and on States (the rivers its places stand on), on Farmland, the water its canals and floods come from — and on
+        // Satellite as wide, in water's colour (the owner, 2026-11-20: "the same river size scaling treatment as terrain
+        // view"): drawn at a 2048-wide texture's scale, as thick on the sharper one)
+        const rivers = view.water && (view.layer === 'terrain' || view.layer === 'farmLand' || view.layer === 'farmStates' || view.layer === 'satellite') && fin.rivers, q = view.riverQ;
+        const drawRiversOn = () => { const k = t.width / this.MAP_WIDTH * (this.MAP_WIDTH / 2048); t.ctx.save(); t.ctx.scale(k, k); drawRivers(t.ctx, riverPaths(fin, q), view.byRegime && view.layer === 'terrain', view.riverWidth, view.layer === 'satellite'); t.ctx.restore(); };
         // (a moment's rivers not yet traced — the first paint of a world landing, ~110 ms — are drawn a frame later, so the
         // picture shows first and the page doesn't stall for both)
         const later = rivers && !fin.paths?.has(q), token = (this.riverToken = {});
@@ -369,22 +386,30 @@ export class PlanetView {
         this.underOf = { t, C };
         this.drawLines(t, C);
         this.show(t);
-        if (later) requestAnimationFrame(() => setTimeout(() => {
+        // (their segments made first in slices between tasks — at 10 M cells their valleys' lines alone took ~0.8 s, the page
+        // stalled behind them on opening a kept world: core/steps.js)
+        if (later) riversSoon(fin, q).then(() => requestAnimationFrame(() => setTimeout(() => {
             if (this.riverToken !== token || this.underOf?.t !== t) return;   // (painted again since: that paint drew its own)
             t.ctx.drawImage(under, 0, 0); drawRiversOn(); under.getContext('2d').drawImage(t.canvas, 0, 0);
             this.drawLines(t, C); this.show(t);
-        }, 0));
-        // (and made again for another finished moment — the same moment finished again, with another climate, has the same key)
-        const legend = $('climateLegend'), legendKey = C || geo || farm ? this.finishedLegendKey(fin, farm, id) : '';
-        if (legend.dataset.key !== legendKey || this.legendFin !== fin) {
-            this.legendFin = fin;
-            if (geo) legend.innerHTML = geologyLegendHTML(view.layer, fin, view.deposit, view.age, view.ageRes);
-            else if (farm) legend.innerHTML = farmingLegendHTML(view.layer, fin);
-            else if (C) drawLegend(legend, view.layer, view.season, C, null);
-            else legend.innerHTML = '';
-            legend.dataset.key = legendKey;
-        }
-        this.prepareSatelliteSoon(fin);
+        }, 0)));
+        // (the Satellite picture painted ahead, once this one is up: opening it is then a kept picture)
+        const R = fin.climate?.raster;
+        if (view.layer !== 'satellite' && R?.sat && fin.raster?.heightM && !this.satPrepFailed.has(R))
+            this.painter.paintAhead(paintSpec(view, this.SHADING.exaggeration, fin, 'satellite', s.W), fin, this.MAP_WIDTH, () => this.alive(fin));
+    }
+
+    /** The finished moment's legend for spec `s` — made again for another finished moment (the same moment finished
+     *  again, with another climate, has the same key). */
+    finishedLegend(fin, { C, geo, farm }, id) {
+        const view = this.view, legend = $('climateLegend'), legendKey = C || geo || farm ? this.finishedLegendKey(fin, farm, id) : '';
+        if (legend.dataset.key === legendKey && this.legendFin === fin) return;
+        this.legendFin = fin;
+        if (geo) legend.innerHTML = geologyLegendHTML(view.layer, fin, view.deposit, view.age, view.ageRes);
+        else if (farm) legend.innerHTML = farmingLegendHTML(view.layer, fin);
+        else if (C) drawLegend(legend, view.layer, view.season, C, null);
+        else legend.innerHTML = '';
+        legend.dataset.key = legendKey;
     }
 
     /** Only the page's lines changed: the last finished picture again with its lines drawn anew, not painted again (a
@@ -469,7 +494,7 @@ export class PlanetView {
     }
     /** What the patch's tiles are painted for: a number that changes when the layer, its colours or what is drawn over it do. */
     patchLookOf(fin) {
-        const v = this.view, key = `${v.layer}|${v.palette}|${v.season}|${v.shaded}|${v.water}|${v.riverQ}|${v.byRegime}|${v.grid}|${v.gridStep}${GEOLOGY_LAYERS.has(v.layer) ? `|${v.deposit}|${v.age}|${v.ageRes}` : ''}${FARMING_LAYERS.has(v.layer) ? `|${farmOptionsKey()}` : ''}`;
+        const v = this.view, key = `${v.layer}|${v.palette}|${v.season}|${v.shaded}|${v.water}|${v.riverQ}|${v.riverWidth}|${v.byRegime}|${v.grid}|${v.gridStep}${GEOLOGY_LAYERS.has(v.layer) ? `|${v.deposit}|${v.age}|${v.ageRes}` : ''}${FARMING_LAYERS.has(v.layer) ? `|${farmPictureKey(v.layer)}` : ''}|${beachKey(v)}`;
         if (key !== this.patchLookKey || fin.climate !== this.patchClimate) { this.patchLookKey = key; this.patchClimate = fin.climate; this.patchLook++; }
         return this.patchLook;
     }
@@ -497,10 +522,11 @@ export class PlanetView {
         layers.lay(tiles, look, (t, until) => this.paintTile(fin, t, look, extra, until), this.PATCH_BUDGET_MS, extra);
     }
     /** The rivers the tiles draw: their threshold (m³/s), or Infinity where none are drawn — the tiles' valleys are cut
-     *  along these alone (a valley with no river in it otherwise). */
+     *  along these alone (a valley with no river in it otherwise). On Satellite too, as water as wide as its bed: zoomed in
+     *  a river is ground's water there as a lake is (owner, 2026-11-20: "why is the satellite view not showing any rivers?"). */
     riversDrawn(fin) {
         const v = this.view;
-        return v.water && (v.layer === 'terrain' || v.layer === 'farmLand') && fin.rivers ? v.riverQ : Infinity;
+        return v.water && (v.layer === 'terrain' || v.layer === 'farmLand' || v.layer === 'farmStates' || v.layer === 'satellite') && fin.rivers ? v.riverQ : Infinity;
     }
     /** A tile painted for the layer shown (as paintFinished paints the planet), once per look: a SLOT-px canvas — the tile
      *  and a pixel of its neighbours' all round — with the rivers' lines and the grid over it; and the page's own lines
@@ -533,6 +559,8 @@ export class PlanetView {
         const C = CLIMATE_LAYERS.has(view.layer) ? fin.climate : null, geo = GEOLOGY_LAYERS.has(view.layer), farm = FARMING_LAYERS.has(view.layer), tc = this.tileColors;
         const R = view.layer === 'satellite' && fin.raster?.heightM ? fin.climate?.raster : null;
         if (R?.sat && !this.satPrepFailed.has(R) && !satelliteReady(R, view.season)) return null;   // (drawn by prepareSatelliteSoon and the painter)
+        // (and while its rivers are still being traced — made here in the frame's budget, a slice a frame: core/steps.js)
+        if (this.riversDrawn(fin) < Infinity && !riversReady(fin, view.riverQ, until - performance.now())) return null;
         let job = this.tileJob;
         if (job?.t !== t || job.look !== look) {
             if (tc.look !== look) { tc.look = look; tc.byWidth.clear(); }
@@ -560,7 +588,11 @@ export class PlanetView {
         // (the planet's rivers, crisp: a hairline as wide on the screen at every zoom, and as wide as its channel — its
         // valley's floor — once that is wider (a hairline grown by the zoom's 0.3th power drew a river of another width at
         // every level, in a floor of its own). And on Farmland, as the picture has them: the water canals and floods come from)
-        if (this.riversDrawn(fin) < Infinity) drawRiversWindow(ctx, fin, view.riverQ, view.byRegime && view.layer === 'terrain', W, x0, y0, SLOT, SLOT, 2 / (W / 2048));
+        // On Satellite the same, in water's colour (river-draw.js NATURAL).
+        // Ended at the tile's own coast: drawn apart, then cut to its land (the lines run to the picture's coast, and the
+        // finer coast up close lies a little off it — drawn straight onto the tile, they ran on out over the sea).
+        if (this.riversDrawn(fin) < Infinity) drawOnLand(ctx, sea, t.win.w, t.win.h, SLOT, rc =>
+            drawRiversWindow(rc, fin, view.riverQ, view.byRegime && view.layer === 'terrain', W, x0, y0, SLOT, SLOT, 2 / (W / 2048) * view.riverWidth, view.layer === 'satellite'));
         if (view.grid) {
             // (the grid's lines, as thin as the screen's pixels)
             const st = view.gridStep, w0 = x0 / W * 360 - 180, e0 = (x0 + SLOT) / W * 360 - 180, n0 = 90 - y0 / (W >> 1) * 180, s0 = 90 - (y0 + SLOT) / (W >> 1) * 180;
@@ -635,6 +667,10 @@ export class PlanetView {
             if (at.water && !at.ocean) lines.push(`<span style="color:var(--layer-climate)">●</span> <b>${['', 'Fresh lake', 'Salt lake', 'Salt pan'][at.water]}</b>${at.water !== 3 && at.depthM != null ? ` · ${Math.round(at.depthM).toLocaleString()} m deep` : ''}`);
             const rv = fin.rivers && !at.ocean ? riverAt(fin, view.riverQ, p[0], p[1]) : null;
             if (rv) lines.push(`<span style="color:${view.byRegime ? REGIME_STYLE[rv.regime].rgb : '#37c'}">●</span> <b>River</b> · ${Math.round(rv.q).toLocaleString()} m³/s · ${riverYearWords(rv)}`);
+        }
+        // (a warm coast's mangroves or reef, named: their colours sit close to the land's and the sea's — coast-readout.js)
+        if (fin && (view.layer === 'terrain' || view.layer === 'satellite')) {
+            for (const c of coastCoverAt(fin.raster, p[0], p[1])) lines.push(`<span class="hi-label">Coast</span> ${COVER_WORDS[c.kind]}`);
         }
         lines.push(`<span class="hi-label">Coord</span> ${Math.abs(lat).toFixed(1)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(1)}°${lon >= 0 ? 'E' : 'W'}`);
         lines.push(...after);
