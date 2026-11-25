@@ -36,5 +36,5 @@ see [shared.md](shared.md). Back to the [README](../README.md).
   Erosion are read by the finish's carving (how far fjords reach, how long its rivers work, how gentle the valley sides
   are). All at 0 by default, so your map is used as drawn. **Reapply** shapes and finishes it again.
 - **Climate**: **Temperature** (−30 to +30 W/m²), **Precipitation** (±50 %) and **Lakes** (none to a lake district:
-  [lakes-slider.md](lakes-slider.md)), as on Generate; releasing any of them finishes the map again.
+  [lakes-slider.md](lakes-slider.md)) and **Small lakes** ([small-lakes.md](small-lakes.md)), as on Generate; releasing any of them finishes the map again.
 - The layer tabs are Terrain, Satellite, Climate, Food and Heightmap.

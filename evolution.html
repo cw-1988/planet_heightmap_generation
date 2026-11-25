@@ -150,6 +150,11 @@
                     <div class="slider-hint"><span>None</span><span>Lake district</span></div>
                 </div>
                 <div class="cg">
+                    <label>Small lakes <span class="tip" data-tip="The lakes too small for the terrain's own hollows, from a few hundred metres to about ten kilometres across, many small for each big one. They gather where real ones do: on lowland the last ice age scoured, on frozen tundra, on the floodplains of big rivers and on wet flats; sloping, unglaciated land drains its hollows and keeps few. Left: fewer, all the way none. Right: up to four times as many. Changes a detailed moment only, not the history or the previews">?</span> <span class="v" id="vPd">±0</span></label>
+                    <input type="range" id="sPd" min="-1" max="1" value="0" step="0.1">
+                    <div class="slider-hint"><span>None</span><span>Lake district</span></div>
+                </div>
+                <div class="cg">
                     <label>Quality <span class="tip" data-tip="How finely the history is simulated and drawn while you watch. Fast: 20K plate cells, terrain 160K. Balanced: 40K, 160K. Best: 80K, 640K (slower to build). Custom: choose each">?</span></label>
                     <select id="quality">
                         <option value="fast">Fast</option>
@@ -188,7 +193,7 @@
             <div class="evo-card-head"><span id="cardTitle">Starting…</span><span id="cardBadge" class="evo-badge" hidden></span></div>
             <div id="cardText" class="evo-card-text"></div>
             <div class="cg" id="detailGroup">
-                <label>Detail <span class="tip" data-tip="How finely Add detail sculpts the moment: warped and roughened, its rivers carving longer with the climate's rain, sediment laid down, an ice age's glaciers and fjords, the wind's sand seas and loess, and its own climate and Satellite view. Finer detail takes longer — 10M cells about three minutes the first time. The more cells, the closer together they sit: on an Earth-sized planet about 70 km apart at 120K, 8 km at 10M. Each step is about 1.5× the one before; the slider ends at the finest this machine's memory holds">?</span> <span class="v" id="vDetail">3M cells</span></label>
+                <label>Detail <span class="tip" data-tip="How finely Add detail sculpts the moment: warped and roughened, its rivers carving longer with the climate's rain, sediment laid down, an ice age's glaciers and fjords, the wind's sand seas and loess, and its own climate and Satellite view. Finer detail takes longer — 10M cells about three minutes the first time. The more cells, the closer together they sit: on an Earth-sized planet about 70 km apart at 120K, 8 km at 10M. Each step is about 1.5× the one before; the slider ends at the finest this machine's memory holds">?</span> <span class="v" id="vDetail">3M</span></label>
                 <input type="range" id="finishCells" min="8" max="19" value="16" step="1" aria-label="Detail">
                 <div class="slider-hint"><span>Faster</span><span>Finer</span></div>
             </div>

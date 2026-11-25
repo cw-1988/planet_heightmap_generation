@@ -321,6 +321,8 @@ node v2/tools/shoot-lab.mjs 4 56 http://localhost:8123 scene=india   # screensho
 node v2/tools/probe-play.mjs 8b history 40     # presses Play headlessly: frames painted, the page's long tasks (EXTRA=cells=2500000)
 node v2/tools/bench-lab.mjs 2500000           # the lab's terrain pipeline piece by piece: timings + output hashes (is a speed-up exact?)
 node v2/tools/bench-city.mjs [cells] [tex]    # the City size view at reaches 0.5–12 days: grid, haul by water, paint, hover (docs/city-size-speed.md)
+node v2/tools/bench-states.mjs [cells] [width] # the States build step by step, on its largest grid (1024 × 512)
+node v2/tools/bench-deposits.mjs FILE [--workers 0|n]  # the deposits alone, on inputs bench-generate-memory.mjs --dump-deposits FILE wrote: time + hashes (docs/deposit-workers.md)
 node v2/tools/check-save.mjs                  # the planet file: (a) a small history and detailed moment saved and read back bit for bit, and older
                                               # files made by hand → v2/out/; (b) every planet kept in tools/fixtures/saves/ opens, its terrain and every export map drawn
 node v2/tools/check-save.mjs --fixture        # (a) on a small planet kept as the fixture of today's versions — once per version
@@ -353,7 +355,9 @@ js/core/           geometry with no tectonics in it: rotations, sphere index, si
                    in km over a mesh), mesh-rings (every cell's rings 0–3, precomputed), fast-noise (bit-identical to V1's
                    SimplexNoise, faster); sim-mesh also rebuilds a mesh from its arrays (meshFromArrays: how workers get it);
                    device (SMALL_DEVICE: a phone or a device reporting ≤ 4 GB — the memory budgets that follow it);
-                   seed (a typed seed read — a number as ever, a word hashed — and the range new seeds are drawn from)
+                   seed (a typed seed read — a number as ever, a word hashed — and the range new seeds are drawn from);
+                   steps (long work on the page's thread as generators: drained, the plain function; stepped, a slice
+                   per frame or task, a making shared by everyone waiting on it)
 js/tectonics/
   config.js        every tunable, in physical units (km, Myr, cm/yr); MECHANISMS = each mechanism's off-switch
   model/           crust.js (CrustRaster: per-plate cells in the plate's own frame; CELL_FIELDS; the type / flag /

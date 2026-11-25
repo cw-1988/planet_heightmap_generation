@@ -116,7 +116,7 @@ v2/                     World Orogen V2 — the Evolution page (/evolution) and 
                         `node v2/tools/check-phase<N>.mjs` runs each phase's headless checks;
                         `node v2/tools/check-style.mjs` checks the pages' CSS against the style guide's tokens;
                         v2/js/view/ holds what every page shares — the planet on screen (planet-view.js) and the layer
-                        bar over it (layer-bar.js), the export panel (export-panel.js), its rasters, scales and README
+                        bar over it (layer-bar.js), the look values fixed in place of sliders (look-config.js), the export panel (export-panel.js), its rasters, scales and README
                         (export-raster.js), the map projections (projections.js) and their GLSL inverses for the map
                         view (projection-glsl.js), PNG and ZIP writers; v2/js/present/ is Generate's present-day world
 tuning/

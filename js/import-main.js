@@ -10,6 +10,7 @@ import { meshFromArrays } from '../v2/js/core/sim-mesh.js';
 import { PlanetView } from '../v2/js/view/planet-view.js';
 import { mountLayerBar } from '../v2/js/view/layer-bar.js';
 import { FinishService } from '../v2/js/evolution/finish-view.js';
+import { askSurface } from './surface-ask.js';
 import { terrainFin, finishedFin } from './finish-landing.js';
 import { stageClock } from '../v2/js/finish/stage-clock.js';
 import { initEvolutionExport } from '../v2/js/evolution/export.js';
@@ -18,7 +19,7 @@ import { CLIMATE_LAYERS } from '../v2/js/evolution/climate-view.js';
 import { FARMING_LAYERS } from '../v2/js/evolution/farming-view.js';
 import { DETAIL_STOPS, fitSlider, stopWords } from './detail-stops.js';
 import { buildStarted, buildEnded, WAIT_WORDS } from './build-gate.js';
-import { showBuildError, describeFailure, holdControls } from './build-error.js';
+import { showBuildError, describeFailure } from './build-error.js';
 import { state } from './state.js';
 import { sliderTooltip, detailWarning, progressiveSwitch, redrawFoldedSliders, sidePanel, buildOverlay } from './page-chrome.js';
 import { rungView } from './rung-view.js';
@@ -61,12 +62,12 @@ function startWorker() {
 startWorker();
 const v = (id) => +($(id)?.value ?? 0);
 const sculpt = () => ({ terrainWarp: v('sTw'), smoothing: v('sS'), glacialErosion: v('sGl'), hydraulicErosion: v('sHEr'), thermalErosion: v('sTEr'), ridgeSharpening: v('sRs') });
-const climateOptions = () => ({ greenhouseWm2: v('sTmp'), precipScale: Math.max(0, 1 + 0.5 * v('sPrc')), lakes: v('sLk') });   // (lakes: the Lakes slider, lake-amount.js)
+const climateOptions = () => ({ greenhouseWm2: v('sTmp'), precipScale: Math.max(0, 1 + 0.5 * v('sPrc')), lakes: v('sLk'), ponds: v('sPd') });   // (lakes, ponds: the Lakes and Small lakes sliders, lake-amount.js)
 
 function failed(message) {
     console.error('[import] failed:', message);
     buildEnded('import');
-    building = null; overlay.active = false; holdControls(false); rungs.clear(); dirty = true;
+    building = null; overlay.active = false; rungs.clear(); dirty = true;
     importBtn.disabled = !gray; importBtn.textContent = 'Import';
     showBuildError(describeFailure(message, 'import this heightmap'), message); bar.failed();
 }
@@ -85,8 +86,11 @@ function received(msg) {
 
 // ── the finish (Evolution's) in the background ──
 const finishWidth = (n) => (IS_TOUCH ? 2048 : Math.min(8192, Math.max(2048, 2 ** Math.round(Math.log2(4 * Math.sqrt(n))))));
+let finishes = 0;            // (the finish asked last: one whose surface comes after a newer one was asked goes no further)
 async function finish(w) {
     finisher.cancel();
+    const ticket = ++finishes, { surface, transfer } = await askSurface(worker);   // (the surface the worker keeps: js/surface-ask.js)
+    if (world !== w || ticket !== finishes) return;
     const started = performance.now();
     w.fin = null; w.problem = null; w.finishing = { stage: 'starting', share: 0 }; updateChip(); bar.finishing('starting', 0);
     let quiet = false;
@@ -97,7 +101,7 @@ async function finish(w) {
     try {
         // (the terrain lands first, the other layers after it: finish-landing.js)
         const onTerrain = (d) => { if (world !== w) return; w.fin = terrainFin(w.n, d); rungs.clear(); dirty = true; updateChip(); console.info(`[import] terrain finished in ${((performance.now() - started) / 1000).toFixed(1)} s`); };
-        const res = await finisher.finish({ ...w.finishJob, mesh: w.meshArrays, cells: w.n, width: finishWidth(w.n), climateOptions: climateOptions(), valleyQ: view.riverQ }, { onStage, onProgress, onTerrain, onDrivers: () => { if (world === w) bar.zoomReady(); }, keep: false });
+        const res = await finisher.finish({ ...w.finishJob, surface, mesh: w.meshArrays, cells: w.n, width: finishWidth(w.n), climateOptions: climateOptions(), valleyQ: view.riverQ }, { onStage, onProgress, onTerrain, onDrivers: () => { if (world === w) bar.zoomReady(); }, keep: false, transfer });
         clock.done(res.ms);
         if (world !== w) return;
         quiet = !!pv.shows(w.fin);                                   // (the terrain shown already: the rest changes nothing on it)
@@ -110,7 +114,7 @@ async function finish(w) {
     } finally {
         clock.stop();
         if (world === w) { w.finishing = null; if (!quiet || rungs.live) dirty = true; if (!building) rungs.clear(); updateChip(); if (!building) bar.done(w.problem); }
-        if (world === w && !building) buildEnded('import', !w.problem);
+        if (world === w && !building) buildEnded('import');
     }
 }
 function updateChip() {
@@ -120,14 +124,14 @@ function updateChip() {
     else if (w?.problem && needs) { text = w.problem; act = 'Try again'; }
     chip.hidden = !text;
     if (text) { $('climateChipText').textContent = text; $('climateChipBtn').hidden = !act; $('climateChipBtn').textContent = act ?? ''; }
-    for (const id of ['satellite', 'farming']) document.querySelector(`#mapTabs [data-layer="${id}"]`)?.classList.toggle('locked', !w?.fin || w.fin.partial);
+    for (const id of ['satellite', 'farming', 'civ']) document.querySelector(`#mapTabs [data-layer="${id}"]`)?.classList.toggle('locked', !w?.fin || w.fin.partial);
 }
-$('climateChipBtn').addEventListener('click', () => { if (world?.problem) finish(world); });
+$('climateChipBtn').addEventListener('click', () => { if (world?.problem && !building) finish(world); });
 
 // ── drawing, and the hover ──
 function tick(now) {
     requestAnimationFrame(tick);
-    if (world && dirty && rungs.live) { dirty = false; rungs.repaint(); }    // (a world being built: its step shown)
+    if (dirty && rungs.live) { dirty = false; rungs.repaint(); }             // (a world being built: its step shown — the first one too, the tabs live mid-build)
     if (world && dirty) {
         dirty = false;
         const fin = pv.shows(world.fin);
@@ -161,7 +165,7 @@ function loadImage(img, name) {
     gray = new Uint8Array(grayW * grayH);
     for (let i = 0; i < gray.length; i++) gray[i] = Math.round(0.299 * d[4 * i] + 0.587 * d[4 * i + 1] + 0.114 * d[4 * i + 2]);
     $('importFileName').textContent = name;
-    importBtn.disabled = false;
+    importBtn.disabled = !!building;                                 // (a file picked mid-build: Import once the build ends)
 }
 fileInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
@@ -186,7 +190,7 @@ importBtn.addEventListener('click', () => {
 // ── the sliders: Detail, the sculpting (Reapply), the climate (the finish again) ──
 fitSlider($('sN'), 'import');                                        // (Detail ends at this machine's finest stop: detail-stops.js)
 const reapplyBtn = $('reapplyBtn'), SCULPT = ['sTw', 'sS', 'sGl', 'sHEr', 'sTEr', 'sRs'];
-for (const s of ['sN', ...SCULPT, 'sTmp', 'sPrc', 'sLk']) {
+for (const s of ['sN', ...SCULPT, 'sTmp', 'sPrc', 'sLk', 'sPd']) {
     const slider = $(s);
     if (!slider) continue;
     sliderTooltip(slider);
@@ -195,11 +199,11 @@ for (const s of ['sN', ...SCULPT, 'sTmp', 'sPrc', 'sLk']) {
         if (s === 'sN') { const d = DETAIL_STOPS[val]; out.textContent = stopWords(d); detailWarning(d, 'import'); }
         else if (s === 'sTmp') out.textContent = `${val > 0 ? '+' : val === 0 ? '±' : '−'}${Math.abs(val)} W/m²`;
         else if (s === 'sPrc') { const pct = Math.round(val * 50); out.textContent = `${pct > 0 ? '+' : pct === 0 ? '±' : ''}${pct}%`; }
-        else if (s === 'sLk') out.textContent = lakesLabel(val);
+        else if (s === 'sLk' || s === 'sPd') out.textContent = lakesLabel(val);
         else out.textContent = e.target.value;
         if (SCULPT.includes(s) && world) { reapplyBtn.disabled = false; reapplyBtn.classList.add('ready'); }
     });
-    if (s === 'sTmp' || s === 'sPrc' || s === 'sLk') slider.addEventListener('change', () => { if (world) finish(world); });
+    if (s === 'sTmp' || s === 'sPrc' || s === 'sLk' || s === 'sPd') slider.addEventListener('change', () => { if (world && !building) finish(world); });   // (mid-build: the build's own finish reads it)
 }
 redrawFoldedSliders();
 reapplyBtn.addEventListener('click', () => {

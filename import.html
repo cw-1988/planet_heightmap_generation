@@ -95,7 +95,7 @@
                 <div class="import-hint">Black (0) = ocean. Brighter = higher elevation. Use a 2:1 equirectangular image.</div>
                 <div id="importExpect" class="import-expect" style="display:none">Your heightmap will be projected onto a 3D sphere with full climate simulation — wind patterns, precipitation, temperature, and biome classification — computed automatically.</div>
                 <div class="cg">
-                    <label>Detail <span class="tip" data-tip="Resolution of the sphere mesh — more detail means finer coastlines but takes longer to process. The planet is made of cells: the more there are, the closer together they sit — on an Earth-sized planet about 57 km apart at 180K, 8 km at 10M. Each step is about 1.5× the one before; the slider ends at the finest this machine's memory holds">?</span> <span class="v" id="vN">180K cells</span></label>
+                    <label>Detail <span class="tip" data-tip="Resolution of the sphere mesh — more detail means finer coastlines but takes longer to process. The planet is made of cells: the more there are, the closer together they sit — on an Earth-sized planet about 57 km apart at 180K, 8 km at 10M. Each step is about 1.5× the one before; the slider ends at the finest this machine's memory holds">?</span> <span class="v" id="vN">180K</span></label>
                     <input type="range" id="sN" min="0" max="19" step="1" value="9" aria-label="Detail">
                     <div class="slider-hint"><span>Coarse</span><span>Fine</span></div>
                     <div class="detail-warn" id="detailWarn"></div>
@@ -158,6 +158,11 @@
                 <div class="cg">
                     <label>Lakes <span class="tip" data-tip="How readily the land's hollows hold water. Fewer: a hollow must be bigger and deeper to be a lake, its outlet cuts deeper and its rivers fill it with more sediment, so most drain or silt up into plains; all the way left, no lakes at all (a closed basin keeps only its salt flat). More: small and shallow hollows hold water too and outlets cut less, a land of lakes and ponds like Finland or the Canadian Shield. The rain itself is Precipitation's">?</span> <span class="v" id="vLk">&plusmn;0</span></label>
                     <input type="range" id="sLk" min="-1" max="1" value="0" step="0.1">
+                    <div class="slider-hint"><span>None</span><span>Lake district</span></div>
+                </div>
+                <div class="cg">
+                    <label>Small lakes <span class="tip" data-tip="The lakes too small for the terrain's own hollows, from a few hundred metres to about ten kilometres across, many small for each big one. They gather where real ones do: on lowland the last ice age scoured, on frozen tundra, on the floodplains of big rivers and on wet flats; sloping, unglaciated land drains its hollows and keeps few. Left: fewer, all the way none. Right: up to four times as many">?</span> <span class="v" id="vPd">&plusmn;0</span></label>
+                    <input type="range" id="sPd" min="-1" max="1" value="0" step="0.1">
                     <div class="slider-hint"><span>None</span><span>Lake district</span></div>
                 </div>
             </div>

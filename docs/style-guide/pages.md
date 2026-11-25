@@ -18,6 +18,7 @@ How the pieces make the four kinds of page.
 - Over the map: Globe | Map (segmented), the view tabs, Year | Jan | Jul (segmented). The view’s title in `view-title` with a `note`.
 - The map on `desk`, in its frame: a single hairline neatline with degree ticks and numerals on a flat map; the degree ring around the globe.
 - Right: the key as a legend card. Under the map: pinned places. Beside the globe: the same list, compact.
+- While plates are selected for an edit (Generate): the piece card takes the legend card's place, over it. Its head says how many are selected; then Land | Sea and the characters as segmented controls (sentence case, a tooltip each saying what it stands for) and a Level slider with its value. On a phone it sits just above the Rebuild button, its characters one row that scrolls sideways.
 
 ## The atlas print
 

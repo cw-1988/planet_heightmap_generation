@@ -15,3 +15,7 @@ builds/
 # Private research and reports (kept locally, never committed)
 reports/
 research_notes/
+
+# Scratch: image checks and throwaway probes (v2/tools/zz-*)
+.image-check/
+v2/tools/zz-*

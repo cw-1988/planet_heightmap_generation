@@ -38,6 +38,7 @@ import { PackedFrame } from '../tectonics/frame-pack.js';
 import { SMALL_DEVICE } from '../core/device.js';
 import { seedOf, randomSeed, isWordSeed } from '../core/seed.js';
 import { fileName } from '../view/export-raster.js';
+import { fillTip } from '../../../js/tip-text.js';
 
 setDelaunator(Delaunator);
 
@@ -53,7 +54,7 @@ const $ = id => document.getElementById(id);
 const ui = { canvas: $('canvas'), map: $('mapCanvas'), cont: $('sCont'), len: $('sLen'), ending: $('ending'), sim: $('simCells'), terrain: $('terrainCells'),
     seed: $('seedCode'), build: $('generate'), status: $('buildStatus'), timeline: $('timeline'), play: $('playBtn'), time: $('timeSlider'),
     timeLabel: $('timeLabel'), rate: $('rate'), extend: $('extendBtn'), hover: $('hoverInfo'), panel: $('ui'), stats: $('stats'),
-    railBuilt: $('railBuilt'), railShown: $('railShown'), ticks: $('timeTicks'), quality: $('quality'), world: $('worldSection'), tmp: $('sTmp'), prc: $('sPrc'), lk: $('sLk') };
+    railBuilt: $('railBuilt'), railShown: $('railShown'), ticks: $('timeTicks'), quality: $('quality'), world: $('worldSection'), tmp: $('sTmp'), prc: $('sPrc'), lk: $('sLk'), pd: $('sPd') };
 
 // ── settings ──
 ui.ending.innerHTML = ENDINGS.map(e => `<option value="${e.id}">${e.label}</option>`).join('');
@@ -65,12 +66,13 @@ if (url.get('len')) ui.len.value = url.get('len');
 if (url.get('greenhouse')) ui.tmp.value = url.get('greenhouse'); else if (url.get('temp')) ui.tmp.value = 2 * Number(url.get('temp'));
 if (url.get('rain')) ui.prc.value = url.get('rain');
 if (url.get('lakes')) ui.lk.value = url.get('lakes');
+if (url.get('ponds')) ui.pd.value = url.get('ponds');
 // The planet's Temperature and Precipitation (as Generate's): the climate's options, for the preview climate and for Add
 // detail — they change the climate only, not the history (plans/V1_NEW_CLIMATE_PLAN.md, phase 7). Lakes (lake-amount.js)
 // changes Add detail only: the previews' climates are keyed without it (climateKey), a detailed moment with it (detailKey)
-const climateOptions = () => ({ greenhouseWm2: Number(ui.tmp.value), precipScale: Math.max(0, 1 + 0.5 * Number(ui.prc.value)), lakes: Number(ui.lk.value) });
+const climateOptions = () => ({ greenhouseWm2: Number(ui.tmp.value), precipScale: Math.max(0, 1 + 0.5 * Number(ui.prc.value)), lakes: Number(ui.lk.value), ponds: Number(ui.pd.value) });
 const climateKey = () => `${Number(ui.tmp.value)}|${Number(ui.prc.value)}`;
-const detailKey = () => `${climateKey()}|${Number(ui.lk.value)}`;
+const detailKey = () => `${climateKey()}|${Number(ui.lk.value)}|${Number(ui.pd.value)}`;   // (Small lakes likewise)
 // (a phone builds on 20K plates by default: a 1200 Myr history takes ~40 s on a desktop at 20K, ~85 s at 40K, and a phone's
 // cores are several times slower — plans/V2_FULL_PLANET_PLAN.md, step A)
 if (IS_TOUCH) ui.sim.value = '20000';
@@ -100,9 +102,9 @@ function labels() {
     const t = Number(ui.tmp.value), p = Math.round(50 * Number(ui.prc.value));
     $('vTmp').textContent = t ? `${t > 0 ? '+' : '−'}${Math.abs(t)} W/m²` : '±0 W/m²';
     $('vPrc').textContent = p ? `${p > 0 ? '+' : '−'}${Math.abs(p)}%` : '±0%';
-    const lk = Number(ui.lk.value); $('vLk').textContent = lakesLabel(lk);
+    const lk = Number(ui.lk.value), pd = Number(ui.pd.value); $('vLk').textContent = lakesLabel(lk); $('vPd').textContent = lakesLabel(pd);
     $('worldSummary').textContent = `Seed ${seedShown()} · ${ui.len.value} Myr · ${QUALITY_WORDS[ui.quality.value]}` +
-        (t ? ` · temperature ${$('vTmp').textContent}` : '') + (p ? ` · ${$('vPrc').textContent} rain` : '') + (lk ? ` · lakes ${lakesLabel(lk)}` : '');
+        (t ? ` · temperature ${$('vTmp').textContent}` : '') + (p ? ` · ${$('vPrc').textContent} rain` : '') + (lk ? ` · lakes ${lakesLabel(lk)}` : '') + (pd ? ` · small lakes ${lakesLabel(pd)}` : '');
     // (the plates' resolution is the one setting a history cannot change: it waits for a build)
     $('worldPending').hidden = !B?.simCells || B.simCells === Number(ui.sim.value);
     // (a world kept in this browser by an earlier version of the code, its settings still the page's: Build new version)
@@ -114,10 +116,10 @@ function labels() {
 /** Whether the world shown was kept by an earlier version of the history's code, and the settings still name it. */
 const outdatedShown = () => !!B?.outdated && B.outdated.key === worldKey({ seed: seedOf(ui.seed.value), cont: Number(ui.cont.value),
     len: Number(ui.len.value), ending: ui.ending.value, sim: Number(ui.sim.value), more: B.moreTo });
-for (const el of [ui.cont, ui.len, ui.seed, ui.ending, ui.tmp, ui.prc, ui.lk]) el.addEventListener('input', labels);
+for (const el of [ui.cont, ui.len, ui.seed, ui.ending, ui.tmp, ui.prc, ui.lk, ui.pd]) el.addEventListener('input', labels);
 // (a new Temperature or Precipitation: the previews' climates are worked out again when shown; a detailed moment keeps
 // its old climate — its rivers, ice and Satellite were sculpted by it — until detail is added again; Lakes likewise)
-for (const el of [ui.tmp, ui.prc, ui.lk]) el.addEventListener('change', () => { saveUrl(); labels(); dirty = true; updateClimateUi(); });
+for (const el of [ui.tmp, ui.prc, ui.lk, ui.pd]) el.addEventListener('change', () => { saveUrl(); labels(); dirty = true; updateClimateUi(); });
 // ── tooltips (the "?" marks): drawn over the page — V1's own sit inside the panel, which scrolls and so clips what spills
 // out of it (developer: "the tooltips are hidden inside the sidebar if they appear towards the right"); to the right of
 // the mark where there is room, else above it (always above on a narrow screen: the bottom sheet); a tap shows one ──
@@ -126,7 +128,7 @@ tipEl.className = 'evo-tooltip'; tipEl.hidden = true;
 document.body.appendChild(tipEl);
 let tipFor = null;
 function showTip(el) {
-    tipFor = el; tipEl.textContent = el.dataset.tip; tipEl.hidden = false;
+    tipFor = el; fillTip(tipEl, el.dataset.tip); tipEl.hidden = false;
     const r = el.getBoundingClientRect(), w = tipEl.offsetWidth, h = tipEl.offsetHeight, m = 8;
     let x = r.right + m, y = r.top + r.height / 2 - h / 2;
     if (innerWidth <= 768 || x + w > innerWidth - m) {
@@ -171,7 +173,7 @@ $('loadFile').addEventListener('change', e => { const f = e.target.files[0]; e.t
 ui.terrain.addEventListener('change', () => setTerrainDetail());
 // (more: how far the history was kept going — a link rebuilds the same history, run on as far)
 const saveUrl = () => history.replaceState(null, '', `?seed=${encodeURIComponent(seedShown())}&cont=${ui.cont.value}&len=${ui.len.value}&end=${ui.ending.value}&sim=${ui.sim.value}&terrain=${ui.terrain.value}` +
-    (Number(ui.tmp.value) ? `&greenhouse=${ui.tmp.value}` : '') + (Number(ui.prc.value) ? `&rain=${ui.prc.value}` : '') + (Number(ui.lk.value) ? `&lakes=${ui.lk.value}` : '') + (B?.moreTo ? `&more=${B.moreTo}` : ''));
+    (Number(ui.tmp.value) ? `&greenhouse=${ui.tmp.value}` : '') + (Number(ui.prc.value) ? `&rain=${ui.prc.value}` : '') + (Number(ui.lk.value) ? `&lakes=${ui.lk.value}` : '') + (Number(ui.pd.value) ? `&ponds=${ui.pd.value}` : '') + (B?.moreTo ? `&more=${B.moreTo}` : ''));
 let linkedMore = Number(url.get('more')) || 0;          // (the first build only: a new world starts at its length)
 // Keep going: the history runs on in pieces this long, until stopped (a multiple of the step grid and of the snapshot
 // interval — pieces of the one history, the same as a single run: tectonics/simulate.js, resume)
@@ -500,7 +502,9 @@ async function loadPlanet(file, kept = null) {
     try { planet = await openPlanet(file); } catch (err) { refuse(String(err.message).split('\n')[0]); console.error(err); return; }
     const m = planet.manifest, s = m.settings;
     if (planet.historyBytes > HISTORY_BYTES) { refuse(`its history (${mb(planet.historyBytes)} MB) is longer than this device can hold — open it on a desktop`); return; }
-    const withDetail = planet.detailBytes > 0 && planet.detailBytes <= DETAIL_BYTES && (!kept || kept.finishOk);
+    // (a kept moment detailed by an earlier finish or another fast mode: shown too, marked, as an earlier history is —
+    // dropping it threw a 10M moment away at every edit to the ~130 files the finish loads, its output the same or not)
+    const withDetail = planet.detailBytes > 0 && planet.detailBytes <= DETAIL_BYTES;
     // (the terrain drawn while scrubbing: as it was, but at most a phone's finest — a kept world's: the page's)
     const terrainCells = kept ? Number(ui.terrain.value) : Math.min(TERRAIN_MAX, s.terrain);
     leaveWorld();
@@ -511,7 +515,7 @@ async function loadPlanet(file, kept = null) {
     // its settings, and the link to them (the same history again, built here) — a kept world's are the page's already
     if (!kept) {
         ui.seed.value = s.seedText ?? String(s.seed); ui.cont.value = s.cont; ui.len.value = s.len; setIf(ui.ending, s.ending); setIf(ui.sim, String(s.sim));
-        setIf(ui.terrain, String(terrainCells)); ui.tmp.value = s.greenhouse; ui.prc.value = s.rain; ui.lk.value = s.lakes ?? 0;
+        setIf(ui.terrain, String(terrainCells)); ui.tmp.value = s.greenhouse; ui.prc.value = s.rain; ui.lk.value = s.lakes ?? 0; ui.pd.value = s.ponds ?? -1;   // (a file from before Small lakes: none, as it was made)
         ui.quality.value = Object.keys(QUALITY).find(k => QUALITY[k].sim === ui.sim.value && QUALITY[k].terrain === ui.terrain.value) ?? 'custom';
         $('customGroup').hidden = ui.quality.value !== 'custom';
     }
@@ -532,15 +536,19 @@ async function loadPlanet(file, kept = null) {
         // without its record — until a replay that matches brings the record in)
         b.lacking = new Set(lacking); b.noGeology = GEO_FRAME_FIELDS.some(k => b.lacking.has(k));
         const shown = b.frames[m.detail?.frame ?? 0] ?? b.frames[0];
-        // (a file saved before Lakes keyed its moment "greenhouse|rain": Lakes ±0, as it was made)
-        if (detail?.moment.climateKey?.split('|').length === 2) detail.moment.climateKey += '|0';
+        // (a file saved before Lakes keyed its moment "greenhouse|rain": Lakes ±0, as it was made; before Small lakes
+        // "…|lakes": it has none, Small lakes None — as its settings, ponds absent)
+        const parts = detail?.moment.climateKey?.split('|').length ?? 4;
+        if (parts === 2) detail.moment.climateKey += '|0';
+        if (parts < 4) detail.moment.climateKey += '|-1';
         const older = b.outdated ? ' — built by an earlier version of the code: Build new version (under World) builds it with today’s' : '';
+        // (its stamp kept with it — `earlier` — so the card marks it and the cache keeps it again as what it is)
+        if (detail && kept && !kept.finishOk) detail.moment.earlier = { finishCode: kept.finishCode, fast: kept.fast ?? '', savedAt: kept.savedAt };
         if (detail) { b.finishes.set(b.frames[detail.frame], detail.moment); b.finishOk = true; b.finishNote = kept ? `Kept in this browser from an earlier session${older}` : `Opened from ${name}`; }
         // (a moment left in the file — too old to read, or more than a phone can show: this moment, ready to be detailed again)
         else if (m.detail) {
             b.loadFrame = shown;
-            b.loadNote = kept && !kept.finishOk ? 'This moment was detailed by an earlier version of the finish (or another fast mode) — add detail to see it with today’s.'
-                : detailNote ? `${detailNote} — add detail to see it again.` : `${name} holds this moment in detail, but at ${mb(planet.detailBytes)} MB it is more than a phone can show — add detail to see it at this device’s size.`;
+            b.loadNote = detailNote ? `${detailNote} — add detail to see it again.` : `${name} holds this moment in detail, but at ${mb(planet.detailBytes)} MB it is more than a phone can show — add detail to see it at this device’s size.`;
         }
         if (older && !detail) { b.loadFrame = shown; b.loadNote = `${b.loadNote ? `${b.loadNote} ` : ''}Kept in this browser from an earlier session${older}.`; }
         status(`Building the terrain at ${ui.terrain.selectedOptions[0]?.textContent.split(' ·')[0] ?? terrainCells}…`, null);
@@ -709,15 +717,14 @@ async function finishMoment(again = null) {
     const onStage = s => { if (!b.finishJob) return; b.finishJob.stage = s; loading.update('detail', { label: `${passes.length > 1 ? `Pass ${pass + 1} of ${passes.length} · ` : ''}${stageWords(s)}…` }); clock.begin(s); };
     const onProgress = p => { if (b.finishJob) clock.progress(p); };
     try {
+        // (it starts once every tab's builds fit the machine's memory — Cancel drops the wait: build-gate.js)
+        if (!await buildStarted('evolution', final, () => loading.update('detail', { label: WAIT_WORDS }))) throw new DOMException('Waiting cancelled', 'AbortError');
+        started = performance.now();                                            // (its time from here: the wait not counted)
         const { simMesh } = b;
         // (a small device: the finish's own surface workers few, the terrain's workers let go while it runs — every worker
         // holds its copies of the meshes, and a phone closes a tab at well under 2 GB — and the finishing worker let go after
         // unless its mesh takes long to build again)
         if (SMALL_DEVICE) b.player?.rest();
-        // (it starts once every tab's builds fit the machine's memory — Cancel drops the wait — and a closed tab lowers the
-        // slider's end: build-gate.js)
-        if (!await buildStarted('evolution', final, () => loading.update('detail', { label: WAIT_WORDS }))) throw new DOMException('Waiting cancelled', 'AbortError');
-        started = performance.now();                                            // (its time from here: the wait not counted)
         for (; pass < passes.length; pass++) {
             const cells = passes[pass], last = pass === passes.length - 1, width = passWidth(cells, last);
             base = weights.slice(0, pass).reduce((s, x) => s + x, 0); w = weights[pass];
@@ -726,11 +733,11 @@ async function finishMoment(again = null) {
             // (a pass before the last keeps the worker, and the last pass's meshes it built ahead, on a desktop)
             const res = await finisher.finish({ frame: slim, simMesh: { numCells: simMesh.numCells, xyz: simMesh.xyz, adjOffset: simMesh.adjOffset, adjList: simMesh.adjList }, seed: b.seed, cells, width, climateOptions: climateOptions(), poolSize: SMALL_DEVICE ? 3 : null, keepCells: SMALL_DEVICE ? 0 : final },
                 { onStage, onProgress, keep: !SMALL_DEVICE && (!last || cells >= 2.5e6) });
+            clock.done(res.ms);
             if (B !== b) return;
             const secs = (performance.now() - started) / 1000;
             if (!pass) firstSecs = secs;
             // (one detailed moment: each pass replaces the one before — and the moment detailed before — now that it is done)
-            clock.done(res.ms);
             b.finishes.clear();
             b.finishes.set(frame, { cells, raster: res.raster, rivers: res.rivers, climate: res.climate, stats: res.stats, secs, climateKey: key });
             b.finishOk = true; b.finishJob.share = base + w; dirty = true;
@@ -763,12 +770,12 @@ async function finishMoment(again = null) {
             : oom ? 'Not enough memory for this detail — try a coarser one, or close other tabs (other World Orogen tabs can share this one’s memory)' : `Could not add detail: ${String(err.message).split('\n')[0]}`;
         if (err.name !== 'AbortError') console.error(err);
     } finally {
-        buildEnded('evolution', b.finishOk);
+        buildEnded('evolution');
+        clock?.stop();
         b.player?.wake();
         loading.hide('detail');
         if (B === b && b.finishJob?.frame === frame) { b.finishJob = null; dirty = true; updateClimateUi(); }
     }
-        clock?.stop();
 }
 
 // ── the context card (plans/V2_EVOLUTION_UI_PLAN.md; developer, 2026-10-13: the page was "too sparse and confusing. It
@@ -824,14 +831,15 @@ function updateCard() {
         : 'This is a preview. Add detail sculpts it again, finely: rivers and lakes, glaciers, its own climate, the Satellite view and its geology — ready to export.';
     showIf($('detailGroup'), !!frame && !job);
     showIf($('waterGroup'), isDet && !job);
-    const again = $('cardAgain'), stale = isDet && fin.climateKey !== detailKey();
-    if (showIf(again, isDet && !job && (fin.cells !== cells || stale))) again.textContent = stale ? 'Add detail again with the new climate' : `Add detail again at ${cellsWords(cells)}`;
+    const again = $('cardAgain'), stale = isDet && fin.climateKey !== detailKey(), earlier = isDet && !!fin.earlier;
+    if (showIf(again, isDet && !job && (fin.cells !== cells || stale || earlier))) again.textContent = stale ? 'Add detail again with the new climate' : earlier && fin.cells === cells ? 'Add detail again with today’s finish' : `Add detail again at ${cellsWords(cells)}`;
     if (showIf($('cardDetailed'), !!detFrame && !isDet)) {
         $('cardDetailed').innerHTML = (job ? `Replaces the detailed ${dt} Myr once it is done.` : `Replaces the detailed ${dt} Myr — one moment is kept in detail.`) +
             ` <a href="#" data-t="${detFrame.time}">Go to ${dt} Myr</a>`;
     }
     const note = b?.problem ? b.problem
         : stale && !job ? 'Detailed with the Temperature, Precipitation and Lakes as they were — its rivers, ice and Satellite view too.'
+        : earlier && !job ? `Kept in this browser: detailed ${new Date(fin.earlier.savedAt).toLocaleString()} by an earlier version of the finish${fin.earlier.fast !== pageFast() ? ' (or another fast mode)' : ''} — Add detail again makes it with today’s.`
         : b?.finishNote && (isDet || !b.finishOk) ? b.finishNote
         : b?.loadNote && frame === b.loadFrame && !job ? b.loadNote : null;
     if (showIf($('cardNote'), !!note)) $('cardNote').textContent = note;
@@ -889,9 +897,9 @@ const planetFile = {
 };
 /** A world's planet file's parts (savePlanet's): its settings, its history, and its detailed moment if `fin`. */
 function planetOf(b, frame, fin) {
-    const [greenhouse, rain, lakes = 0] = (fin?.climateKey ?? detailKey()).split('|').map(Number);
+    const [greenhouse, rain, lakes = 0, ponds = 0] = (fin?.climateKey ?? detailKey()).split('|').map(Number);
     return {
-        settings: { seed: b.seed, ...(b.seedText ? { seedText: b.seedText } : {}), cont: b.contPct, len: b.lengthMyr, ending: b.ending, sim: b.simCells, terrain: b.terrainCells, greenhouse, rain, lakes, more: b.moreTo || 0 },
+        settings: { seed: b.seed, ...(b.seedText ? { seedText: b.seedText } : {}), cont: b.contPct, len: b.lengthMyr, ending: b.ending, sim: b.simCells, terrain: b.terrainCells, greenhouse, rain, lakes, ponds, more: b.moreTo || 0 },
         history: { frames: b.frames, simMesh: b.simMesh, simMyr: b.simMyr, steps: b.steps, stopped: b.stopped ?? null, snapshotMyr: SNAPSHOT_MYR, omit: [...(b.lacking ?? [])] },
         detail: fin ? { frame, fin } : null };
 }
@@ -909,7 +917,8 @@ async function remember(b) {
             const [frame, fin] = detailedOf(b) ?? [], started = performance.now();
             const { blob } = await savePlanet(planetOf(b, frame, fin));
             const key = worldKey({ seed: b.seed, cont: b.contPct, len: b.lengthMyr, ending: b.ending, sim: b.simCells, more: b.moreTo });
-            if (await keepWorld(key, blob, { detail: fin ? { time: frame.time, cells: fin.cells } : null, fast: pageFast() })) {
+            // (a moment from an earlier finish keeps its own stamp: kept again with its history, still marked earlier)
+            if (await keepWorld(key, blob, { detail: fin ? { time: frame.time, cells: fin.cells } : null, fast: fin?.earlier?.fast ?? pageFast(), finishCode: fin?.earlier?.finishCode ?? null })) {
                 console.info(`[world cache] kept ${key}${fin ? ` with ${frame.time.toFixed(0)} Myr at ${cellsWords(fin.cells)}` : ''}: ${mb(blob.size)} MB in ${((performance.now() - started) / 1000).toFixed(1)} s`);
             }
         } while (b.rememberAgain);
@@ -917,7 +926,7 @@ async function remember(b) {
 }
 const exportPanel = initEvolutionExport({
     moment: () => { const frame = painted, fin = frame && B?.finishes.get(frame); if (!fin) return null; setPlaying(false); return { frame, fin, seed: B.seedText ?? B.seed, cloudSeed: B.seed }; },
-    look: () => ({ lut: heightLutOf(view.palette), exaggeration: pv.SHADING.exaggeration, water: view.water, riverQ: view.riverQ, byRegime: view.byRegime, deposit: view.deposit }),
+    look: () => ({ lut: heightLutOf(view.palette), exaggeration: pv.SHADING.exaggeration, water: view.water, riverQ: view.riverQ, riverWidth: view.riverWidth, byRegime: view.byRegime, deposit: view.deposit }),
     centerLon: () => view.centerLon, projection: () => (view.mode === 'map' ? { id: view.projection, opts: view.projOpts } : null), isTouch: IS_TOUCH, planetFile,
     // (an export wider than the picture: the whole planet drawn with the detail finer than the mesh, in bands)
     // (its valleys cut along the rivers it draws alone)

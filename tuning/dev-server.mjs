@@ -56,6 +56,7 @@ http.createServer((req, res) => {
     }
     const fp = resolveFile(req.url);
     if (!fp) { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('404 Not Found'); return; }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(fp).toLowerCase()] || 'application/octet-stream' });
+    // (no-cache: the browser asks again each load, so an edited module never runs stale in a page or its workers)
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(fp).toLowerCase()] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
     fs.createReadStream(fp).pipe(res);
 }).listen(PORT, () => console.log(`World Orogen dev server → http://localhost:${PORT}  (clean URLs, /import works)`));

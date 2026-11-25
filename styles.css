@@ -128,6 +128,60 @@ body { background: var(--ui-page); overflow: hidden; font-family: var(--font-ui)
 /* (a meridian's degrees along the equator, on the map itself: the map's label colours) */
 .graticule-frame .gf-num--on-map { fill: var(--map-label); fill-opacity: 1; stroke: var(--map-halo); stroke-width: 3px; paint-order: stroke; stroke-linejoin: round; }
 @media (prefers-reduced-motion: reduce) { .graticule-frame { transition: none; } }
+/* the States overlay's names (v2/js/evolution/states-overlay.js): over the map, in client pixels, haloed as the map's
+   other labels — the capitals' and towns' names beside their pins (the states' and regions' are engraved into the land) */
+.states-labels { position: fixed; left: 0; top: 0; pointer-events: none; overflow: visible; }
+.states-labels text { fill: var(--map-label); stroke: var(--map-halo); stroke-width: 3px; paint-order: stroke; stroke-linejoin: round; }
+.states-labels .sl-cap-name { font: 600 17px var(--font-text); }
+.states-labels .sl-city-name { font: 600 16px var(--font-text); }
+.states-labels .sl-town-name { font: 400 15px var(--font-text); fill-opacity: 0.9; }
+.states-labels .sl-cap { fill: var(--pin-fill); stroke: var(--pin-ink); stroke-width: 2px; }
+.states-labels .sl-mark { fill: var(--pin-fill); stroke: var(--pin-ink); stroke-width: 1.2px; }
+.states-labels .sl-city { stroke-width: 1.6px; }
+.states-labels .sl-town { stroke-width: 1.2px; }
+.states-labels .sl-hub { stroke-width: 1.8px; }
+.states-labels .sl-village { stroke-width: 1px; }
+.states-labels .sl-village-name { font: 400 14px var(--font-text); fill-opacity: 0.8; }
+.states-labels .sl-hub-name { font-weight: 600; font-style: italic; }
+/* (why a place stands: a disc in its reason's colour, the categorical eight, its drawing inside in ink or white — whichever
+   reads at 3:1 on it; a fort neutral, as a pin) */
+.why-dot { fill: var(--why); stroke: var(--map-halo); stroke-width: 0.9px; }
+.why-half { fill: var(--why-2, var(--why)); }  /* (a second colour on the right half, for a resource that shares its first) */
+.why-ink { fill: none; stroke: var(--why-ink); stroke-width: 1.9px; stroke-linecap: round; stroke-linejoin: round; }
+.why-trade { --why: var(--cat-8); --why-ink: var(--map-label); }
+.why-precious { --why: var(--cat-1); --why-ink: var(--pin-ink); }
+.why-mineral { --why: var(--cat-4); --why-ink: var(--pin-ink); }
+.why-mine { --why: var(--cat-3); --why-ink: var(--map-label); }
+.why-stone { --why: var(--cat-4); --why-ink: var(--pin-ink); }
+.why-farm { --why: var(--cat-5); --why-ink: var(--map-label); }
+.why-gem { --why: var(--cat-6); --why-ink: var(--map-label); }
+.why-port { --why: var(--cat-7); --why-ink: var(--map-label); }
+.why-hold { --why: var(--pin-fill); --why-ink: var(--pin-ink); }
+/* Each resource its own colour (tokens.css, --res-*): the class names its member, slugged */
+.why-is-iron { --why: var(--res-metal-iron); --why-ink: var(--map-label); }
+.why-is-copper { --why: var(--res-metal-copper); --why-ink: var(--map-label); }
+.why-is-tin { --why: var(--res-metal-tin); --why-ink: var(--pin-ink); }
+.why-is-lead-and-zinc { --why: var(--res-metal-lead); --why-ink: var(--map-label); }
+.why-is-gold { --why: var(--res-precious-gold); --why-ink: var(--pin-ink); }
+.why-is-silver { --why: var(--res-precious-silver); --why-ink: var(--pin-ink); }
+.why-is-salt { --why: var(--res-mineral-salt); --why-ink: var(--pin-ink); }
+.why-is-diamonds { --why: var(--res-gem-diamond); --why-ink: var(--pin-ink); }
+.why-is-emerald { --why: var(--res-gem-green); --why-ink: var(--map-label); }
+.why-is-ruby-and-sapphire { --why: var(--res-gem-red); --why-2: var(--res-gem-blue); --why-ink: var(--map-label); }
+.why-is-garnet { --why: var(--res-gem-red); --why-ink: var(--map-label); }
+.why-is-lapis-lazuli { --why: var(--res-gem-blue); --why-ink: var(--map-label); }
+.why-is-sapphire-and-peridot-in-basalt { --why: var(--res-gem-blue); --why-2: var(--res-gem-green); --why-ink: var(--map-label); }
+.why-is-amethyst-geodes { --why: var(--res-gem-violet); --why-ink: var(--map-label); }
+.why-is-opal { --why: var(--res-gem-opal); --why-ink: var(--pin-ink); }
+.why-is-turquoise { --why: var(--res-gem-turquoise); --why-ink: var(--pin-ink); }
+.why-is-pegmatite-gems { --why: var(--res-gem-mixed); --why-ink: var(--pin-ink); }
+.why-is-gem-gravels { --why: var(--res-gem-mixed); --why-2: var(--res-gem-diamond); --why-ink: var(--pin-ink); }
+.why-is-obsidian { --why: var(--res-stone-obsidian); --why-ink: var(--map-label); }
+.why-is-jade { --why: var(--res-stone-jade); --why-ink: var(--pin-ink); }
+.why-is-agate-and-jasper { --why: var(--res-stone-agate); --why-ink: var(--map-label); }
+.why-is-marble { --why: var(--res-stone-marble); --why-ink: var(--pin-ink); }
+.states-why { width: 1.25em; height: 1.25em; vertical-align: -0.28em; }
+.states-why-key span { white-space: nowrap; }
 /* (not over the loading screen: on Generate and Import it comes first in the page, the frame after the canvas) */
 .build-overlay:not(.hidden) ~ .graticule-frame { visibility: hidden; }
 
@@ -325,6 +379,11 @@ body { background: var(--ui-page); overflow: hidden; font-family: var(--font-ui)
     white-space: normal; box-shadow: var(--shadow-card);
 }
 .tip-pop[hidden] { display: none; }
+/* (a tip's paragraphs and its list, js/tip-text.js) */
+.tip-pop p, .evo-tooltip p { margin: 0 0 6px; }
+.tip-pop p:last-child, .evo-tooltip p:last-child { margin-bottom: 0; }
+.tip-pop ul, .evo-tooltip ul { margin: 0 0 6px; padding-left: 18px; }
+.tip-pop ul:last-child, .evo-tooltip ul:last-child { margin-bottom: 0; }
 input[type="range"] { width: 100%; height: 20px; margin: 0; accent-color: var(--ink); cursor: pointer; }
 
 /* Slider thumb tooltip */
@@ -381,6 +440,8 @@ button#generate.generating {
 }
 /* (a setting changed mid-build: Rebuild drops the build under way and starts it again, js/main.js) */
 button#generate.generating.restart { background: var(--accent); border-color: var(--accent); color: var(--on-accent); cursor: pointer; }
+/* (a build under way: Cancel drops it, the page as it was before — a secondary button, not the view's one action) */
+button#generate.generating.cancel { background: var(--surface); border-color: var(--rule); color: var(--ink); cursor: pointer; }
 #reapplyBtn {
     width: 100%; min-height: var(--size-touch); padding: 0 var(--space-4); margin-top: var(--space-1);
     background: var(--surface); color: var(--ink);
@@ -531,6 +592,40 @@ body:has(#helpBtn) { --bar-help: 64px; }
     background-color: color-mix(in srgb, var(--bg) 96%, transparent); color: var(--ink); border: var(--line-hair) solid var(--rule); border-radius: var(--radius-md);
     min-height: 38px; padding: 0 28px 0 12px; font: 500 13px/1 var(--font-ui); width: auto; box-shadow: var(--shadow-card);
 }
+/* the Deposits view's checklist (v2/js/view/layer-bar.js): a button like the menus beside it, the list dropping under it */
+.dep-pick { position: relative; }
+.dep-pick-btn {
+    display: inline-flex; align-items: center; gap: var(--space-2); min-height: 38px; padding: 0 var(--space-3);
+    background-color: color-mix(in srgb, var(--bg) 96%, transparent); color: var(--ink); border: var(--line-hair) solid var(--rule); border-radius: var(--radius-md);
+    font: 500 13px/1 var(--font-ui); box-shadow: var(--shadow-card); cursor: pointer;
+}
+.dep-pick-btn .dep-pick-label { color: var(--muted); }
+.dep-pick-btn[aria-expanded="true"] { background-color: var(--chip-on); border-color: var(--ink); }
+.dep-pick-btn[aria-expanded="true"] svg { transform: rotate(180deg); }
+.dep-pick-menu {
+    position: absolute; top: calc(100% + var(--space-1)); left: 50%; transform: translateX(-50%); z-index: 30;
+    width: 320px; max-height: min(65vh, 560px); overflow-y: auto; overscroll-behavior: contain; padding: var(--space-2) var(--space-3) var(--space-3);
+    background: var(--surface); border: var(--line-hair) solid var(--rule); border-radius: var(--radius-md); box-shadow: var(--shadow-card);
+    text-align: left;
+}
+.dep-pick-menu[hidden] { display: none; }
+.layer-bar:has(.dep-pick-btn[aria-expanded="true"]) { z-index: 27; }   /* (the open checklist over the region tools, 26) */
+.dep-pick-quick { display: flex; gap: var(--space-2); padding-bottom: var(--space-2); border-bottom: var(--line-hair) solid var(--rule); }
+.dep-pick-quick button {
+    min-height: 32px; padding: 0 var(--space-3); border: var(--line-hair) solid var(--rule); border-radius: var(--radius-sm);
+    background: none; color: var(--ink); font: 500 12px/1 var(--font-ui); cursor: pointer;
+}
+.dep-pick-quick button:hover, .dep-pick-item:hover { background: var(--chip-on); }
+.dep-pick-sub { margin: var(--space-3) 0 0; font: 500 11px/1.2 var(--font-ui); color: var(--muted); letter-spacing: 0.02em; }
+.dep-pick-group { margin: var(--space-2) 0 0; padding: 0; border: 0; min-width: 0; }
+.dep-pick-group legend { padding: 0; width: 100%; }
+.dep-pick-list { display: grid; grid-template-columns: 1fr 1fr; gap: 0 var(--space-2); padding-left: var(--space-5); }
+.dep-pick-item {
+    display: flex; align-items: center; gap: var(--space-2); min-height: 28px; padding: 0 var(--space-1); border-radius: var(--radius-sm);
+    font: 400 12px/1.2 var(--font-ui); color: var(--ink); cursor: pointer;
+}
+.dep-pick-item input { margin: 0; accent-color: var(--accent); flex: none; }
+.dep-pick-head { font-weight: 600; font-size: 13px; }
 /* (More…: lit as a tab is, while one of its layers is shown) */
 .layer-subbar select.active {
     background-color: var(--chip-on); color: var(--ink); border-color: var(--ink);
@@ -622,7 +717,10 @@ body:has(#helpBtn) { --bar-help: 64px; }
 .evo-ore-family > span:first-child { font: 600 12px/1.3 var(--font-ui); color: var(--ink); }
 .evo-ore-family i { display: inline-block; width: 12px; height: 12px; border-radius: var(--radius-xs); margin-right: 6px; vertical-align: -2px; }
 .evo-ore-members { padding-left: 18px; font: 400 13.5px/1.35 var(--font-text); color: var(--body); }
-#regimeRow { margin-top: 0; margin-bottom: 6px; }
+/* (the rivers' controls in the view strip: in line with its other items and as far apart — a margin left from when By
+   regime was a row of its own lifted it 3 px, and the group's 6 px crowded the toggles together) */
+#regimeRow { margin: 0; }
+#waterGroup { column-gap: 16px; }
 .evo-regime-legend {
     font: 500 12px/1.4 var(--font-ui); color: var(--body); margin-bottom: 8px;
 }
@@ -680,10 +778,70 @@ body:has(#helpBtn) { --bar-help: 64px; }
 .evo-farm-bar i { flex: none; width: 100px; height: 10px; border-radius: 2px; }
 .evo-farm-bar span { min-width: 0; }
 .evo-farm-bar + .evo-koppen, .evo-farm-chips + .evo-koppen { margin-top: 2px; }
+/* the Empire legend: how many cities (− n +), and the spots, best first (empire-view.js) */
+.empire-count { display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; font: 600 11.5px/1.2 var(--font-ui); color: var(--muted); }
+.empire-count em { font-style: normal; min-width: 1.6em; text-align: center; color: var(--ink); }
+.empire-count .evo-farm-chip { padding: 2px 9px; }
+.empire-count .evo-farm-chip:disabled { opacity: 0.45; cursor: default; }
+.empire-spots { margin: 4px 0 6px; padding-left: 20px; max-height: 180px; overflow-y: auto; font: 400 12px/1.4 var(--font-ui); color: var(--muted); }
+.empire-spots li { margin: 0 0 3px; }
+.empire-spots b { font-weight: 600; color: var(--ink); }
+.states-list { list-style: none; padding-left: 0; }
+.states-sw { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 2px; vertical-align: -1px; box-shadow: inset 0 0 0 1px var(--rule); }
+/* the States infobox (v2/js/evolution/states-card.js): a click on a state or a place; docked at the right, as every
+   infobox; on a phone under the view strip */
+.states-card {
+    position: fixed; z-index: 30; right: calc(16px + var(--bar-help, 0px)); top: calc(var(--nav-h) + 16px); width: 320px; max-height: calc(100vh - var(--nav-h) - 32px); overflow: auto;
+    background: var(--surface); border: var(--line-hair) solid var(--rule); border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-card); padding: 12px 14px; font: 500 12.5px/1.45 var(--font-ui); color: var(--body);
+}
+.states-card[hidden] { display: none; }
+.states-card__head { display: flex; align-items: flex-start; gap: 8px; }
+.states-card__head h2 { flex: 1; margin: 0; font: 600 20px/1.2 var(--font-display); color: var(--ink); }
+.states-card__head h2 .states-why { width: 16px; height: 16px; margin-right: 4px; vertical-align: -1px; }
+.states-card__close {
+    flex: none; width: 28px; height: 28px; display: grid; place-items: center; padding: 0; cursor: pointer;
+    border: 0; border-radius: var(--radius-full); background: transparent; color: var(--muted);
+}
+.states-card__close:hover { background: var(--chip-track); color: var(--ink); }
+.states-card__close:focus-visible, .states-card button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.states-card__close svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.6px; stroke-linecap: round; }
+.states-card__sub { margin: 2px 0 8px; color: var(--muted); font-size: 11.5px; }
+.states-card__label { margin: 6px 0 2px; font-weight: 600; color: var(--ink); }
+.states-card__why { list-style: none; margin: 0 0 6px; padding: 0; font: 400 13.5px/1.4 var(--font-text); }
+.states-card__why li { margin: 0 0 2px; }
+.states-card__why b { font-family: var(--font-ui); font-size: 12px; font-weight: 600; color: var(--ink); }
+.states-card__row { display: grid; grid-template-columns: 76px 1fr; gap: 8px; padding: 4px 0; border-top: var(--line-hair) solid var(--rule); }
+.states-card__row > b { font-weight: 600; color: var(--muted); }
+.states-card__row > span { font: 400 13.5px/1.4 var(--font-text); }
+.states-card__row > span b { color: var(--ink); font-weight: 600; }
+.states-card__text { margin: 0 0 8px; font: 400 13.5px/1.45 var(--font-text); }
+.states-card__acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.states-labels .sl-sel { fill: none; stroke: var(--map-label); stroke-width: 2px; }
+/* (a picked place's food reach: the land that would sell to it first, washed and outlined) */
+.states-labels .sl-reach-fill { fill: var(--map-label); fill-opacity: 0.18; fill-rule: evenodd; }
+.states-labels .sl-reach-halo { fill: none; stroke: var(--map-halo); stroke-width: 4px; stroke-linecap: round; }
+.states-labels .sl-reach-edge { fill: none; stroke: var(--map-label); stroke-width: 1.8px; stroke-linecap: round; }
+/* (the region under the pointer: its border and its name lit in map-label, a soft glow round them, fading in and out —
+   the borders and names themselves stay as subtle as they are drawn; no hover on a touch screen) */
+.states-labels .sl-hover { opacity: 0; transition: opacity 160ms ease-out; }
+.states-labels .sl-hover.on { opacity: 1; }
+.states-labels .sl-hover-glow { fill: none; stroke: var(--map-label); stroke-opacity: 0.22; stroke-width: 6px; stroke-linecap: round; stroke-linejoin: round; filter: blur(2px); }
+.states-labels .sl-hover-edge { fill: none; stroke: var(--map-label); stroke-opacity: 0.85; stroke-width: 1.3px; stroke-linecap: round; stroke-linejoin: round; }
+/* (each letter is drawn in its engraved twin's own projected frame, one em a unit, so the glow lies on it; the light on the group, in screen pixels) */
+.states-labels .sl-hover-names { filter: drop-shadow(0 0 3px var(--map-label)); }
+.states-labels .sl-hover-names text { font-family: var(--font-text); font-style: italic; font-weight: 600; fill: var(--map-label); fill-opacity: 0.85; stroke: none; text-anchor: middle; dominant-baseline: alphabetic; }
+@media (prefers-reduced-motion: reduce) { .states-labels .sl-hover { transition: none; } }
 @media (max-width: 768px) {
+    .states-card { left: 16px; right: 16px; width: auto; top: calc(var(--nav-h) + 64px); max-height: 45vh; }
+    /* (a pick in the top half: the card drops to the bottom, above the sheet and its round buttons, so the ring stays in sight) */
+    .states-card--low { top: auto; bottom: 128px; }
+    .states-card__close { width: 44px; height: 44px; margin: -8px -10px 0 0; }
     /* the Food row's views: in the layer list too (as the Geology row's, below); its legend's chips and choices 44 px */
     .layer-bar #farmingTabs { display: none !important; }
     .evo-farm-chip { min-height: 44px; padding: 0 12px; font-size: 12px; }
+    .empire-count .evo-farm-chip { min-width: 44px; padding: 0 12px; }
+    .empire-spots { max-height: 120px; }
     /* (the Geology row's views are in the layer list there, as the Climate row's are; its pickers stay, under the list) */
     .layer-bar #geologyTabs { display: none !important; }
     .evo-age-chips [data-age-res] { min-height: 32px; display: inline-flex; align-items: center; }
@@ -1278,6 +1436,8 @@ body:has(#buildProgress:not([hidden])) .legend-card { bottom: 126px; max-height:
 .terrain-tools label { display: flex; align-items: center; gap: 6px; padding: 0 8px; }
 .terrain-tools input[type="range"] { width: 90px; }
 .terrain-tools output { min-width: 52px; }
+/* the paint's colour beside its picker (a categorical token, set from edit-tools.js) */
+.terrain-tools .paint-swatch { width: 14px; height: 14px; flex: none; border-radius: var(--radius-full); box-shadow: inset 0 0 0 1px var(--rule); }
 /* (Generate's tools: the Terrain tab's own row under the layer tabs, as Climate's and Geology's — clear of the hover readout) */
 .layer-subbar .terrain-tools {
     position: static; transform: none; max-width: 100%; justify-content: center; padding: 3px;
@@ -1287,13 +1447,15 @@ body:has(#buildProgress:not([hidden])) .legend-card { bottom: 126px; max-height:
 body.terrain-tool-on #planetCanvas, body.terrain-tool-on canvas { cursor: crosshair; }
 .terrain-marks { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20; overflow: visible; }
 .terrain-marks path { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; filter: drop-shadow(var(--shadow-pin)); }
-.terrain-marks .guide { stroke-width: 1.5; stroke-dasharray: 6 5; opacity: 0.85; }
 .terrain-marks .line { stroke-width: 3; }
+.terrain-marks .line.erase { stroke-dasharray: 7 5; }   /* the brush's ring while it erases waiting paint */
+.terrain-marks .line.out { stroke-width: 2; opacity: 0.35; filter: none; }   /* the ring outside the plates the paint is kept to */
 
 /* Region pick and the region's window (fork) — js/region-pick.js, v2/js/region/region-view.js */
 .terrain-tools.region-pick { bottom: auto; top: 140px; left: auto; right: 16px; transform: none; max-width: min(400px, calc(100vw - 32px)); justify-content: flex-end; border-radius: 24px; }
 .region-pick .region-more { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding-left: 8px; }
 .region-pick .region-more[hidden] { display: none; }
+.terrain-tools.region-pick[hidden] { display: none; }   /* (the States view: the whole planet, no region to pick) */
 .region-pick [data-n] { color: var(--muted); padding: 0 4px; }
 .region-pick select { font: inherit; }
 .region-view { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; background: var(--bg); color: var(--ink); font: 500 13px/1.4 var(--font-ui); }
@@ -1546,7 +1708,20 @@ body.terrain-tool-on #planetCanvas, body.terrain-tool-on canvas { cursor: crossh
     .layer-bar { top: calc(var(--nav-h) + 60px); max-width: calc(100vw - 32px); }   /* (under the list: its 44 px, 8 px either side; the window's width, the tabs being in the list) */
     .layer-bar .layer-row, .layer-bar #climateTabs, .layer-bar #climateMore { display: none !important; }
     .layer-subbar select { min-height: 44px; }
+    .dep-pick { position: static; }
+    .dep-pick-btn { min-height: var(--size-touch); }
+    /* (the checklist the window's width, under the bar, its rows a finger tall) */
+    /* (fixed, but placed from the bar, whose transform holds it: its middle is the window's) */
+    .dep-pick-menu { position: fixed; top: auto; left: 50%; right: auto; width: calc(100vw - 16px); transform: translateX(-50%); max-height: 55vh; margin-top: var(--space-1); }
+    .dep-pick-quick button, .dep-pick-item { min-height: var(--size-touch); }
+    .dep-pick-list { grid-template-columns: 1fr; }
+    .layer-subbar .terrain-tools button { min-height: var(--size-touch); }   /* (Look, Paint, Erase …: the tools row wraps on a phone) */
     .legend-card { top: calc(var(--nav-h) + 108px); bottom: auto; left: 8px; right: 8px; width: auto; max-height: 28vh; }
+    /* (the legend goes under the Region pick, open or not — the button sits where the legend's corner would be;
+       js/region-pick.js sets the place) */
+    body:has(.region-pick:not([hidden])) .legend-card { top: var(--region-pick-bottom, calc(var(--nav-h) + 108px)); }
+    /* (just above the Rebuild button, clear of the sculpt tools at the top; the characters one row that scrolls
+       sideways, so the card stays short and the selected pieces show above it) */
     .view-strip.in-sheet { font-size: 14px; }
     .view-strip.in-sheet select, .vs-seg button { min-height: 44px; font-size: 14px; }
     .vs-seg button { padding: 0 18px; }

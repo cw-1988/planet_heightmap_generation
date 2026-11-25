@@ -51,6 +51,7 @@
             "Temperature and precipitation controls worked through the climate physics",
             "Hotspot volcanism with island chains",
             "Interactive plate editing",
+            "Paint layer: paint flat, hilly, mountainous, plateau, archipelago, shallow sea, lakeland, swamp, rifted, volcanic or ocean ground anywhere, as a colour-coded layer you can hide, erase or clear, carried in the planet code",
             "Bring your own map: an equirectangular heightmap (drawn, real or from another tool) run through the full seasonal climate: winds, rain, temperature, Köppen climate zones, rivers and lakes, the satellite view and food",
             "Tectonic history simulation: watch continents break up and collide, then sculpt any moment in detail, and save the planet as a file to open again later",
             "Geology from each planet's past (Generate's in closed form, Evolution's simulated): rock-type maps, ore, fuel, mineral and gem deposits with how each formed, and resources by technological age — exported as maps, richness masks, GeoJSON and a resource atlas",
@@ -162,6 +163,7 @@
             <li>Climate simulation with seasonal wind patterns, ocean currents, precipitation, and K&ouml;ppen climate classification</li>
             <li>Hotspot volcanism with drift-trail island chains (like Hawaii)</li>
             <li>Interactive plate editing — select multiple plates for batch land/ocean toggling with visual preview before rebuild</li>
+            <li>Paint layer — paint ground flat, hilly, mountainous, a plateau, an archipelago, a shallow sea, a lakeland, a swamp, rifted, volcanic or deep ocean, reshaping its own relief; the paint stays a colour-coded layer over the plates that can be hidden, erased or cleared, and it travels in the planet code</li>
             <li>Your own map's climate — bring an equirectangular B&amp;W heightmap (of a map you drew, of Earth or Mars, or from another tool) and see its winds, rain, temperatures and K&ouml;ppen climate zones, its rivers and lakes, a satellite view with clouds and what its land could grow</li>
             <li>Evolution — watch a planet's continents rift, drift and collide over a billion years, then sculpt any moment in detail with rivers, glaciers, its own climate, a satellite view and a geology view: a rock-type map, ore, fuel, mineral and gem deposits built from that history — each district with the story of how it formed — what each technological age could mine, and exports of them all (maps, richness masks, GeoJSON, a resource atlas) — and a food view (what its land could grow, what each place would live on most, and whether its people would farm, herd or gather); and save the planet as a file to open again later</li>
             <li>Temperature and precipitation controls that work through the climate: cool a planet and its ice spreads, warm it and it grows wetter</li>
@@ -203,7 +205,7 @@
             <summary>Shape your world</summary>
             <div class="section-body">
                 <div class="cg">
-                    <label>Detail <span class="tip" data-tip="Resolution of the sphere — more detail means finer coastlines and terrain, but takes longer to generate. The planet is made of cells: the more there are, the closer together they sit — on an Earth-sized planet about 57 km apart at 180K, 8 km at 10M. Each step is about 1.5× the one before; the slider ends at the finest this machine's memory holds">?</span> <span class="v" id="vN">180K cells</span></label>
+                    <label>Detail <span class="tip" data-tip="Resolution of the sphere — more detail means finer coastlines and terrain, but takes longer to generate. The planet is made of cells: the more there are, the closer together they sit — on an Earth-sized planet about 57 km apart at 180K, 8 km at 10M. Each step is about 1.5× the one before; the slider ends at the finest this machine's memory holds">?</span> <span class="v" id="vN">180K</span></label>
                     <input type="range" id="sN" min="0" max="19" step="1" value="9" aria-label="Detail">
                     <div class="slider-hint"><span>Coarse</span><span>Fine</span></div>
                     <div class="detail-warn" id="detailWarn"></div>
@@ -303,6 +305,11 @@
                     <input type="range" id="sLk" min="-1" max="1" value="0" step="0.1">
                     <div class="slider-hint"><span>None</span><span>Lake district</span></div>
                 </div>
+                <div class="cg">
+                    <label>Small lakes <span class="tip" data-tip="The lakes too small for the terrain's own hollows, from a few hundred metres to about ten kilometres across, many small for each big one. They gather where real ones do: on lowland the last ice age scoured, on frozen tundra, on the floodplains of big rivers and on wet flats; sloping, unglaciated land drains its hollows and keeps few. Left: fewer, all the way none. Right: up to four times as many">?</span> <span class="v" id="vPd">±0</span></label>
+                    <input type="range" id="sPd" min="-1" max="1" value="0" step="0.1">
+                    <div class="slider-hint"><span>None</span><span>Lake district</span></div>
+                </div>
             </div>
         </details>
         <details class="section is-rock" id="inspectSection">
@@ -357,7 +364,7 @@
             </div>
             <div class="tutorial-step" data-step="2">
                 <h3>Explore &amp; edit</h3>
-                <p><strong>Drag</strong> to rotate the globe. <strong>Scroll</strong> to zoom in and out. <strong>Ctrl-click</strong> plates (&#8984;-click on a Mac) to mark them for reshaping &mdash; select multiple, then hit <strong>Rebuild</strong> to apply all at once. Ctrl-click again to undo a pending selection. <strong>Hover</strong> any place to see its plate and crust, height, river or lake, climate &mdash; and on the Geology and Food views its rock, ores and what the land could feed.</p>
+                <p><strong>Drag</strong> to rotate the globe. <strong>Scroll</strong> to zoom in and out. <strong>Ctrl-click</strong> plates (&#8984;-click on a Mac) to mark them for flipping &mdash; select multiple and hit <strong>Rebuild</strong> to turn land to sea and sea to land, all at once. Ctrl-click again to undo a pending selection. <strong>Hover</strong> any place to see its plate and crust, height, river or lake, climate &mdash; and on the Geology and Food views its rock, ores and what the land could feed.</p>
             </div>
             <div class="tutorial-step" data-step="3">
                 <h3>Visualize your world</h3>
@@ -429,6 +436,7 @@
                     <li><strong>Mountains with a cause</strong> &mdash; Andean margins, collisions, island arcs and rift valleys, carved into massifs, each worn down to its age.</li>
                     <li><strong>Geology and Food</strong> &mdash; Evolution's Geology and Food (beta) tabs, with their exports and readout.</li>
                     <li><strong>Editing</strong> &mdash; Ctrl-click a plate and Rebuild: the edit changes the place you edit and little else. And in every tool, the poles no longer smear.</li>
+                    <li><strong>Paint</strong> &mdash; choose Paint on the Terrain tab, pick a character (flat, hilly, mountainous, a plateau, an archipelago, a shallow sea, lakeland, a swamp, rifted, volcanic or deep ocean) and drag anywhere, then press Apply. To keep paint off the plates around, Ctrl-click the plates it may go on first (amber; on a phone, tap them in edit mode). One stroke marks a mountain range, another an island chain or a deep ocean basin, each easing into the ground around it. The paint stays a layer over the plates, one colour per character: Erase rubs it out, Layer hides it, Clear paint takes it all off, and it travels in the planet code.</li>
                 </ul>
             </div>
             <div class="whatsnew-step" data-step="3">

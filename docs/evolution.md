@@ -44,7 +44,7 @@ says it was made with the old ones. Lakes changes only Add detail.
   play; the shaded part of the rail is the history computed so far, and you can scrub through all of it while the rest
   fills in. Playback speed is on the timeline.
 - Drag the globe to turn it, scroll to zoom, and hover the planet for its height, crust (its age and setting) and
-  climate.
+  climate. On a warm finished coast it also names the mangroves or coral reef there.
 - At the end of a history, **Extend history** runs it on for as long as you like.
 - The link in your address bar rebuilds the same history, so you can share it.
 
@@ -101,7 +101,10 @@ On a detailed moment, Geology shows what the history left in the rock.
   hues, each family's metals named in the legend and the readout), or by metal (iron, copper, gold, silver, tin, lead
   and zinc, aluminium, nickel, platinum, diamonds, salt, each in its family's colour;
   coal, oil and gas, peat, wood) or by the kind of deposit: about 35 kinds of ore, fuel and mineral where the history and
-  the finished climate and rivers put them. Copper and gold over volcanic arcs, gold in old belts and along shear zones,
+  the finished climate and rivers put them. The picker is a checklist: tick one alone, a whole group (every gem, every
+  fuel, every kind from the climate and rivers) with its heading's box, or any mix; several together are drawn as All
+  is, each place its richest (a tie to the scarcer), each in its own colour, the legend listing them with their share
+  of the land. *All metals and minerals* and *Clear* sit at its top. Copper and gold over volcanic arcs, gold in old belts and along shear zones,
   iron in most mountain belts, tin far inboard and scarce, lead-zinc in basins over the basement's highs, nickel and
   platinum under flood basalts, diamonds on ancient cratons, banded iron in their greenstone belts; oil and gas in thick
   basins, gathered on fold crests and arches; coal in forelands, rifts and coastal plains; laterite and bauxite capping
@@ -131,13 +134,17 @@ land allows, not what its people must do.
 - **People**: how many the land could feed before industry, each place by its way of life: poor ground farmed in long
   fallows, so a rainforest feeds a few a km², and gatherers a tenth to a few a km². Fish from a rich shore, lake or
   river comes on top for every way of life.
-- **City size** (on its own tab, Civilizations, next to Food; `v2/js/evolution/city-view.js`, `city-haul.js`): the biggest town a place could hold, a ceiling for
-  one city taking all of it — the land's surplus (15 % of the People it could feed: farmers eat the rest) within the
+- **City size** (on its own tab, Civilizations, next to Food; `v2/js/evolution/city-view.js`, `city-haul.js`): the biggest town a place could hold before industry.
+  Its food is the land's surplus (15 % of the People it could feed: farmers eat the rest) within the
   Reach. The Reach is a haul's cost in days by cart (0.5–12, 25 km a day; the slider under the tabs, or Shift+wheel
   over the planet). Water is cheaper: a km by river costs a fifth of a cart's, by lake a tenth, by sea a twentieth, so
   the count is the larger of the land by cart alone and what boats bring (cart to the water, boat, cart from the
-  fields, the legs added up). It is a heat map on a log scale from the richest place down ten-thousandfold. A ring of
-  the reach by cart follows the pointer on the Generate page (`js/city-ring.js`). Its speed: [city-size-speed.md](city-size-speed.md).
+  fields, the legs added up). A field's share falls with the haul's cost, to about a third every 2.5 days of it (von
+  Thünen's rings, Huff's distance decay: nearer markets get the most, the haul eats the rest), and the food feeds many
+  towns, not one: by the rank–size rule the largest of the towns sharing it (about 2,000 people each on average) holds
+  1/H(N) of it. So a day's reach gives market towns of tens of thousands, four days a few hundred thousand, and the best
+  site at the longest reach most of a million, Rome's size. It is a heat map on a log scale from the richest place down ten-thousandfold. No ring
+  at the pointer: the reach differs by cart, river, lake and sea, so one circle would mislead. Its speed: [city-size-speed.md](city-size-speed.md).
 - **Soil** and **Growing season** show what lies behind it.
 
 ## Export
