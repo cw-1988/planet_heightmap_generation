@@ -1,7 +1,8 @@
 // What the detail finer than the mesh is drawn from (plans/V2_FINE_DETAIL_PLAN.md; fine-detail.js): a small picture of
 // bytes the finish leaves beside its picture of heights — regional fields, each from a cause the finish worked out: where
 // the ice age's glaciers were and which way its sheets flowed, how cold the coast is, how active the margin, the fold
-// belts and rifts with their strike, the sand seas and the wind, how wet, how young the belt, how rugged. Saved with the
+// belts and rifts with their strike, the sand seas and the wind, how wet, how young the belt, how rugged, the sea's waves,
+// tide and sand on each coast, its winter's warmth, its rivers' mud and the way its waves travel. Saved with the
 // moment; a moment without them gets no detail finer than its mesh.
 
 import { CoastKind, deriveRecords, kindType, kindSide } from '../terrain/records.js';
@@ -28,6 +29,14 @@ export const DRIVER_FIELDS = [
     'wet',        // the year's rain (log: 100 mm … 4000 mm)
     'young',      // how active the belt is (1 while the history still raises it)
     'rugged',     // the relief within ~20 km (0 … 2 km)
+    'wave',       // how exposed the coast is to the waves (0 … 1: a storm's significant height 0.5 … 4 m — finish-coast.js)
+    'tide',       // the coast's tidal range (0 … 12 m)
+    'sand',       // the sand the coast is given (0 … 1: soft rock worn back, the rivers' load carried along the shore)
+    // (added after: a moment finished before them has none — its readers check)
+    'winter',     // the coldest month at sea level (−10 … 35 °C: finish-coast.js COAST.winterC — reefs, mangroves)
+    'muddy',      // the rivers' mud in the coast's water (0 … 1)
+    'waveE',      // which way the waves travel, east and north (128 ± 127 × their energy's mean direction: the longshore drift)
+    'waveN',
 ];
 
 /** The drivers' picture's width for a finished picture of width `rasterW`: half of it, at most 2048. */
@@ -36,7 +45,7 @@ export const driverWidth = rasterW => Math.max(256, Math.min(2048, rasterW >> 1)
 /**
  * @param {Object} o  { mesh, z (km, finished), lat, lon (degrees), ice, iceH (km), iceS (km: its surface), erg, wind
  *                     ({year, jan, jul}: [u, v] on climGrid), climGrid, warmSl (°C), rain (mm), young (bytes: the belt's activity), frame,
- *                     simMesh, cfg (terrain), seed, width }
+ *                     simMesh, cfg (terrain), seed, width, coast (finish-coast.js coastWork: wave, tide, sand, winter, muddy, waveE, waveN per cell — or none) }
  * @returns {{w: number, h: number, [field]: Uint8Array}}
  */
 export function detailDrivers(o) {
@@ -48,6 +57,9 @@ export function detailDrivers(o) {
     const rec = o.rec !== undefined ? o.rec : o.frame ? deriveRecords(o.frame, simMesh, o.cfg, o.seed) : null, L0 = rec?.belts[0];
     const [warmC, coldC] = o.cfg.drownColdC ?? [19, 13];
     const near = new Int32Array(P);
+    // (a column's longitude and its cosine and sine, worked out once for all its rows: the same values)
+    const LO = new Float64Array(W), COS = new Float64Array(W), SIN = new Float64Array(W);
+    for (let x = 0; x < W; x++) { LO[x] = ((x + 0.5) * 360 / W - 180) * D2R; COS[x] = Math.cos(LO[x]); SIN[x] = Math.sin(LO[x]); }
     report(0.1);
     for (let y = 0; y < H; y++) {
         if ((y & 31) === 0) report(0.1 + 0.7 * y / H);
@@ -56,9 +68,6 @@ export function detailDrivers(o) {
             const lo = LO[x], cosL = COS[x], sinL = SIN[x], px = cl * cosL, py = cl * sinL, pz = sl, p = y * W + x;
             // (the place's own east and north)
             const ex = -sinL, ey = cosL, nx = -sl * cosL, ny = -sl * sinL, nz = cl;
-    // (a column's longitude and its cosine and sine, worked out once for all its rows: the same values)
-    const LO = new Float64Array(W), COS = new Float64Array(W), SIN = new Float64Array(W);
-    for (let x = 0; x < W; x++) { LO[x] = ((x + 0.5) * 360 / W - 180) * D2R; COS[x] = Math.cos(LO[x]); SIN[x] = Math.sin(LO[x]); }
             const c = mesh.index.nearest(px, py, pz);
             near[p] = c;
             // the ice age
@@ -89,6 +98,11 @@ export function detailDrivers(o) {
                 let d = Math.abs(a1 - a2); if (d > Math.PI) d = TAU - d;
                 out.duneMode[p] = byte(smooth(40 * D2R, 100 * D2R, d));
             }
+            // the sea's work on the coast (finish-coast.js): its waves, its tide, its sand
+            if (o.coast) {
+                out.wave[p] = o.coast.wave[c]; out.tide[p] = o.coast.tide[c]; out.sand[p] = o.coast.sand[c];
+                out.winter[p] = o.coast.winter[c]; out.muddy[p] = o.coast.muddy[c]; out.waveE[p] = o.coast.waveE[c]; out.waveN[p] = o.coast.waveN[c];
+            } else out.waveE[p] = out.waveN[p] = 128;
             // the records (the sim mesh, at the moment): the margin, the belts
             if (!rec) continue;
             const w = simMesh.index.nearest(px, py, pz);
@@ -115,8 +129,10 @@ export function detailDrivers(o) {
     report(0.8);
     const zz = new Float32Array(P);
     for (let p = 0; p < P; p++) zz[p] = z[near[p]];
+    // (the wrap's columns worked out once per column, not per read: the same pixels in the same order)
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
         let lo = Infinity, hi = -Infinity;
+        const xm = x ? x - 1 : W - 1, xp = x + 1 < W ? x + 1 : 0;
         for (let dy = -1; dy <= 1; dy++) {
             const r = Math.min(H - 1, Math.max(0, y + dy)) * W;
             let v = zz[r + xm]; if (v < lo) lo = v; if (v > hi) hi = v;
@@ -127,14 +143,18 @@ export function detailDrivers(o) {
     }
     // (regional fields: softened over a pixel, so the detail fades in and out rather than stepping)
     report(0.9);
-    for (const k of ['ice', 'scour', 'cold', 'active', 'fold', 'erg', 'young', 'rugged', 'wet']) blur3(out[k], W, H);
+    for (const k of ['ice', 'scour', 'cold', 'active', 'fold', 'erg', 'young', 'rugged', 'wet', 'wave', 'tide', 'sand', 'winter', 'muddy', 'waveE', 'waveN']) blur3(out[k], W, H);
     return out;
 }
 
-    // (the wrap's columns worked out once per column, not per read: the same pixels in the same order)
+/** A direction's angle (0 … 2π) in a place's own east (ex, ey, 0) – north (nx, ny, nz) frame. */
+function angleIn(vx, vy, vz, ex, ey, nx, ny, nz) {
+    const a = Math.atan2(vx * nx + vy * ny + vz * nz, vx * ex + vy * ey);
+    return ((a % TAU) + TAU) % TAU;
+}
+
 /** A field on the climate's grid at (lat, lon) — bilinear, wrapping in longitude. */
 function gridAt(g, field, lat, lon) {
-        const xm = x ? x - 1 : W - 1, xp = x + 1 < W ? x + 1 : 0;
     const { w, h } = g, step = 180 / h;
     const x = (lon + 180) / step - 0.5, y = Math.max(0, Math.min(h - 1, (90 - lat) / step - 0.5));
     const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
@@ -156,10 +176,4 @@ function blur3(a, W, H) {
         const o = y * W, up = Math.max(0, y - 1) * W, dn = Math.min(H - 1, y + 1) * W;
         for (let x = 0; x < W; x++) a[o + x] = Math.round((t[up + x] + t[o + x] + t[dn + x]) / 9);
     }
-/** A direction's angle (0 … 2π) in a place's own east (ex, ey, 0) – north (nx, ny, nz) frame. */
-function angleIn(vx, vy, vz, ex, ey, nx, ny, nz) {
-    const a = Math.atan2(vx * nx + vy * ny + vz * nz, vx * ex + vy * ey);
-    return ((a % TAU) + TAU) % TAU;
-}
-
 }

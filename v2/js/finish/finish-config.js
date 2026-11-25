@@ -164,7 +164,10 @@ export const FINISH = {
     seaCutFloorKm: 0.003,       // …else a gorge stops this above sea level, and dry ground below sea level is filled to it
     seaBreachKm: 0.8, seaBreachQ: [100, 3000], // a trapped sea's outlet cut: at most this deep, all of it by Q[1] m³/s
     lakeSiltKm: 0.01,           // sediment a fresh lake's rivers fill it with: this depth off its catchment (lake-silt.js)…
-    glacialSiltShare: 0.1,      // …the ice age's young lakes this share (they have stood ~12 000 years)
+    glacialSiltShare: 0.1,      // …the young ones this share: the ice age's, and blocked valleys (they have stood ~12 000 years)
+    // blocked-valley lakes (lake-dams.js): a hollow whose spill joins, within damReachKm, a trunk draining damRatio × its
+    // area and at least damTrunkKm2, on a gradient under damSlope (km per km: an aggrading river) — Poyang, Tonle Sap
+    damRatio: 4, damTrunkKm2: 30000, damSlope: 0.0004, damReachKm: 60,
     // inland seas (2026-10-15, developer: inland seas "COMPLETELY dried out … leaving holes in the ground"): a body below
     // sea level behind a low, short barrier is a sea the mesh cannot connect — a strait narrower than its cells, low land
     // the carve keeps at its 2 m floor — opened into the ocean along the way it would spill, by a smooth weight on the

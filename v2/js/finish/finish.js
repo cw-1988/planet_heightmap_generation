@@ -31,7 +31,7 @@ import { CORE_DEFAULTS } from '../climate/core.js';
 import { pageClimate } from '../evolution/climate-fields.js';
 import { FastNoise } from '../core/fast-noise.js';
 import { classifyRocks } from '../geology/rocks.js';
-import { depositFields, DEPOSITS, METALS } from '../geology/deposits.js';
+import { depositFieldsOnWorkers, DEPOSITS, METALS } from '../geology/deposits.js';
 import { reportTo, part, report } from '../core/progress.js';
 import { farmCells } from '../farming/farming.js';
 
@@ -379,7 +379,7 @@ export async function finishPlanet({ frame, simMesh, seed, cells, pool = null, c
             local: { glaciated: I.ice, till: I.till, lake: Hy.lake, q: Hy.q, recv: Hy.recv, order: Hy.order, biome: cover, clim, ice, colS: Rk.colS, colT: Rk.colT, colArch: Rk.colArch,
                 erg: W.erg, coastSand: Co.sand, coastWave: Co.wave, coastWinter: Co.winter } };
         inspect?.('deposits', depIn);                                 // (the tools' look at the deposits' inputs: render-deposits.mjs)
-        const Dp = depositFields(depIn);
+        const Dp = await depositFieldsOnWorkers(depIn);                // (on workers from 300K cells: docs/deposit-workers.md)
         geology.deposits = Dp;
         stats.deposits = Object.fromEntries(DEPOSIT_IDS.map((id, k) => [id, [+Dp.shares[3 * k].toFixed(4), +Dp.shares[3 * k + 1].toFixed(4), +Dp.shares[3 * k + 2].toFixed(4)]]));
         stats.metals = Object.fromEntries(METALS.map((m, i) => [m.id, [+Dp.metalShares[3 * i].toFixed(4), +Dp.metalShares[3 * i + 1].toFixed(4), +Dp.metalShares[3 * i + 2].toFixed(4)]]));

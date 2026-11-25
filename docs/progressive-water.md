@@ -18,7 +18,9 @@ Progressive (`js/page-chrome.js` `progressiveSwitch`: `progressiveWater` is Prog
 - **Run on the page** (`js/rung-view.js`): on a finishing worker of its own, beside the build, with
   `terrainOnly: true`. The finish stops right after its water (`finish.js` returns once `onTerrain` returns true), so
   only the terrain comes back, and the step is painted as a finished picture (`terrainFin`).
-- **The queue**: one step's water runs at a time. The newest step waits; older waiting steps are dropped. Once a step
+- **The queue**: one step's water runs at a time. The newest step waits; older waiting steps are dropped. A step's water
+  is never shown over a finer step already on screen (fixed 2026-11-20: a coarse step's water landing after a finer bare
+  step reverted the picture to the coarser terrain; the finer step's own water follows). Once a step
   is shown with its water, a later bare step is not shown, since it would take the water away. When the world arrives
   the water stops, and a watered step stays on screen until the world's own terrain lands.
 - **The climate** (`v2/js/finish/step-climate.js`): the climate is calculated on a lat-lon grid, so it belongs to the

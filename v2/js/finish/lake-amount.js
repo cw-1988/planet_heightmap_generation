@@ -19,10 +19,15 @@ const RANGE = {
     breachKm: [2, 1 / 4],           // an outlet's cut
     seaBreachKm: [1.5, 1 / 4],
     lakeSiltKm: [5, 1 / 10],        // a lake's sediment
+    damSlope: [1 / 4, 4],           // a blocked valley's trunk: how steep it may still build up (lake-dams.js)
+    damRatio: [2, 1 / 2],           // …and how much bigger than its tributary
 };
 
 /** The slider's readout: "None" at −1, else its value signed (±0 the finish as tuned). */
 export const lakesLabel = (x) => (x <= -1 ? 'None' : x === 0 ? '±0' : `${x > 0 ? '+' : '−'}${Math.abs(x).toFixed(1)}`);
+
+/** The Small lakes slider (small-lakes.js): −1 none, else the share of the land's small lakes ×4^x (¼ … 4). */
+export const pondOverrides = (x) => { x = Math.max(-1, Math.min(1, Number(x) || 0)); return x === 0 ? {} : { pondScale: x <= -1 + 1e-6 ? 0 : 4 ** x }; };
 
 /** The finish config's overrides for Lakes `x` (−1 … 1); {} at 0. */
 export function lakeOverrides(x) {

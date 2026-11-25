@@ -2,6 +2,7 @@
 // lake. Per fate, the hollows' count and their full area (km²), all of them and those within lowLatDeg of the equator
 // (where no ice age scoured lake districts). Fates:
 // - noOrigin: neither glacial nor tectonic (a fan, loess or a dissected floor damming a valley): cut through.
+// - iced: under today's ice cap (an EF climate over half its cells): ice, not water.
 // - tooSmall: under lakeMinKm2, two cells or lakeMinDepthM.
 // - drained: a gorge cut from a basin upstream already runs through it below its rim.
 // - filled: kept by its river, but its sediment filled it (or what was left was under lakeMinKm2).
@@ -15,7 +16,7 @@ export function hollowFates(hollows, lat, cellKm2, Water) {
     const add = (t, f, km2) => { const e = (t[f] ??= [0, 0]); e[0]++; e[1] += Math.round(km2); };
     for (const h of hollows) {
         if (h.cells.length < 2) continue;
-        const fate = !h.origin ? 'noOrigin' : !h.lake ? 'tooSmall' : h.kind === Water.FRESH ? 'lake' : h.kind === Water.SALT ? 'salt'
+        const fate = !h.origin ? 'noOrigin' : h.iced ? 'iced' : !h.lake ? 'tooSmall' : h.kind === Water.FRESH ? 'lake' : h.kind === Water.SALT ? 'salt'
             : h.kind === Water.PAN ? 'pan' : h.drained ? 'drained' : 'filled';
         const km2 = h.cells.length * cellKm2;
         add(all, fate, km2);

@@ -1,6 +1,6 @@
 # The Lakes slider
 
-A slider in Generate's and Import's Climate section and Evolution's World section, −1 to 1 (default 0). It sets how
+A slider in Generate's and Import's Climate section (a Lakes section of its own tried and put back, the owner, 2026-11-20: "just put the back lakes back into climate") and Evolution's World section, −1 to 1 (default 0). It sets how
 readily the land's hollows hold water, from a world without lakes to a lake district. Asked for by the owner, 2026-11-20
 ("maybe he actually wants a swamp world or one entirely without lakes"). Code: `v2/js/finish/lake-amount.js`. Back to
 [generate.md](generate.md) · [import.md](import.md) · [evolution.md](evolution.md).
@@ -24,6 +24,7 @@ tuned.
 | `lakeKeepKm2`, `lakeHugeKm2` | ×10 | ÷50 | How big a closed basin's water must be for its river to make it a salt lake, not a pan |
 | `breachKm`, `seaBreachKm` | ×2, ×1.5 | ÷4 | How deep an overflow cuts its outlet ([basin-lakes.md](basin-lakes.md)) |
 | `lakeSiltKm` | ×5 | ÷10 | The sediment rivers fill a lake with: the main control of how big the big lakes are |
+| `damSlope`, `damRatio` | ÷4, ×2 | ×4, ÷2 | How readily a big lowland river blocks its tributaries' valleys into lakes ([lake-origins.md](lake-origins.md)) |
 
 Silt is trapped by Brune's curve (volume left V0·e^(−S/V0)), so a step of the slider shrinks or grows the big lakes
 smoothly rather than switching them off; small lakes on small rivers keep most of their water at any step.
@@ -40,4 +41,6 @@ characters (`js/planet-code.js`, `LAKES_LEN`). Older codes decode with Lakes 0.
 - Not wetlands. A swamp world needs wet land cover (marsh, bog, floodplain forest) where the ground is flat and the
   water table high. That is the land-cover model's job, not more lakes. At +1 you get many small lakes and ponds, not a
   swamp.
+- Not the small lakes. Lakes below the mesh's cell (glacial, thaw, oxbow and wetland lakes) are the Small lakes
+  slider's: [small-lakes.md](small-lakes.md).
 - Not rain. More water comes from Precipitation; the Lakes slider changes which hollows keep the water they get.

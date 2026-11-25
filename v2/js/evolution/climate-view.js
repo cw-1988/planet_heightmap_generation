@@ -13,6 +13,7 @@ import { statValue } from '../climate/cell-stats.js';
 import { FastNoise } from '../core/fast-noise.js';
 import { styledSatellite, SAT_SHADE } from './sat-style.js';
 import { satLake } from './lake-water.js';
+import { SHORE } from '../finish/shore-ramp.js';
 import { QUANTITY_COLORS, ICE_SHEET_RGB, SNOW_RGB, climateLegendHTML, classLabel } from '../../../js/climate-layers.js';
 
 /** The land's measures beyond Köppen (cell-stats.js), per cell or per pixel of a finished moment's picture: each
@@ -454,15 +455,38 @@ export function finishedClimateValue(key, season, C, W) {
 }
 
 // ── the Satellite layer (plans/V2_SATELLITE_PLAN.md): the land's own colours from space (the finish's, per view: the
-// year, January, July — finish-cover.js), the sea by its depth (Blue Marble's: near black in the deep, lighter over the
-// shelves, turquoise over warm shallows), sea ice in its season, lakes as water and salt pans white ──
-// (the shallowest water no brighter than a broad shelf's: the finished coasts' shelves are narrow, and a bright last
-// step drew every coast a cyan outline)
-const SEA_DEPTH = [[-6, [4, 10, 34]], [-4, [6, 15, 46]], [-2, [9, 26, 66]], [-0.6, [14, 40, 88]], [-0.15, [22, 62, 112]], [0, [30, 80, 128]]];
-const SHALLOW_WARM = [40, 118, 138], SEA_ICE = [214, 223, 230];
+// year, January, July — finish-cover.js), the sea as water you see into (one dark blue at any depth past a few tens of
+// metres; its sandy bed showing through only the last few metres, clearer in warm seas), sea ice in its season, lakes as
+// water and salt pans white ──
+// (Sunlight reaches the bed only through the top few metres of coastal water, so the water's own colour is the same over
+// a 100 m shelf as over the abyss. Tables that brightened toward 0 m — (30, 80, 128), then (10, 26, 62) — lit every
+// 100–250 km shelf as a pale blue glow round every coast — the owner, 2026-11-20, "you didn't fix the blue halo",
+// docs/satellite-sea.md. The only depth cue near the shore is the bed through its true depth, Beer–Lambert.)
+// (The depth as a bathymetric shade, as Google Earth's and Blue Marble's bathymetry sheets draw it: the abyss and the
+// trenches darkest, the ridges and rises a step lighter, the continental slope lighter again — and the shelf one flat
+// colour from its break (−0.2 km) to the coast, so the step sits at the break, not a glow growing toward every coast (the
+// halo: tables that kept brightening to 0 m). The owner, 2026-11-22: "the satellite view is not properly showing ocean
+// depths" — one colour at every depth showed none; only darkening the deep, the shelf unchanged, was too faint to read.)
+const SEA_DEPTH = [[-8, [1, 3, 14]], [-6, [1, 5, 20]], [-4.5, [2, 8, 27]], [-3, [4, 12, 35]], [-1.5, [5, 15, 42]], [-0.2, [6, 18, 47]], [0, [6, 18, 47]]];
+// (the floor's relief under the sea, × the light's swing on it: ridges, seamounts, trench walls and the shelf's slope lit
+// and shadowed — 0.2 of it was a few percent, flat to the eye)
+const SEA_RELIEF = 0.7;
+// (The sea's bed is the nearest land's own colour, as a lake's is, so the shore fades from the land into the water. A fixed
+// sand bed, (196, 184, 150), was bare at the waterline and turquoise a few metres out: a pale cyan-white line round every
+// coast against the green land — the owner, 2026-11-21, docs/satellite-sea.md.)
+const SEA_ICE = [214, 223, 230], seaBed = [0, 0, 0];
+// (warm water clearer: tropical coasts the attenuation as SHORE.kSea, Jerlov coastal 1; cold ones turbid, ×COLD_TURBID)
+const COLD_TURBID = 2.5;
 const SAT_LAKE = [[0, 0, 0], [20, 38, 64], [52, 96, 100], [222, 218, 205]], LAKE_ICE = [208, 216, 224];
-function seaDepthRgb(km, out) {
-    const d = SEA_DEPTH;
+// (A lake's own bathymetric shade, in km, over a lake's depths — most under 0.2 km, the deepest rifts 1.5: the sea's table
+// gave every lake its flat shelf colour, so a lake read as one flat blue. The shallow end flat to 10 m, as the sea's shelf,
+// so the shore gets no glow: the bed shows through there anyway. A salt lake's teal, from brine and plankton. The owner,
+// 2026-11-22: "they also look a bit too flat", docs/lake-water.md.)
+const LAKE_DEPTH = [[-1.5, [1, 4, 14]], [-0.4, [2, 9, 26]], [-0.12, [6, 22, 48]], [-0.05, [12, 38, 70]], [-0.02, [20, 58, 92]], [0, [20, 58, 92]]];
+const SALT_DEPTH = [[-1, [5, 18, 30]], [-0.2, [14, 40, 54]], [-0.05, [30, 70, 80]], [-0.01, [46, 90, 96]], [0, [46, 90, 96]]];
+// (the lake floor's relief, × the light's swing on it: the bed's ups and downs show through the deep colour too)
+const LAKE_RELIEF = 1.4;
+function seaDepthRgb(km, out, d = SEA_DEPTH) {
     let i = 0;
     while (i < d.length - 2 && km > d[i + 1][0]) i++;
     const t = Math.max(0, Math.min(1, (km - d[i][0]) / (d[i + 1][0] - d[i][0])));
@@ -482,24 +506,67 @@ function seaIceAt(c, x, y, W) {
     const t = c + SEA_ICE_NOISE * n, e = Math.max(0, Math.min(1, (t - 0.47) / 0.06));
     return e * e * (3 - 2 * e);
 }
+/** The land's colours from space (3 per climate-picture pixel) with each open lake's pixels (the finished picture's
+ *  `water` 1 or 2) given the colour of the nearest land outside it: a lake's bed shows its shore's ground, as the sea's
+ *  bed shows the nearest land's. (The basin floor styled as land is a hollow, damp and greened — dark olive under the
+ *  first metres of water: a dark line round every lake, then a green ring. The owner, 2026-11-22: "there is a weird cut
+ *  at the lake edge", docs/lake-water.md.) Cached per colour array. */
+const bedCache = new WeakMap();
+function lakeBeds(R, S, raster) {
+    const water = raster?.water, hw = raster?.w;
+    if (!S || !water || !hw) return S;
+    if (bedCache.has(S)) return bedCache.get(S);
+    const w = R.w, h = R.h, f = Math.max(1, Math.round(hw / w)), N = w * h, src = new Int32Array(N).fill(-1), q = new Int32Array(N);
+    const lake = p => { const v = water[((p / w) | 0) * f * hw + (p % w) * f]; return v === 1 || v === 2; };
+    let head = 0, tail = 0, any = false;
+    for (let p = 0; p < N; p++) {
+        if (!R.koppen[p]) continue;
+        if (lake(p)) { any = true; continue; }
+        src[p] = p; q[tail++] = p;
+    }
+    if (!any) { bedCache.set(S, S); return S; }
+    // (outward from the land, breadth first: each lake pixel takes the source of the first neighbour reached)
+    const out = S.slice();
+    while (head < tail) {
+        const p = q[head++], x = p % w, y = (p / w) | 0;
+        for (let n = 0; n < 4; n++) {
+            const yy = n === 2 ? y - 1 : n === 3 ? y + 1 : y;
+            if (yy < 0 || yy >= h) continue;
+            const r = yy * w + (n === 0 ? (x + 1) % w : n === 1 ? (x - 1 + w) % w : x);
+            if (src[r] >= 0 || !R.koppen[r]) continue;
+            src[r] = src[p]; q[tail++] = r;
+            out[3 * r] = S[3 * src[p]]; out[3 * r + 1] = S[3 * src[p] + 1]; out[3 * r + 2] = S[3 * src[p] + 2];
+        }
+    }
+    bedCache.set(S, out);
+    return out;
+}
 function satelliteColor(season, C, W, fin = null) {
     const R = C.raster, g = gridSampler(W), rgb = [0, 0, 0], ice = C.seaIce?.[season] ?? C.ice;
     // (the land: the climates' colours by height with the realistic picture's texture — sat-style.js — where the finished
     // heights are at hand; else the realistic picture itself)
     const styled = !!fin?.raster?.heightM;
-    const S = styled ? styledSatellite(R, season, fin.raster.heightM, fin.raster.w, fin.rivers, fin.raster.water, fin.raster) : R.sat[season];
+    const S = lakeBeds(R, styled ? styledSatellite(R, season, fin.raster.heightM, fin.raster.w, fin.rivers, fin.raster.water, fin.raster) : R.sat[season], fin?.raster);
     const shadeAmp = styled ? SAT_SHADE : 1, enlarged = R.w < W, blend = [0, 0, 0];
-    return (out, o, x, y, wet, kk, k3, v, lake, depthM = Infinity) => {
+    const paint = (out, o, x, y, wet, kk, k3, v, lake, depthM = Infinity, seenM = undefined, a = 1) => {
         // (the land's relief shading deeper than the other layers': the mountains stand out, as on a satellite image)
         const k = wet ? shadeK(kk) : 1 + shadeAmp * (0.37 + 0.68 * (kk - 0.35) / 0.65 - 1);      // (0.28–1.08: "the hillshading is too strong")
         if (wet) {
-            // (the sea: a gentler light on its floor's relief; shallow warm water turquoise; its ice in its season)
+            // (the sea: a gentler light on its floor's relief; its bed through the shallows; its ice in its season)
             seaDepthRgb(v, rgb);
-            const warmShallow = 0.7 * Math.max(0, Math.min(1, (g((C.Tsea ?? C.T)[season], x, y) - 20) / 6)) * Math.max(0, Math.min(1, (v + 0.12) / 0.1));
+            const warm = Math.max(0, Math.min(1, (g((C.Tsea ?? C.T)[season], x, y) - 20) / 6));
             const fi = seaIceAt(g(ice, x, y), x, y, W);
-            const ks = 0.8 + 0.2 * k;
+            const ks = 1 + SEA_RELIEF * (k - 1), path = 2 * (seenM ?? Math.max(0, -1000 * v)), Ks = SHORE.kSea, turbid = COLD_TURBID + (1 - COLD_TURBID) * warm;
+            // (the bed: the nearest land's colour; none near, the water's own — open sea shows no bed)
+            const li = path < 200 ? landPixel(R, W, x, y) : -1;
+            if (li >= 0 && !(enlarged && landBlend(R, S, W, x, y, seaBed))) { seaBed[0] = S[3 * li]; seaBed[1] = S[3 * li + 1]; seaBed[2] = S[3 * li + 2]; }
+            else if (li < 0) { seaBed[0] = rgb[0]; seaBed[1] = rgb[1]; seaBed[2] = rgb[2]; }
             for (let ch = 0; ch < 3; ch++) {
-                let c = rgb[ch] + (SHALLOW_WARM[ch] - rgb[ch]) * warmShallow;
+                let c = rgb[ch];
+                // (its bed through the shallows, fading with the depth shown, the water itself fading in from the shore over
+                // its ramp: shore-ramp.js)
+                c += (seaBed[ch] - c) * Math.exp(-Ks[ch] * turbid * path);
+                c = seaBed[ch] + (c - seaBed[ch]) * a;
                 c += (SEA_ICE[ch] - c) * fi;
                 out[o + ch] = Math.min(255, c * ks);
             }
@@ -516,7 +583,13 @@ function satelliteColor(season, C, W, fin = null) {
                 f = season === 'year' ? Math.max(0, Math.min(1, (-2 - t) / 8)) : Math.max(0, Math.min(1, (-1 - t) / 5));
             }
             // (open water you see into: its bed, the land's own colour in its light, through its depth — lake-water.js)
-            if (lake !== 3 && i >= 0 && depthM < Infinity) { satLake(out, o, lake === 2 ? L : seaDepthRgb(-depthM / 1000, blend), S, 3 * i, k, depthM, lake === 2, LAKE_ICE, f); return; }
+            // (the water too deep to see through: the lake's depth shade, its floor's relief shaded as the sea's is)
+            if (lake !== 3 && i >= 0 && depthM < Infinity) {
+                seaDepthRgb(-depthM / 1000, blend, lake === 2 ? SALT_DEPTH : LAKE_DEPTH);
+                const kl = Math.max(0.3, 1 + LAKE_RELIEF * (shadeK(kk) - 1));
+                blend[0] *= kl; blend[1] *= kl; blend[2] *= kl;
+                satLake(out, o, blend, S, 3 * i, k, seenM ?? depthM, lake === 2, LAKE_ICE, f, a); return;
+            }
             for (let ch = 0; ch < 3; ch++) out[o + ch] = L[ch] + (LAKE_ICE[ch] - L[ch]) * f;
             out[o + 3] = 255;
             return;
@@ -526,6 +599,9 @@ function satelliteColor(season, C, W, fin = null) {
         if (enlarged && landBlend(R, S, W, x, y, blend)) { out[o] = Math.min(255, blend[0] * k); out[o + 1] = Math.min(255, blend[1] * k); out[o + 2] = Math.min(255, blend[2] * k); out[o + 3] = 255; return; }
         out[o] = Math.min(255, S[3 * i] * k); out[o + 1] = Math.min(255, S[3 * i + 1] * k); out[o + 2] = Math.min(255, S[3 * i + 2] * k); out[o + 3] = 255;
     };
+    // (the sea's work on each coast — beaches, cliffs, flats, marsh, surf — drawn over it: littoral.js)
+    paint.shoreline = true;
+    return paint;
 }
 
 /** The hover readout's climate lines on a finished moment, at (u, v) of the map (0…1); `sea`: the picture is sea there.

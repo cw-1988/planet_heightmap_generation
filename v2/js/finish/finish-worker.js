@@ -15,7 +15,7 @@
 //              A page that draws its own surface (Generate: plans/SHARED_CORE_PLAN.md U1) adds mesh {numCells, xyz, adjOffset,
 //              adjList} (its own mesh, finished on instead of a terrain mesh), surface {heightKm, carveIn, recCell, cues}
 //              (drawn on it with finish.js surfaceConfig's terrain config), and the overrides of its terrain config
-//              (`terrain`) and of the finish's (`finish`) — no terrain pool then. climateOptions.lakes: the Lakes slider (lake-amount.js)
+//              (`terrain`) and of the finish's (`finish`) — no terrain pool then. climateOptions.lakes, .ponds: the Lakes and Small lakes sliders (lake-amount.js)
 // Messages out: {type: 'stage', id, stage} · {type: 'progress', id, share} (the stage under way's own share of itself,
 //              from inside it: finish.js onProgress, and the picture's rows) · {type: 'terrain', id, raster
 //              {w, h, heightM, ocean, water, waterLevel (the lakes' level, m)}, rivers, drain, valleyQ, lines} (with earlyTerrain: the terrain, before the other layers) · {type: 'drivers', id, drivers}
@@ -38,7 +38,7 @@ import { meshFromArrays } from '../core/sim-mesh.js';
 import { setDelaunator } from '../../../js/sphere-mesh.js';
 import { riverLines } from './river-valleys.js';
 import { stepClimate } from './step-climate.js';
-import { lakeOverrides } from './lake-amount.js';
+import { lakeOverrides, pondOverrides } from './lake-amount.js';
 import { reportTo } from '../core/progress.js';
 
 let sim = null, simCells = 0, delaunatorSet = false;
@@ -77,7 +77,7 @@ self.onmessage = async ({ data }) => {
             // copy, so the rivers sent with 'done' carry no cache)
             const lines = valleyQ > 0 && valleyQ < Infinity ? riverLines({ ...t.rivers }, valleyQ, raster) : null;
             self.postMessage({ type: 'terrain', id, raster, rivers: t.rivers, drain: t.drain, valleyQ, lines },
-                [raster.heightM.buffer, raster.ocean.buffer, raster.water.buffer, raster.waterLevel.buffer, ...Object.values(t.drain).map(a => a.buffer), ...(lines ? [lines.buffer] : [])]);
+                [raster.heightM.buffer, raster.ocean.buffer, raster.water.buffer, raster.waterLevel.buffer, ...(raster.pond ? [raster.pond.share.buffer, ...(raster.pond.at ? [raster.pond.at.buffer, raster.pond.h0.buffer] : [])] : []), ...Object.values(t.drain).map(a => a.buffer), ...(lines ? [lines.buffer] : [])]);
             return terrainOnly;
         } : null;
         // (and the fine detail's drivers once drawn — the terrain zooms in with them, not only after the rocks and farming;
@@ -92,7 +92,7 @@ self.onmessage = async ({ data }) => {
         };
         const out = await finishPlanet({ frame, simMesh: sim, seed, cells, pool, closePool: !!pool, climateOptions, driversWidth: driverWidth(width), onProgress, fast,
             onStage: stage => { sentShare = -1; self.postMessage({ type: 'stage', id, stage }); },
-            onTerrain, onDrivers, ...own, ...(terrainOnly ? { climate: stepClimate } : {}),...(data.terrain ? { cfg: terrainConfig(data.terrain) } : {}), F: { ...FINISH, ...lakeOverrides(climateOptions.lakes), ...(data.finish ?? {}) } });   // (the page's Lakes: lake-amount.js)
+            onTerrain, onDrivers, ...own, ...(terrainOnly ? { climate: stepClimate } : {}),...(data.terrain ? { cfg: terrainConfig(data.terrain) } : {}), F: { ...FINISH, ...lakeOverrides(climateOptions.lakes), ...pondOverrides(climateOptions.ponds), ...(data.finish ?? {}) } });   // (the page's Lakes and Small lakes: lake-amount.js)
         if (out.terrainOnly) { self.postMessage({ type: 'done', id, terrainOnly: true, ms: out.ms }); return; }
         self.postMessage({ type: 'stage', id, stage: 'picture' });
         const t0 = performance.now();
@@ -106,7 +106,7 @@ self.onmessage = async ({ data }) => {
         if (!driversSent) raster.drivers = out.drivers;
         const rv = out.rivers, drain = out.drain;
         self.postMessage({ type: 'done', id, raster, rivers: rv, drain, climate, stats: out.stats, ms: out.ms },
-            [drain.recv.buffer, drain.area.buffer, drain.sea.buffer, drain.q.buffer, drain.z.buffer, drain.lake.buffer, raster.heightM.buffer, raster.ocean.buffer, raster.water.buffer, raster.waterLevel.buffer, ...farm, ...(raster.geology ? [raster.geology.rock.buffer, ...(raster.geology.rec ? [raster.geology.rec.buffer] : []), ...(raster.geology.deposits ? [raster.geology.deposits.cells.buffer, raster.geology.deposits.data.buffer, raster.geology.deposits.land.buffer] : [])] : []), rv.start.buffer, rv.lat.buffer, rv.lon.buffer, rv.q.buffer, rv.season.buffer,
+            [drain.recv.buffer, drain.area.buffer, drain.sea.buffer, drain.q.buffer, drain.z.buffer, drain.lake.buffer, raster.heightM.buffer, raster.ocean.buffer, raster.water.buffer, raster.waterLevel.buffer, ...(raster.pond ? [raster.pond.share.buffer, ...(raster.pond.at ? [raster.pond.at.buffer, raster.pond.h0.buffer] : [])] : []), ...farm, ...(raster.geology ? [raster.geology.rock.buffer, ...(raster.geology.rec ? [raster.geology.rec.buffer] : []), ...(raster.geology.deposits ? [raster.geology.deposits.cells.buffer, raster.geology.deposits.data.buffer, raster.geology.deposits.land.buffer] : [])] : []), rv.start.buffer, rv.lat.buffer, rv.lon.buffer, rv.q.buffer, rv.season.buffer,
                 ...(rv.regime ? [rv.regime.buffer, rv.floodFrom.buffer, rv.floodTo.buffer, rv.farFed.buffer] : []), ...climateTransfers(climate),
                 ...(raster.drivers ? DRIVER_FIELDS.map(k => raster.drivers[k].buffer) : [])]);
     } catch (err) {

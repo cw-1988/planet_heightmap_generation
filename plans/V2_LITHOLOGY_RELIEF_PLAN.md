@@ -73,7 +73,9 @@ near flat on platforms), in steps of ~100–150 m — a tread, then a riser roun
 give benches, mesas' and buttes' rims and stepped canyon walls; tilted ones cuestas. Crisp where dry, faint where wet;
 none on gentle ground (plateau tops stay whole), none where the steps would be narrower than a few pixels. Basalt's
 flows step the same way. *Built:* each bed its own thickness (0.4–1.6 steps) and hardness (its riser full or faint) —
-uniform steps read as contour lines; strongest at L9, a hint at L8.
+uniform steps read as contour lines; strongest at L9, a hint at L8. **Removed 2026-11-20**: up close the risers shaded
+as bundles of thin black curves along every valley side (the owner: "remove that weird hill height lines, they look like
+shit"). The finish's coarser cover stairs (finish-lithology.js) stay.
 ~~And in a fold belt, folded cover and slate run as strike ridges~~ — *tried and dropped*: phacelle stripes across the
 belts' strike read as worms over every belt (the first fine detail's fault, V2_FINE_DETAIL_PLAN §5); a belt's ridges and
 rock bands stay the mesh's (synthesize.js, the old-belt bands).

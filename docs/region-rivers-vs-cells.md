@@ -17,7 +17,7 @@ also the same one the valleys use.
 - each reach runs from a head or a confluence to its mouth, centre to centre;
 - it is smoothed with Chaikin twice in the map's lon/lat picture. Each corner is cut, so the line leaves the cell
   centres: at a right-angle bend it passes ~10 km inside the corner, more at a sharper one;
-- it is stroked onto a texture at sub-pixel positions, 0.45–1.0 px wide on a 2048-px map. On the zoomed tiles it is
+- it is stroked onto a texture at sub-pixel positions, 0.9–1.5 px wide on a 2048-px map (once 0.45–1.0, the faintest too thin to see). On the zoomed tiles it is
   redrawn sharper (`drawRiversWindow`), so it stays a crisp line however far in you go;
 - only reaches carrying `riverQ` m³/s or more are drawn (40 by default, a slider);
 - its width shows discharge.

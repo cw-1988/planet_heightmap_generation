@@ -5,17 +5,25 @@
 // can tell, the distance is read from the same picture's sea on a coarser grid fixed to the world (every 2^s pixels), over
 // the window and the reach round it — both a function of the place alone, so tiles agree.
 
+import { seaHere } from './shore-ramp.js';
+import { drain } from '../core/steps.js';
+
 const D2R = Math.PI / 180;
 
 /** The distance (km) from each pixel to the nearest pixel of the other kind (sea ↔ land): + on land, − at sea — a chamfer
  *  distance, each row's east–west step its own (the pixels narrow toward the poles). */
-export function chamfer(sea, w, h, pxKm, cosLa) {
+export function chamfer(sea, w, h, pxKm, cosLa) { return drain(chamferSteps(sea, w, h, pxKm, cosLa)); }
+/** chamfer a row at a time (core/steps.js): the whole world's picture on the page's thread without stalling it. */
+export function* chamferSteps(sea, w, h, pxKm, cosLa) {
     const N = w * h, d = new Float32Array(N).fill(1e9);
-    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
-        const p = j * w + i, s = sea[p];
-        if ((i > 0 && sea[p - 1] !== s) || (i < w - 1 && sea[p + 1] !== s) || (j > 0 && sea[p - w] !== s) || (j < h - 1 && sea[p + w] !== s)) d[p] = 0.5 * pxKm;
+    for (let j = 0; j < h; j++) {
+        for (let i = 0; i < w; i++) {
+            const p = j * w + i, s = sea[p];
+            if ((i > 0 && sea[p - 1] !== s) || (i < w - 1 && sea[p + 1] !== s) || (j > 0 && sea[p - w] !== s) || (j < h - 1 && sea[p + w] !== s)) d[p] = 0.5 * pxKm;
+        }
+        yield;
     }
-    const pass = (j0, j1, dj, i0, i1, di) => {
+    function* pass(j0, j1, dj, i0, i1, di) {
         for (let j = j0; j !== j1; j += dj) {
             const ax = pxKm * Math.max(0.05, cosLa[j]), ay = pxKm, ad = Math.hypot(ax, ay), jj = j - dj;
             for (let i = i0; i !== i1; i += di) {
@@ -30,11 +38,12 @@ export function chamfer(sea, w, h, pxKm, cosLa) {
                 }
                 d[p] = v;
             }
+            yield;
         }
-    };
-    pass(0, h, 1, 0, w, 1);
-    pass(h - 1, -1, -1, w - 1, -1, -1);
-    for (let p = 0; p < N; p++) if (sea[p]) d[p] = -d[p];
+    }
+    yield* pass(0, h, 1, 0, w, 1);
+    yield* pass(h - 1, -1, -1, w - 1, -1, -1);
+    for (let j = 0; j < h; j++) { for (let p = j * w, e = p + w; p < e; p++) if (sea[p]) d[p] = -d[p]; yield; }
     return d;
 }
 
@@ -67,7 +76,9 @@ export function coastReach(coastKm, { r, W, X0, Y0, ew, eh, pxKm, M, reach }) {
         cCos[b] = Math.cos((90 - Yp * dLat) * D2R);
         for (let a = 0; a < cw; a++) {
             const u = (cx0 + a + 0.5) * S * k - 0.5, xi = Math.floor(u), fx = u - xi, c1 = colR(((xi % RW) + RW) % RW), c2 = colR((((xi + 1) % RW) + RW) % RW);
-            cSea[b * cw + a] = (1 - fx) * (1 - fy) * O[r1 + c1] + fx * (1 - fy) * O[r1 + c2] + (1 - fx) * fy * O[r2 + c1] + fx * fy * O[r2 + c2] >= 0.5 ? 1 : 0;
+            const wa = (1 - fx) * (1 - fy), wb = fx * (1 - fy), wc = (1 - fx) * fy, wd = fx * fy, Hm = r.heightM;
+            const hKm = (wa * Hm[r1 + c1] + wb * Hm[r1 + c2] + wc * Hm[r2 + c1] + wd * Hm[r2 + c2]) / 1000;
+            cSea[b * cw + a] = seaHere(hKm, O, r1 + c1, r1 + c2, r2 + c1, r2 + c2, wa, wb, wc, wd);
         }
     }
     const cd = chamfer(cSea, cw, ch, cKm, cCos);

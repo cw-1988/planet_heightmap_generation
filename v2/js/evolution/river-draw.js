@@ -3,15 +3,18 @@
 // On a window of a sharper picture each line bends by its meanders (river-meander.js) as the valley under it does — the
 // same waves, faded in by the same fade (pixel-fade.js) — so up close the drawn river winds in its own valley.
 
-import { riverParts, riverLines, pushSegments, LINE, CHANNEL, BED, bedKm } from '../finish/river-valleys.js';
+import { riverParts, riverLinesSteps, pushSegments, LINE, CHANNEL, BED, bedKm } from '../finish/river-valleys.js';
 import { bendSegment, MEANDER_PAD_KM } from '../finish/river-meander.js';
 import { fadeFor } from '../finish/pixel-fade.js';
+import { drain, stepFor, stepAsync, sharedSteps } from '../core/steps.js';
 
 /** How a river is drawn at discharge q (m³/s) above the density's threshold q0 — a flow map (the lab's Drainage layer:
  *  developer, "much thinner and closer to the flow mapmode"): hairlines whose strength grows with the log of the discharge,
  *  the great rivers only a little wider. Its strength class 0…4 (alpha) and width (px of a 2048-wide texture). */
 const riverStrength = (q, q0) => Math.max(0, Math.min(4, Math.round(4 * Math.log10(q / q0) / 2.5)));
-const STRENGTH_ALPHA = [0.35, 0.5, 0.65, 0.8, 0.92], STRENGTH_WIDTH = [0.45, 0.55, 0.65, 0.8, 1.0];
+// (the faintest once 0.45 px at 35 %: under a screen pixel on the tiles, gone to the eye — the owner, 2026-11-20: "the
+// thinnest visible river sizes are too thin. am a human not a pixel comparer". Now every class reads as a line)
+const STRENGTH_ALPHA = [0.62, 0.7, 0.78, 0.86, 0.94], STRENGTH_WIDTH = [0.9, 1.0, 1.15, 1.3, 1.5];
 /** A river point's regime (finish-hydro.js Regime), from its twelve monthly flows: 0 permanent, 1 permanent with a flood
  *  season, 2 seasonal (dry some months), 3 dry most of the year. */
 const regimeAt = (R, i) => R.regime[i];
@@ -56,14 +59,25 @@ export function riverPaths(fin, q0) {
  * each with its bucket (a width and a regime: one stroke each), its bucket's segment before it, whether it carries on
  * from that one, and how far along its line it starts (where its dashes stand). Cached per moment and q0.
  */
-function riverSegments(fin, q0) {
-    fin.segments ??= new Map();
-    if (fin.segments.has(q0)) return fin.segments.get(q0);
+function riverSegments(fin, q0) { return drain(riverSegmentsSteps(fin, q0)); }
+/** riverSegments a river at a time (core/steps.js), the making shared with whoever asks meanwhile. */
+function* riverSegmentsSteps(fin, q0) {
+    const m = (fin.segments ??= new Map());
+    return yield* sharedSteps(fin, `segments|${q0}`, () => m.has(q0), () => m.get(q0), () => makeSegments(fin, q0));
+}
+/** Whether a moment's rivers at q0 are ready to draw — made meanwhile for up to `ms` (riverSegments: ~0.4 s and more at
+ *  10 M cells, the first draw of a world opened, else at once on the page's thread). */
+export function riversReady(fin, q0, ms) {
+    return !!fin.segments?.has(q0) || !!stepFor(riverSegmentsSteps(fin, q0), Math.max(0, ms));
+}
+/** The same, made in slices between tasks: a promise. */
+export const riversSoon = (fin, q0) => stepAsync(riverSegmentsSteps(fin, q0));
+function* makeSegments(fin, q0) {
     const R = fin.rivers, W = 2048, H = 1024, keys = new Map(), buckets = [], xy = [], bucket = [], prev = [], joined = [], along = [], starts = [...R.start, R.lat.length];
     // (each segment's flow, distance along and normals — its meanders: the valleys' own lines (riverLines: the same parts in
     // the same order, the regime aside), one array for both — 47 MB at 2.56M cells drawn twice before; without the picture,
     // built here)
-    const lines = R._valleyLines?.get(q0) ?? (fin.raster?.heightM ? riverLines(R, q0, fin.raster) : null), g = lines ? null : [];
+    const lines = R._valleyLines?.get(q0) ?? (fin.raster?.heightM ? yield* riverLinesSteps(R, q0, fin.raster) : null), g = lines ? null : [];
     let maxLen = 0;
     const add = (str, reg, x0, y0, x1, y1) => {
         const key = `${str}|${reg}`;
@@ -84,32 +98,38 @@ function riverSegments(fin, q0) {
                 add(riverStrength(a[2], q0), a[3], a[0], a[1], b[0], b[1]);
             }
         }
+        yield;
     }
     // (a segment across the map — riverParts splits there; check-river-joins.mjs — makes the windows' margin, half the
     // longest, take every river into each tile: the zoomed view lags)
+    if (lines && lines.length !== LINE * bucket.length) console.error(`[rivers] the valleys' lines hold ${lines.length / LINE} segments, the drawn ${bucket.length}: their parts differ`);
     if (maxLen > W / 4) console.error(`[rivers] a drawn segment ${maxLen.toFixed(0)} px long: it crosses the map, every tile draws every river`);
     const S = { count: bucket.length, xy: Float32Array.from(xy), bucket: Uint16Array.from(bucket), prev: Int32Array.from(prev), joined: Uint8Array.from(joined), along: Float32Array.from(along), g: lines ?? Float64Array.from(g), maxLen,
-    if (lines && lines.length !== LINE * bucket.length) console.error(`[rivers] the valleys' lines hold ${lines.length / LINE} segments, the drawn ${bucket.length}: their parts differ`);
         buckets: buckets.map(({ strength, regime }) => ({ strength, regime })), order: buckets.map((b, i) => i).sort((a, b) => buckets[a].strength - buckets[b].strength), grid: null };
     fin.segments.set(q0, S);
     return S;
 }
 
-/** A river bucket's stroke on a context: the rivers' blue or its regime's colour, `widthScale` times as thick. Its dashes, or null. */
-function riverStyle(ctx, b, byRegime, widthScale) {
+/** A river bucket's stroke on a context: the rivers' blue or its regime's colour — or, `natural` (the Satellite view),
+ *  water's own colour by its regime (NATURAL, the Satellite's shallow lakes': climate-view.js SAT_LAKE) — `widthScale`
+ *  times as thick. The same widths, strengths and dashes either way (the owner, 2026-11-20: "give satellite view the same
+ *  river size scaling treatment as terrain view"). Its dashes, or null. */
+const NATURAL = ['rgb(44, 80, 96)', 'rgb(52, 88, 98)', 'rgb(70, 104, 110)', 'rgb(150, 140, 118)'];
+function riverStyle(ctx, b, byRegime, widthScale, natural = false) {
     const st = REGIME_STYLE[b.regime];
     // (coloured by regime, the colour tells it: not faded as well)
-    ctx.strokeStyle = byRegime ? st.rgb : RIVER_RGB;
-    ctx.globalAlpha = (byRegime ? 1 : st.alpha) * STRENGTH_ALPHA[b.strength]; ctx.lineWidth = STRENGTH_WIDTH[b.strength] * widthScale; ctx.setLineDash(st.dash ? st.dash.map(v => v * widthScale) : []);
+    ctx.strokeStyle = natural ? NATURAL[b.regime] : byRegime ? st.rgb : RIVER_RGB;
+    ctx.globalAlpha = (byRegime && !natural ? 1 : st.alpha) * STRENGTH_ALPHA[b.strength]; ctx.lineWidth = STRENGTH_WIDTH[b.strength] * widthScale; ctx.setLineDash(st.dash ? st.dash.map(v => v * widthScale) : []);
     return st.dash;
 }
 
 /** Draw a moment's rivers on a texture's context (scaled by the caller to a 2048-wide texture's coordinates), in the rivers'
- *  blue or coloured by regime — `widthScale` times as thick (a context scaled far: the patch of finer detail's, as thin). */
-export function drawRivers(ctx, paths, byRegime = false, widthScale = 1) {
+ *  blue or coloured by regime, or water's colour (`natural`) — `widthScale` times as thick (a context scaled far: the
+ *  patch of finer detail's, as thin). */
+export function drawRivers(ctx, paths, byRegime = false, widthScale = 1, natural = false) {
     ctx.save();
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    for (const b of paths) { riverStyle(ctx, b, byRegime, widthScale); ctx.stroke(b.path); }
+    for (const b of paths) { riverStyle(ctx, b, byRegime, widthScale, natural); ctx.stroke(b.path); }
     ctx.restore();
 }
 
@@ -121,7 +141,7 @@ export function drawRivers(ctx, paths, byRegime = false, widthScale = 1) {
  * caller's: the same on the screen at every zoom); a river whose bed is wider is drawn as wide as it is, over its
  * valley's floor.
  */
-export function drawRiversWindow(ctx, fin, q0, byRegime, W, x0, y0, w, h, widthScale = 1) {
+export function drawRiversWindow(ctx, fin, q0, byRegime, W, x0, y0, w, h, widthScale = 1, natural = false) {
     const S = riverSegments(fin, q0), k = W / 2048, G = S.grid ??= segmentGrid(S), KM = 2 * Math.PI * 6371 / 2048;
     // (each segment bent by its meanders, as this window's pixels hold them — the valley under it bends alike)
     const pxKm = KM / k, fade = fadeFor(pxKm);
@@ -155,7 +175,7 @@ export function drawRiversWindow(ctx, fin, q0, byRegime, W, x0, y0, w, h, widthS
         near.sort();
         ctx.setTransform(k, 0, 0, k, turn * W - x0, -y0);
         for (const b of S.order) {
-            const dash = riverStyle(ctx, S.buckets[b], byRegime, widthScale), period = dash ? (dash[0] + dash[1]) * widthScale : 0;
+            const dash = riverStyle(ctx, S.buckets[b], byRegime, widthScale, natural), period = dash ? (dash[0] + dash[1]) * widthScale : 0;
             const hair = STRENGTH_WIDTH[S.buckets[b].strength] * widthScale;
             // (a bed drawn as wide as it is is water filling it: as solid as the strongest line, not a faint flow-map hairline)
             const hairAlpha = ctx.globalAlpha, bedAlpha = hairAlpha / STRENGTH_ALPHA[S.buckets[b].strength] * STRENGTH_ALPHA[STRENGTH_ALPHA.length - 1];
@@ -223,4 +243,26 @@ export function riverAt(fin, q0, u, v, px = 3) {
         }
     }
     return best < 0 ? null : { q: R.q[best], regime: R.regime[best], floodFrom: R.floodFrom[best], floodTo: R.floodTo[best], farFed: R.farFed[best] };
+}
+
+const onLand = { canvas: null, mask: null, img: null };
+/**
+ * Lines drawn by `draw(ctx2)` onto a tile's canvas `ctx` (slot × slot px, the window w × h px inside it, one pixel in) on
+ * its land alone: drawn apart, then cut to where `sea` (the window's, 0/1) is 0. A river's line runs to the picture's
+ * coast; the finer coast up close lies a little off it, and drawn straight onto the tile the river ran on over the sea.
+ */
+export function drawOnLand(ctx, sea, w, h, slot, draw) {
+    const o = onLand;
+    if (!o.canvas) { o.canvas = document.createElement('canvas'); o.mask = document.createElement('canvas'); }
+    if (o.canvas.width !== slot) o.canvas.width = o.canvas.height = o.mask.width = o.mask.height = slot;
+    if (o.img?.width !== w || o.img.height !== h) o.img = new ImageData(w, h);
+    const m = o.img.data;
+    for (let i = 0, n = w * h; i < n; i++) m[4 * i + 3] = sea[i] ? 0 : 255;
+    // (CPU-side like the tile canvas they are drawn into: a GPU canvas there forced a readback, ~46 ms on a view switch)
+    o.mask.getContext('2d', { willReadFrequently: true }).putImageData(o.img, -1, -1);
+    const rc = o.canvas.getContext('2d', { willReadFrequently: true });
+    rc.clearRect(0, 0, slot, slot);
+    draw(rc);
+    rc.globalCompositeOperation = 'destination-in'; rc.drawImage(o.mask, 0, 0); rc.globalCompositeOperation = 'source-over';
+    ctx.drawImage(o.canvas, 0, 0);
 }

@@ -176,10 +176,10 @@ export function rasterBand(S, w, py0, py1, onRow = null) {
 export function rasterFinish(B, S, w, look = terrainLook) {
     const { lake, climate, geology, farming, pond } = S, h = w >> 1, { cw, ch } = climateWidth(w, climate);
     const { heightM, sea, water, waterLevel, pondPx, kop, tA, pA, sat, cov, flowPx, youngPx, ripPx, statPx, rockPx, recPx, farmPx, farmKind, cropPx } = B;
-    if (pondPx) pondRaster({ w, h, heightM, sea, water, waterLevel, share: pondPx }, pond.seed);
+    const carved = pondPx ? pondRaster({ w, h, heightM, sea, water, waterLevel, share: pondPx }, pond.seed) : null;
     // (the terrain on the satellite picture: rock where steep, slopes and valleys in dry country — from the heights)
     const drawn = sat ? look({ w: cw, h: ch, sat: { year: sat[0], jan: sat[1], jul: sat[2] }, cover: cov, tAnnual: tA, pAnnual: pA, koppen: kop, flow: flowPx, young: youngPx, noise: new FastNoise(climate.mottleSeed ?? 0), mottleSeed: climate.mottleSeed ?? 0, rivers: climate.rivers, water: lake ? water : null, ripSat: ripPx ? { year: ripPx[0], jan: ripPx[1], jul: ripPx[2] } : null }, heightM, w) : null;
-    const result = () => ({ w, h, heightM, ocean: sea, water, waterLevel, pond: pondPx ? { w, h, share: pondPx, seed: pond.seed } : null, geology: rockPx ? { w: cw, h: ch, rock: rockPx, rec: recPx, deposits: geology.deposits ?? null } : null,
+    const result = () => ({ w, h, heightM, ocean: sea, water, waterLevel, pond: pondPx ? { w, h, share: pondPx, seed: pond.seed, ...carved } : null, geology: rockPx ? { w: cw, h: ch, rock: rockPx, rec: recPx, deposits: geology.deposits ?? null } : null,
         farming: farmPx ? { w: cw, h: ch, ...farmPx, kind: farmKind, ...(cropPx ? { crops: cropPx } : {}) } : null, climate: cw ? { w: cw, h: ch, koppen: kop, tAnnual: tA, pAnnual: pA, ...(statPx ? { stats: statPx } : {}), ...(climate.families ? { families: climate.families } : {}), ...(sat ? { sat: { year: sat[0], jan: sat[1], jul: sat[2] }, cover: cov } : {}) } : null });
     return drawn instanceof Promise ? drawn.then(result) : result();
 }

@@ -12,6 +12,7 @@
 
 import { meanderAt, meanderSwing, MEANDER_PAD_KM, endTurns, curveAt, curveMaxKm } from './river-meander.js';
 import { CHANNEL, channelKm, channelDepthKm, VALLEY_LAW } from './river-hydraulics.js';
+import { drain, sharedSteps } from '../core/steps.js';
 
 export { CHANNEL, channelKm };
 const TEX_W = 2048, TEX_H = 1024;
@@ -100,18 +101,21 @@ export function riverParts(R, i0, i1, q0, extra = () => 0) {
 
 /** Each reach's next one downstream (the reach starting at its last point; −1 at a mouth) and the biggest one running
  *  into it (the one carrying most among those ending at its first point; −1 at a source), cached on the rivers. */
-function joinsOf(R) {
+function joinsOf(R) { return R._joins ?? drain(joinsSteps(R)); }
+/** joinsOf a few thousand reaches at a time (core/steps.js: ~0.1 s at 10 M cells). */
+function* joinsSteps(R) {
     if (R._joins) return R._joins;
     const starts = [...R.start, R.lat.length], n = starts.length - 1, key = i => R.lat[i] + ',' + R.lon[i], at = new Map(), byStart = new Map();
-    for (let k = 0; k < n; k++) { at.set(key(starts[k]), k); byStart.set(starts[k], k); }
+    for (let k = 0; k < n; k++) { at.set(key(starts[k]), k); byStart.set(starts[k], k); if ((k & 4095) === 4095) yield; }
     const down = new Int32Array(n).fill(-1), up = new Int32Array(n).fill(-1);
     for (let k = 0; k < n; k++) {
+        if ((k & 4095) === 4095) yield;
         const e = starts[k + 1] - 1, d = at.get(key(e));
         if (d === undefined || d === k || starts[k + 1] - starts[k] < 2) continue;
         down[k] = d;
         if (up[d] < 0 || R.q[e] > R.q[starts[up[d] + 1] - 1]) up[d] = k;
     }
-    return (R._joins = { starts, byStart, down, up });
+    return (R._joins ??= { starts, byStart, down, up });
 }
 
 /** The point a river running on through confluence `iV` (raw) passes, from raw point `iP` before it to `iN` after (on
@@ -150,11 +154,16 @@ function pictureKm(r, x, y) {
 /** Every river's segments carrying at least q0 m³/s — the rivers the page draws at that density, cut into the same parts
  *  (riverParts), so each valley lies under a drawn line and no valley lies under none — with the picture `r`'s height under
  *  each point, and where each drawn line truly begins and ends, LINE entries each (cached on the rivers per q0). */
-export function riverLines(R, q0, r) {
+export function riverLines(R, q0, r) { return drain(riverLinesSteps(R, q0, r)); }
+/** riverLines a river at a time (core/steps.js), the making shared with whoever asks meanwhile. */
+export function* riverLinesSteps(R, q0, r) {
     const cache = R._valleyLines ??= new Map();
-    if (cache.has(q0)) return cache.get(q0);
+    return yield* sharedSteps(R, `lines|${q0}`, () => cache.has(q0), () => cache.get(q0), () => makeLines(R, q0, r, cache));
+}
+function* makeLines(R, q0, r, cache) {
     const starts = [...R.start, R.lat.length], s = [], parts = [];
-    if (q0 < Infinity) for (let k = 0; k < starts.length - 1; k++) parts.push(...riverParts(R, starts[k], starts[k + 1], q0));
+    if (q0 < Infinity) yield* joinsSteps(R);
+    if (q0 < Infinity) for (let k = 0; k < starts.length - 1; k++) { for (const pts of riverParts(R, starts[k], starts[k + 1], q0)) parts.push(pts); yield; }
     // (a line's head is where no drawn line runs into it: a reach's first point is a confluence a drawn river ends at, or
     // a source, or a confluence of rivers too small to draw — the valley there ran on past the line's start, a rounded
     // cap as wide as the valley with no river in it)
@@ -164,6 +173,7 @@ export function riverLines(R, q0, r) {
         if (pts.tail) pts.sTail = pts[pts.length - 1][4];
         for (const p of pts) p[7] = pictureKm(r, p[0], p[1]);
         pushSegments(s, pts);
+        yield;
     }
     const out = Float64Array.from(s);
     cache.set(q0, out);
@@ -237,9 +247,10 @@ function lineGrid(lines) {
  * Cuts the valleys into D (km, the detail over the enlarged picture hb) over the extended window ew × eh starting at
  * pixel (X0, Y0) of a W-wide picture: `pxKm` its pixel north–south, `cosLa` each row's,
  * `seaB` its sea (none cut), `fade(λ km)` how much of a feature the pixels hold. Each valley's floor is the deepest of the
- * valleys over it (rivers meeting), its finer detail laid flat; the land is kept above the sea.
+ * valleys over it (rivers meeting), its finer detail laid flat; the land is kept above the sea — but for `drown` (km, or
+ * null: coast-history.js), how far the sea rose into a valley's floor near the coast since its river cut it (a ria).
  */
-export function carveValleys(D, lines, { hb, seaB, W, X0, Y0, ew, eh, pxKm, cosLa, fade }) {
+export function carveValleys(D, lines, { hb, seaB, W, X0, Y0, ew, eh, pxKm, cosLa, fade, drown = null }) {
     if (!lines || !lines.length) return;
     const N = ew * eh, cut = new Float32Array(N), flat = new Float32Array(N), levS = new Float32Array(N), levN = new Float32Array(N), levW = new Float32Array(N), k = W / TEX_W, swing = meanderSwing(fade), mo = [0, 0], turn = [0, 0], cv = [0, 0];
     // (the finer detail drained by the rivers — owner: on rough mountains the lines ran over the bumps, in no valley. The
@@ -308,7 +319,7 @@ export function carveValleys(D, lines, { hb, seaB, W, X0, Y0, ew, eh, pxKm, cosL
             // from the bank, the floor within 1 m of its lowest ~800 m wide for a 190 m channel. The finer detail eased flat
             // across the bed alone (bedKm, which the river's colour fills), back to half at its edge: smoothed across the wall
             // (0.5–2.2 km), it read as a broad smooth bed 5–7× the drawn line; eased back past the bed, a bare rim showed)
-            const u = v.out > v.f ? Math.min(1, Math.max(0, (dist - v.f) / (v.out - v.f))) : 1, inV = (1 - u) * (1 - u), c = fd * (v.d * inV + chan);
+            const u = v.out > v.f ? Math.min(1, Math.max(0, (dist - v.f) / (v.out - v.f))) : 1, inV = (1 - u) * (1 - u), c = fd * ((v.d + (drown ? drown[p] : 0)) * inV + chan);
             const fl = 0.8 * fd * (1 - smooth((BED - 0.5) * v.f, (BED + 0.5) * v.f, dist));
             if (c > cut[p]) cut[p] = c;
             if (fl > flat[p]) flat[p] = fl;
@@ -328,8 +339,10 @@ export function carveValleys(D, lines, { hb, seaB, W, X0, Y0, ew, eh, pxKm, cosL
         if (!(cut[p] > 0 || flat[p] > 0 || levW[p] > 0 || cone[p] < D[p])) continue;
         const before = D[p];
         let v = Math.min(before * (1 - flat[p]), cone[p]) - cut[p] + (levN[p] > 0 ? levW[p] * levS[p] / levN[p] : 0);
-        // (no new sea inland and no channel of sea up the river: the floor stays a few metres up)
-        if (hb[p] + v < SEA_FLOOR) v = Math.min(before, Math.max(v, SEA_FLOOR - hb[p]));
+        // (no new sea inland and no channel of sea up the river: the floor stays a few metres up — but where the sea has
+        // risen into the valley near the coast, a ria)
+        const fl = SEA_FLOOR - (drown ? drown[p] : 0);
+        if (hb[p] + v < fl) v = Math.min(before, Math.max(v, fl - hb[p]));
         D[p] = v;
     }
 }

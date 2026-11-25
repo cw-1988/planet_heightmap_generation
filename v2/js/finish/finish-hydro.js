@@ -18,6 +18,7 @@ import { MinHeap } from '../core/min-heap.js';
 import { flatKey } from '../terrain/carve.js';
 import { siltLake, lakeInlets } from './lake-silt.js';
 import { hollowFates } from './lake-fates.js';
+import { upstreamCells, blockedValley } from './lake-dams.js';
 import { report } from '../core/progress.js';
 
 const SEC_PER_YEAR = 3.156e7, R = 6371;
@@ -129,10 +130,10 @@ export function fillSeaBasins(mesh, z, ocean, F) {
         }
         const sea = smooth(F.seaBasinKm2[0], F.seaBasinKm2[1], below.length * cellKm2) * smooth(F.seaBasinDeepKm[0], F.seaBasinDeepKm[1], -deepest);
         if (sea < 0.5) continue;
-        const L = fill[s], cells = [s];
         flood.reach(s);
-        basin[s] = 1;
+        const L = fill[s], cells = [s];
         flood.upTo(L + 2e-6);
+        basin[s] = 1;
         for (let i = 0; i < cells.length; i++) for (let k = adjOffset[cells[i]]; k < adjOffset[cells[i] + 1]; k++) {
             const nb = adjList[k];
             if (!basin[nb] && !ocean[nb] && fill[nb] > z[nb] + EPS && Math.abs(fill[nb] - L) < 1e-6) { basin[nb] = 1; cells.push(nb); }
@@ -283,7 +284,7 @@ export function hydrology(ctx, F) {
     };
     // ── hollows: connected cells under their spill level, one spill level each (one lake, if it were full) ──
     report(0.4);
-    const hollow = new Int32Array(n).fill(-1), hollows = [], laterCuts = [];
+    const hollow = new Int32Array(n).fill(-1), hollows = [], laterCuts = [], up = F.damRatio > 0 && ctx.tectonic ? upstreamCells(order, count, recv, n) : null;
     for (let i = 0; i < count; i++) {
         const s = order[i];
         if (hollow[s] >= 0 || !(fill[s] > z[s] + EPS)) continue;
@@ -301,16 +302,18 @@ export function hydrology(ctx, F) {
         // tectonic surface itself (rifts, forelands, closed basins). The finishing's own hollows — a fan or loess damming a
         // valley, a dissected floor — the rivers cut through: a channel from the hollow's floor out through its rim
         // (developer: rivers "shouldn't 'elevate' a ton of the land, it should just carve through" — they were filled))
-        let glacial = 0, tect = 0;
-        for (const c of cells) { if (ctx.glaciated?.[c]) glacial++; if (ctx.tectonic?.[c]) tect++; }
+        let glacial = 0, tect = 0, icy = 0;
+        for (const c of cells) { if (ctx.glaciated?.[c]) glacial++; if (ctx.tectonic?.[c]) tect++; if (ctx.ice?.[c]) icy++; }
         // (a hollow whose floor lies below sea level is a remnant of the sea — old, whatever else: it holds water as its
         // water balance allows, and is never cut through to its floor, which no gorge could drain)
         const sea = !!ctx.seaBasin && cells.some(c => ctx.seaBasin[c]);
-        const origin = sea || glacial >= 0.5 * cells.length || tect >= F.lakeTectonicShare * cells.length || !ctx.tectonic;
-        const lake = origin && cells.length * cellKm2 >= F.lakeMinKm2 && cells.length >= 2 && (L - deepest) * 1000 >= F.lakeMinDepthM;
+        // (or a tributary's valley its trunk river's aggrading floodplain blocks: Poyang, Tonle Sap — lake-dams.js)
+        const blocked = !sea && glacial < 0.5 * cells.length && tect < F.lakeTectonicShare * cells.length && !!up && blockedValley(x => hollow[x] === id, outlet, up, recv, fill, stepKm, cellKm2, F);
+        const origin = sea || glacial >= 0.5 * cells.length || tect >= F.lakeTectonicShare * cells.length || !ctx.tectonic || blocked;
+        const iced = icy >= 0.5 * cells.length, lake = origin && !iced && cells.length * cellKm2 >= F.lakeMinKm2 && cells.length >= 2 && (L - deepest) * 1000 >= F.lakeMinDepthM;
         if (!origin && ctx.fillHollows) laterCuts.push(id);
         // (old: a hollow of the tectonic surface, glaciated or not; the ice age's own hollows are young)
-        hollows.push({ cells, level: L, outlet, deepCell, floor: deepest, lake, origin, inflow: 0, seasonW: 0, area: 0, glacial: glacial >= 0.5 * cells.length, old: sea || (!!ctx.tectonic && tect >= F.lakeTectonicShare * cells.length), sea });
+        hollows.push({ cells, level: L, outlet, deepCell, floor: deepest, lake, origin, inflow: 0, seasonW: 0, area: 0, iced, blocked, glacial: glacial >= 0.5 * cells.length, old: sea || (!!ctx.tectonic && tect >= F.lakeTectonicShare * cells.length), sea });
     }
     // ── discharge, upstream first (each cell comes after the cell it drains into in the flood's order): each cell's own
     // runoff; a lake gathers its cells' and passes on only what it does not evaporate, at its outlet; a river loses water
@@ -408,7 +411,7 @@ export function hydrology(ctx, F) {
                 // full to its outlet, it spills through the gorge it cut, and the lowland round it drains as land does (below)
                 level = cut(h.deepCell, outLevel); from = h.deepCell;
             } else if (drained) { cut(h.deepCell, h.floor); level = h.floor; h.drained = true; }
-            else if (F.breachKm > 0) {
+            else if (F.breachKm > 0 && !h.blocked) {      // (a blocked valley's dam is its trunk's floodplain, rising with it: no gorge)
                 // an old basin that overflows has cut its outlet down (developer: the erosion should "break these basins
                 // up"): a gorge through its rim, deeper the more spills over; the lake drains to what lies below the gorge —
                 // often nothing. (The carving could not: a gorge is far narrower than a cell, so the rim cell hardly drops.)
@@ -458,7 +461,7 @@ export function hydrology(ctx, F) {
                 for (const x of kept) water.push(x);
             }
             if (kind === Water.FRESH && water.length) {
-                const w = siltLake(water, level, F.lakeSiltKm * h.area * (young ? F.glacialSiltShare : 1), lakeInlets(water, q, recv, adjOffset, adjList), z, cellKm2, F.lakeMinKm2, adjOffset, adjList);
+                const w = siltLake(water, level, F.lakeSiltKm * h.area * (young || h.blocked ? F.glacialSiltShare : 1), lakeInlets(water, q, recv, adjOffset, adjList), z, cellKm2, F.lakeMinKm2, adjOffset, adjList);
                 if (w !== water) { water.length = 0; for (const x of w) water.push(x); }
             }
             if (kind === Water.SALT && !water.length) { kind = Water.PAN; h.pan = true; }
@@ -607,11 +610,11 @@ export function hydrology(ctx, F) {
     report(0.92);
     const regimes = ctx.months ? riverYears(ctx, F, { n, count, order, hollow, hollows, recv, rank, lakeKind, stepKm, own, cells: Int32Array.from(L.cell) }) : null;
     let lakes = 0, salt = 0, pans = 0, lakeKm2 = 0;
-    const byOrigin = { glacialFresh: 0, tectonicFresh: 0, salt: 0, pan: 0 }, sizes = [];
+    const byOrigin = { glacialFresh: 0, tectonicFresh: 0, blockedFresh: 0, salt: 0, pan: 0 }, sizes = [];
     for (const h of hollows) if (h.kind) {
         if (h.kind === Water.FRESH) lakes++; else if (h.kind === Water.SALT) salt++; else pans++;
         let a = 0; for (const c of h.cells) if (lakeKind[c]) a += cellKm2;
-        byOrigin[h.kind === Water.FRESH ? (h.glacial ? 'glacialFresh' : 'tectonicFresh') : h.kind === Water.SALT ? 'salt' : 'pan'] += a;
+        byOrigin[h.kind === Water.FRESH ? (h.glacial ? 'glacialFresh' : h.blocked ? 'blockedFresh' : 'tectonicFresh') : h.kind === Water.SALT ? 'salt' : 'pan'] += a;
         sizes.push(a);
     }
     sizes.sort((a, b) => b - a);

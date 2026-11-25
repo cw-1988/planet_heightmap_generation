@@ -2,10 +2,12 @@
 // at any resolution — its picture of heights enlarged, plus a little of what a mesh of 7–15 km cells cannot hold, drawn
 // from what the finish recorded (finish-drivers.js) and only below the mesh's own scale, octave by octave as the window's
 // pixels allow (a coarser view and a finer one of the same place agree):
-//   · the rock's steps and landforms (plans/V2_LITHOLOGY_RELIEF_PLAN.md: the finish's rock picture, geology/rocks.js);
+//   · the rock's landforms (plans/V2_LITHOLOGY_RELIEF_PLAN.md: the finish's rock picture, geology/rocks.js; its bedding
+//     steps drew black curves on every valley side — removed 2026-11-20);
 //     no ridges and valleys of its own: stripes steered down the slope (phacelle) drew swirls up close — removed 2026-11-18;
 //   · no dunes of its own (phacelle stripes across the wind drew noodles; the sand seas' draa are the finish's, finish-wind.js);
-//   · the coast's headlands and coves — hard rock jutting out as headlands, soft rock worn back into bays.
+//   · the coast's headlands and coves — hard rock jutting out as headlands, soft rock worn back into bays;
+//   · the shore's own forms, by the sea's work on it (littoral.js): cliffs and platforms, beaches, flats and marsh.
 // Plains and plateau tops get none. The rivers are the moment's own lines (drawn by the page and the exports; the world
 // map cuts their valleys along them, river-valleys.js). A window
 // reads only its own pixels and a margin of a few km around them, so windows drawn apart (tiles, bands) meet.
@@ -15,10 +17,16 @@ import { wetSolution } from '../geology/lithology.js';
 import { rockProps } from './rock-props.js';
 import { chamfer, coastReach } from './coast-distance.js';
 import { fineLadder } from './fine-ladder.js';
-import { hash3, bumps, smoothNoise } from './lattice-noise.js';
+import { bumps, smoothNoise } from './lattice-noise.js';
 import { riverLines, cropLines, carveValleys } from './river-valleys.js';
 import { fadeFor } from './pixel-fade.js';
-import { nearestLake, lakeHere } from '../evolution/lake-water.js';
+import { nearestLake, lakeHere, lakeMarginKm } from '../evolution/lake-water.js';
+import { SMALL_LAKES } from './small-lakes.js';
+import { windowWetDistance, seaHere } from './shore-ramp.js';
+import { pondsInWindow, pondReader } from './small-lakes-draw.js';
+import { shapeLittoral, beachReachKm, LIT_N, LITTORAL } from './littoral.js';
+import { coastHistory, raiseTerraces } from './coast-history.js';
+import { DRIFT } from './coast-drift.js';
 
 const R = 6371, D2R = Math.PI / 180, TAU = 2 * Math.PI;
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
@@ -30,14 +38,8 @@ export const FINE = {
     // (the pixels' fade, a feature drawn once its wavelength spans 6 pixels: pixel-fade.js, shared with the drawn rivers)
     // (no ridges and valleys of its own: phacelle stripes steered down the slope drew swirls up close — removed 2026-11-18)
     gullyMaxShare: 0.25,        // a lowering never deeper than this share of the ground's height above the sea
-    // bedding (geology-config.js lithology.bedded): slopes stepped through layered rock — a tread, then a riser…
-    bedStepKm: 0.12,            // …each step about this high (0.75–1.25 × it from place to place)…
-    bedRiser: 0.35,             // …its riser this share of it…
-    bedDipKm: 0.35,             // …through beds tilted gently: their surface wandering by this over…
-    bedDipWaveKm: 90,           // …waves this long (dips of a degree or two: cuestas where the ground slopes the other way)
-    bedSlope: [0.01, 0.05],     // on slopes from none … full (plateau tops and plains stay whole)
-    bedWet: 0.3,                // crisp where it is dry; where it is wet (soil and creep round them) this share
-    bedRainMm: [300, 1200],     // …dry … wet
+    // (no bedding steps: slopes stepped through layered rock, 120 m treads and risers, shaded as bundles of thin black
+    // curves along every valley side up close — removed 2026-11-20, the owner: "remove that weird hill height lines")
     // (no strike ridges: drawn as phacelle stripes across a fold belt's strike they read as worms over every belt — the
     // first fine detail's fault, V2_FINE_DETAIL_PLAN §5; a belt's ridges and its rock bands are the mesh's: synthesize.js)
     // the rock's own landforms — knobs: crystalline rock (lithology.knobby) scoured by the last ice age's ice, or worn in the
@@ -52,6 +54,7 @@ export const FINE = {
     // the rock picture's ~10 km pixels traced its squares as staircases)
     // coasts: the coastline wandering by up to this (more on rocky coasts), on a slope of at least this
     coastWiggleKm: 2.2, coastMinSlope: 0.004,
+    lakeFlatKm: 0.01,           // a lake's bed: its mud flat under the water — no detail where the picture's lake is this deep
     coastRock: 0.6,             // …and by the rock: hard rock out as headlands, soft back into bays (Dorset's coast) — its
                                 // hardness from ½ counting this much beside the wander's noise
 };
@@ -66,7 +69,12 @@ export function detailSource(fin, seed, riverQ) {
 }
 
 /** How many pixels a window reads past its edges: its coasts' reach, and the octaves' slopes a pixel each. */
-const marginPx = pxKm => Math.min(64, Math.ceil(3 * FINE.coastWiggleKm / pxKm) + 8);
+// (and where the drift's forms are drawn, as far as they read — coast-drift.js DRIFT.reachKm: a spit's shadow or a
+// barrier's distance out read past a tile's margin differed from its neighbour's, a straight seam along the tile's edge;
+// and the beach's reach, littoral.js beachReachKm: its distance measured from a shore in the margin, not cut at the edge)
+export const marginPx = pxKm => Math.max(Math.min(64, Math.ceil(3 * FINE.coastWiggleKm / pxKm) + 8),
+    Math.min(160, Math.max(LITTORAL.beachReachPx, Math.ceil(beachReachKm(pxKm) / pxKm)) + 4),
+    pxKm <= DRIFT.maxPxKm ? Math.min(160, Math.ceil(DRIFT.reachKm / pxKm) + 4) : 0);
 
 /**
  * What one window needs of a source — the picture's and the drivers' pixels under it and its margin — small enough to
@@ -74,34 +82,56 @@ const marginPx = pxKm => Math.min(64, Math.ceil(3 * FINE.coastWiggleKm / pxKm) +
  */
 export function cropSource(src, win) {
     const { W, x0, y0, w, h } = win, M = marginPx(TAU * R / W);
-    const sub = (g, fields, k) => {
-        const gx0 = Math.floor((x0 - M) * k) - 3, gx1 = Math.ceil((x0 + w + M) * k) + 3, gy0 = Math.max(0, Math.floor((y0 - M) * k) - 3), gy1 = Math.min(g.h - 1, Math.ceil((y0 + h + M) * k) + 3);
+    const sub = (g, fields, k, ex = 0) => {
+        const gx0 = Math.floor((x0 - M - ex) * k) - 3, gx1 = Math.ceil((x0 + w + M + ex) * k) + 3, gy0 = Math.max(0, Math.floor((y0 - M - ex) * k) - 3), gy1 = Math.min(g.h - 1, Math.ceil((y0 + h + M + ex) * k) + 3);
         const cw = Math.min(g.w, gx1 - gx0 + 1), ch = gy1 - gy0 + 1, ox = ((gx0 % g.w) + g.w) % g.w, out = { fw: g.w, fh: g.h, x0: ox, y0: gy0, w: cw, h: ch };
         for (const key of fields) {
             const a = g[key];
             if (!a) continue;
             const b = new a.constructor(cw * ch);
-            for (let y = 0; y < ch; y++) { const row = (gy0 + y) * g.w; for (let x = 0; x < cw; x++) b[y * cw + x] = a[row + (ox + x) % g.w]; }
+            // (a row at a time, in at most two runs — the second where it wraps round the date line: pixel by pixel, the
+            // tiles of a 10 M world took ~1.5 s of the page's thread)
+            const n1 = Math.min(cw, g.w - ox);
+            for (let y = 0; y < ch; y++) {
+                const row = (gy0 + y) * g.w;
+                b.set(a.subarray(row + ox, row + ox + n1), y * cw);
+                if (n1 < cw) b.set(a.subarray(row, row + cw - n1), y * cw + n1);
+            }
             out[key] = b;
         }
         return out;
     };
-    return { r: sub(src.r, ['heightM', 'ocean', 'water', 'waterLevel'], src.r.w / W), d: src.d ? sub(src.d, DRIVER_FIELDS, src.d.w / W) : null,
+    // (the small lakes' share bytes: beside the picture's (pondShare, which of its pixels are drawn small lakes), and with
+    // the heights wider by the largest lake's bank, so a lake whose centre lies past the window reads the same share and
+    // the same level in every tile)
+    // (and the heights as they were before the picture carved its own small lakes — small-lakes-draw.js pondRaster: the
+    // window carves them afresh, at its own detail, into that smooth ground; the carve itself, enlarged, rang through the
+    // Catmull–Rom, a dark line down the shore — the owner, 2026-11-22, docs/small-lakes.md)
+    const uncarve = c => {
+        if (!P?.at) return c;
+        const { at, h0 } = P, lo0 = c.y0 * c.fw, hi = (c.y0 + c.h) * c.fw;
+        let lo = 0, top = at.length;
+        while (lo < top) { const m = (lo + top) >> 1; if (at[m] < lo0) lo = m + 1; else top = m; }
+        for (let n = lo; n < at.length && at[n] < hi; n++) {
+            const y = Math.floor(at[n] / c.fw) - c.y0, x = ((at[n] % c.fw) - c.x0 + c.fw) % c.fw;
+            if (x < c.w) c.heightM[y * c.w + x] = h0[n];
+        }
+        return c;
+    };
+    const P = src.r.pond, r = uncarve(sub(P ? { ...src.r, pondShare: P.share } : src.r, ['heightM', 'ocean', 'water', 'waterLevel', 'pondShare'], src.r.w / W));
+    if (P) r.pond = { ...uncarve(sub({ ...P, heightM: src.r.heightM }, ['share', 'heightM'], P.w / W, Math.ceil(1.6 * SMALL_LAKES.topKm / (TAU * R / W)))), seed: P.seed };
+    return { r, d: src.d ? sub(src.d, DRIVER_FIELDS, src.d.w / W) : null,
         g: src.g ? sub(src.g, ['rock'], src.g.w / W) : null, c: src.c ? sub(src.c, ['tAnnual', 'pAnnual'], src.c.w / W) : null, seed: src.seed, cellKm: src.cellKm,
         rv: src.rvAll ? cropLines(src.rvAll, win, M) : null };
 }
 
 // (the lattice noises — smoothNoise, bumps — are in lattice-noise.js)
-/** Bed k's top (in steps; bed k from its top to bed k + 1's): k jittered by ± 0.3 — beds 0.4–1.6 steps thick, the same
- *  everywhere for a seed. */
-const bedLevel = (k, seed) => k + 0.6 * (hash3(k, 17, 3, seed * 7 + 5) / 4294967296 - 0.5);
-/** How hard bed k is, 0.25…1: its riser's share (a cliff-former's full, a soft bed's faint, ~0.6 on the whole). */
-const bedHard = (k, seed) => 0.25 + 0.75 * (hash3(k, 41, 9, seed * 7 + 6) / 4294967296) ** 0.7;
 
 /**
  * The detailed window: W the full width it is a window of (px; the planet W × W/2), its columns x0 … x0 + w − 1 (wrapping)
- * and rows y0 … y0 + h − 1. Returns { h: Float32Array (km), sea: Uint8Array, wat: Uint8Array (finish-hydro.js Water kinds) }
- * — for the painter.
+ * and rows y0 … y0 + h − 1. Returns { h: Float32Array (km), sea: Uint8Array, wat: Uint8Array (finish-hydro.js Water kinds),
+ * shore: Float32Array (km from a water pixel to its shore, shore-ramp.js), lev, lit (the shore's colours, littoral.js:
+ * LIT_N bytes a pixel — or none) } — for the painter.
  */
 export function fineWindow(src, { W, x0, y0, w, h }, signal = null) {
     const { r, d } = src, HE = W >> 1, pxKm = TAU * R / W, M = marginPx(pxKm);
@@ -124,6 +154,11 @@ export function fineWindow(src, { W, x0, y0, w, h }, signal = null) {
     // (the lakes by their level, where the picture has it: the nearest lake's level (km) — the shore drawn where it meets
     // the window's own ground, its finer detail included, at the crop — lake-water.js)
     const LV = r.water && r.waterLevel ? r.waterLevel : null, levB = LV ? new Float32Array(N).fill(NaN) : null, shB = LV ? new Float32Array(N) : null, hit = [0, NaN, 0];
+    // (the small lakes: the picture's skipped, redrawn at the window's own detail, each in its carved basin —
+    // small-lakes-draw.js; pondKm each one's radius at its pixels, for its shore ramp)
+    const pondKm = levB && r.pond ? new Float32Array(N) : null;
+    const skip = r.pondShare ?? r.pond?.share ?? null, ponds = pondKm ? D => pondsInWindow({ ew, eh, cosLa, sinLa, cosLo, sinLo, pxKm, seaB, watB, levB, shB, hb, D,
+        pond: pondReader({ ...r.pond, heightM: r.pond.heightM ?? r.heightM }), seed: r.pond.seed, pondKm, M }) : () => {};
     {
         const cx = new Int32Array(4 * ew), fxs = new Float32Array(ew), cy = new Int32Array(4 * eh), fys = new Float32Array(eh), H4 = r.heightM;
         for (let i = 0; i < ew; i++) { const u = (X0 + i + 0.5) * k - 0.5, xi = Math.floor(u); fxs[i] = u - xi; for (let q = 0; q < 4; q++) cx[4 * i + q] = colR(((xi - 1 + q) % RW + RW) % RW); }
@@ -142,8 +177,8 @@ export function fineWindow(src, { W, x0, y0, w, h }, signal = null) {
                 bs(O[r2 + c0], O[r2 + c1], O[r2 + c2], O[r2 + c3], fx), bs(O[r3 + c0], O[r3 + c1], O[r3 + c2], O[r3 + c3], fx), fy);
             const sm = FINE.baseSmooth * (1 - smooth(0, 0.25, so));
             hb[p] = ((1 - sm) * s / 1000) + sm * hs[p];
-            seaB[p] = wa * r.ocean[a] + wb * r.ocean[b] + wc * r.ocean[c] + wd * r.ocean[e] >= 0.5 ? 1 : 0;
-            if (LV) { nearestLake(r.water, LV, a, b, c, e, wa, wb, wc, wd, hit); watB[p] = hit[0]; levB[p] = hit[1]; shB[p] = hit[2]; }
+            seaB[p] = seaHere(hb[p], r.ocean, a, b, c, e, wa, wb, wc, wd);
+            if (LV) { nearestLake(r.water, LV, a, b, c, e, wa, wb, wc, wd, hit, skip);watB[p] = hit[0]; levB[p] = hit[1]; shB[p] = hit[2]; }
             else if (r.water) {
                 kinds[0] = kinds[1] = kinds[2] = kinds[3] = 0;
                 kinds[r.water[a]] += wa; kinds[r.water[b]] += wb; kinds[r.water[c]] += wc; kinds[r.water[e]] += wd;
@@ -161,7 +196,9 @@ export function fineWindow(src, { W, x0, y0, w, h }, signal = null) {
         const sh = new Float32Array(w * h); crop(levB, out.lev); crop(shB, sh);
         for (let q = 0; q < w * h; q++) if (out.wat[q] && !lakeHere(out.lev[q], out.h[q], sh[q])) out.wat[q] = 0;
     };
-    if (!d || k >= 1) { crop(hb, out.h); crop(seaB, out.sea); cropLakes(); return out; }
+    // (how far each water pixel is from its shore, on the margin grid so tiles agree: the shallows' ramp, shore-ramp.js)
+    const shore = (hh, sh) => { out.shore = new Float32Array(w * h); crop(windowWetDistance(sh, watB, levB, shB, hh, ew, eh, pxKm, cosLa, pondKm), out.shore); };
+    if (!d || k >= 1) { ponds(null); crop(hb, out.h); crop(seaB, out.sea); shore(hb, seaB); cropLakes(); return out; }
 
     lap('base');
     // ── the drivers, read at a pixel when wanted: bilinear, eased across each pixel so it has no kinks (`at` sets the pixel,
@@ -201,51 +238,16 @@ export function fineWindow(src, { W, x0, y0, w, h }, signal = null) {
     // drew swirls and worms up close, and pixel noise below ~40 m; the ground stays the picture's own smooth surface,
     // the region's waves (fine-ladder.js) and the rivers' valleys (river-valleys.js) ──
     const picKm = TAU * R / RW;
-    // (the rocks, where any of their features is drawn at this zoom: steps on the gentlest slopes they are drawn on, the
-    // rock's own landforms, the coast)
-    const bedOn = fade(0.75 * FINE.bedStepKm / FINE.bedSlope[0]) > 0;
+    // (the rocks, where any of their features is drawn at this zoom: the rock's own landforms, the coast)
     const knF = fade(FINE.knobKm), hoF = fade(0.6 * FINE.hollowKm), formsOn = knF > 0.05 || hoF > 0, coastOn = fade(0.7 * FINE.coastWiggleKm) > 0;
-    const lith = src.g?.rock && (bedOn || formsOn || coastOn) ? rockProps(src, W, X0, Y0, ew, eh, latR) : null;
+    const lith = src.g?.rock && (formsOn || coastOn) ? rockProps(src, W, X0, Y0, ew, eh, latR) : null;
     // (how much of each pixel's rock dissolves: karst)
     const karst = lith ? new Float32Array(N) : null;
     if (lith) for (let p = 0; p < N; p++) if (lith.soluble[p] > 0) karst[p] = lith.soluble[p] * wetSolution(lith.T[p], lith.P[p]);
 
     lap('rocks');
-    // ── the rock's structure: layered rock stepped where the ground slopes through it — each place's height measured
-    // from the beds' gently tilted surface, through a stair of treads and risers rounded at foot and rim (benches, the
-    // rims of mesas, stepped canyon walls; cuestas where the beds dip against the slope) — crisp where it is dry ──
     // (a lowering never deeper than a share of the ground's height: a soft minimum)
     const shareCap = (v, p) => { if (!(v < 0)) return v; const b = FINE.gullyMaxShare * Math.max(1e-4, hb[p]); return -(-v * b / Math.hypot(v, b)); };
-    const [rLo, rHi] = FINE.bedRainMm;
-    if (lith && bedOn) {
-        const dipF = 1 / FINE.bedDipWaveKm, riser = FINE.bedRiser, centre = 0.5 * (1 - riser) * 0.6;
-        for (let j = 0; j < eh; j++) for (let i = 0; i < ew; i++) {
-            const p = j * ew + i;
-            if (seaB[p] || !(lith.land[p] > 0) || !(hb[p] > 0)) continue;
-            const bed = lith.bedded[p];
-            if (bed > 0.02) {
-                const slope = Math.hypot(gE[p], gN[p]), gate = smooth(FINE.bedSlope[0], FINE.bedSlope[1], slope);
-                if (gate > 0) {
-                    place(j, i);
-                    const n1 = smoothNoise(P[0] * dipF, P[1] * dipF, P[2] * dipF, seed * 5 + 21), n2 = smoothNoise(P[0] * dipF * 2.3, P[1] * dipF * 2.3, P[2] * dipF * 2.3, seed * 5 + 22);
-                    const t = FINE.bedStepKm * (1 + 0.25 * Math.max(-1, Math.min(1, 2.4 * n2))), fS = fade(t / slope);
-                    if (fS > 0) {
-                        // (the beds: each its own thickness, 0.6–1.4 of a step, and its own hardness — a cliff-former's riser
-                        // full, a soft bed's faint — the tread's foot at each bed's top, then its riser up to the next;
-                        // continuous across every bed's top, where the stair meets the slope)
-                        const phi = (hb[p] + D[p] - FINE.bedDipKm * (n1 + 0.5 * n2)) / t;
-                        let k = Math.floor(phi), lo = bedLevel(k, seed);
-                        if (phi < lo) lo = bedLevel(--k, seed);
-                        let hi = bedLevel(k + 1, seed);
-                        if (phi >= hi) { lo = hi; hi = bedLevel(++k + 1, seed); }
-                        const span = hi - lo, f = (phi - lo) / span, u = Math.max(0, Math.min(1, (f - (1 - riser)) / riser));
-                        const crisp = FINE.bedWet + (1 - FINE.bedWet) * (1 - smooth(rLo, rHi, lith.P[p]));
-                        D[p] += bed * crisp * gate * fS * shareCap(t * (span * bedHard(k, seed) * (u * u * (3 - 2 * u) - f) + centre), p);
-                    }
-                }
-            }
-        }
-    }
     // ── the rock's own landforms, each from its rock and its climate: ice-scoured knobs on crystalline rock; karst's
     // closed hollows, packed close in the wet tropics ──
     if (lith && formsOn) {
@@ -295,16 +297,32 @@ export function fineWindow(src, { W, x0, y0, w, h }, signal = null) {
     // ── (fork) an opened region's rolling and ridged detail, octave by octave as the pixels hold it (fine-ladder.js) ──
     fineLadder(D, { hb, gE, gN, cosLa, sinLa, cosLo, sinLo, ew, eh, picKm, seed, fade, W, X0, Y0, pxKm });
     lap('ladder');
-    // ── (fork) the rivers' valleys, cut along the lines the page draws (river-valleys.js) ──
-    carveValleys(D, src.rv ?? (src.rvAll ? cropLines(src.rvAll, { W, x0, y0, w, h }, M) : null), { hb, gE, gN, seaB, W, X0, Y0, ew, eh, pxKm, cosLa, sinLa, cosLo, sinLo, seed, fade });
+    // ── (fork) the rivers' valleys, cut along the lines the page draws (river-valleys.js) — drowned near the coast where the
+    // sea has risen since, raised shores where the land has (coast-history.js) ──
+    const hist = coastHistory({ ew, eh, at, val, d, coastKm, seaB });
+    carveValleys(D, src.rv ?? (src.rvAll ? cropLines(src.rvAll, { W, x0, y0, w, h }, M) : null), { hb, gE, gN, seaB, W, X0, Y0, ew, eh, pxKm, cosLa, sinLa, cosLo, sinLo, seed, fade, drown: hist?.drown });
+    raiseTerraces(D, { hb, seaB, coastKm, gE, gN, hist, ew, eh, place, P, seed, fade });
     lap('valleys');
+    // ── the lakes' beds: lake mud, settled flat — the finer detail fades out under a lake as its water deepens (its waves
+    // of tens of metres stood up through a shallow lowland lake and drained it, leaving only the deep tarns: docs/lake-origins.md);
+    // the shore keeps the land's own detail: it fades by the lake test's own margin, so land past the shore is untouched ──
+    if (levB) for (let p = 0; p < N; p++) if (watB[p]) D[p] *= 1 - smooth(0, FINE.lakeFlatKm, lakeMarginKm(levB[p], hb[p], shB[p]));
+    // (then the small lakes' basins, carved into the finished detail: flattened after, their bowls would fill back in)
+    ponds(D);
     // ── the heights; the sea where they are below it at or near the picture's sea (no new inland seas: land stays land) ──
     const hf = new Float32Array(N), sea = new Uint8Array(N);
     for (let p = 0; p < N; p++) {
         const v = hb[p] + D[p];
         if (v < 0 && coastKm[p] < reach) { hf[p] = v; sea[p] = 1; } else hf[p] = v < 0 ? 0.001 : v;
     }
-    crop(hf, out.h); crop(sea, out.sea); cropLakes();
+    // ── the shore's own forms, by the sea's work on it: cliffs cut back over their platforms, beaches and dunes, the
+    // shoreface, tidal flats and marsh — and their colours (littoral.js; a moment finished before them: none) ──
+    const lit = d.wave ? shapeLittoral(hf, sea, { ew, eh, pxKm, cosLa, at, val, d, gE, gN, lith, lim: Math.max(reach, LITTORAL.beachReachPx * pxKm, Math.min(beachReachKm(pxKm), (M - 4) * pxKm)), place, P, seed, edgeKm: (M - 4) * pxKm }) : null;
+    crop(hf, out.h); crop(sea, out.sea); shore(hf, sea); cropLakes();
+    if (lit) {
+        out.lit = new Uint8Array(LIT_N * w * h);
+        for (let j = 0; j < h; j++) out.lit.set(lit.subarray(LIT_N * ((j + M) * ew + M), LIT_N * ((j + M) * ew + M + w)), LIT_N * j * w);
+    }
     lap('sea');
     return out;
 }

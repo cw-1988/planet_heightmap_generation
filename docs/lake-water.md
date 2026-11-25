@@ -26,15 +26,32 @@ Before, a lake was flat paint: one blue over the whole basin, with a blocky edge
   diagonal with scallops a few pixels deep.
 - **The light** (Beer–Lambert): light crossing water fades as exp(−K·path), per colour. Seen from above, it goes down
   to the bed and back up, so the path is twice the depth: T = exp(−K·2d). The pixel is bed × T + deep × (1 − T).
-  - K for clear fresh water, per m (R · G · B): 0.40 · 0.075 · 0.04. That is pure water's own absorption (about
-    0.35 · 0.06 · 0.02) plus a little matter: an oligotrophic lake, Jerlov type I–II. Red is gone in a few metres; blue
-    shows the bed to 10–20 m.
+  - K for a fresh lake, per m (R · G · B): 0.40 · 0.22 · 0.18. Pure water takes red first (about 0.35 · 0.06 · 0.02),
+    but the matter in a typical lake (humus, plankton, silt) takes green and blue nearly as fast. Red is gone in a few
+    metres, green and blue at 5–6 m.
+    - Until 2026-11-22 it was clear water, 0.40 · 0.075 · 0.04: the bed's red gone while its green showed to ~15 m, a
+      yellow-green then green ring round every lake before the deep blue. The owner: "the transition … doesnt really
+      look good".
   - K for a salt lake: 0.45 · 0.12 · 0.10, greener and murkier (brine, plankton, fine silt).
 - **The deep colour**: water too deep to see through takes the palette's own sea colour at that depth, its
   bathymetry, so a deep lake darkens the way the sea does. A palette whose sea is not blue (Grey, Heightmap) gets a plain
   blue that darkens with depth. A salt lake is turned toward teal.
-- **Satellite**: the bed is the land's own colour from space there (`satLake`), seen through the same water, with
-  winter ice over it in a cold season.
+- **Satellite**: the bed is the colour from space of the nearest land outside the lake (climate-view.js `lakeBeds`,
+  the way the sea's bed shows the nearest land's), seen through the same water (`satLake`), with winter ice over it in
+  a cold season.
+  - Until 2026-11-22 it was the styled picture's own colour at the lake's pixels. The styling treats a lake's floor as
+    land, a hollow, damp and greened by the riparian tint around fresh lakes: dark olive. Under the first metres of
+    water it showed as a dark line round every lake. The owner: "there is a weird cut at the lake edge". Checked on
+    seed jq67rm7h9rdhnszvoli9rb at 58°N 89°E, 20 km scale: the shore goes from the land's tan through a short muted
+    fringe to the lake's blue, with no dark line and no green ring. The deep colour is the lake's own bathymetric shade (climate-view.js
+  `LAKE_DEPTH`, a salt lake's teal `SALT_DEPTH`), its floor's relief shaded (`LAKE_RELIEF` 1.4).
+  - Asked for by the owner, 2026-11-22, after the sea got its depth ([satellite-sea.md](satellite-sea.md) round 3):
+    "they also look a bit too flat". Fresh lakes took the sea's table, whose shelf is one colour down to 200 m, so every
+    lake was one flat navy; a salt lake was one fixed colour.
+  - `LAKE_DEPTH`: (20, 58, 92) to 20 m, (12, 38, 70) at 50 m, (6, 22, 48) at 120 m, (2, 9, 26) at 400 m, (1, 4, 14) at
+    1.5 km. Steep over 20–150 m, where most lakes lie. Flat in the top 20 m, where the bed shows anyway, so no rim glows.
+  - A first table spread over 10 m–1.5 km left a lake 32–93 m deep (seed jq67rm7h9rdhnszvoli9rb, 54.7°N 87.7°E) within
+    a few percent: still flat. With the steeper one its shallows read lighter and its basins darker, with no pale rim.
 - **Hover**: a lake shows "Fresh lake · N m deep".
 
 ## Where it is drawn
