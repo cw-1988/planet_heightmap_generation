@@ -25,15 +25,19 @@ import { LIFESTYLES, LIFESTYLE_WORDS, Lifestyle, GATHER, gatherGround, gatherAt,
 import { landPixel } from './climate-view.js';
 import { KOPPEN_ID } from '../climate/koppen.js';
 import { cityColorAt, cityValueAt, cityLegendHTML, cityLine } from './city-view.js';
+import { empireColorAt, empireValueAt, empireLegendHTML, empireLine, empireChipClicked, empireKey } from './empire-view.js';
+import { statesColorAt, statesLegendHTML, statesLine, statesChipClicked, statesKey, statesStamp, regionsShown } from './states-view.js';
 
-export const FARMING_LAYERS = new Set(['farmLand', 'farmStaple', 'farmLife', 'farmPeople', 'farmCity', 'farmSoil', 'farmSeason']);
-export const FARMING_NAMES = { farmLand: 'Farmland', farmStaple: 'Staple food', farmLife: 'Lifestyle', farmPeople: 'People', farmCity: 'City size', farmSoil: 'Soil', farmSeason: 'Growing season' };
+export const FARMING_LAYERS = new Set(['farmLand', 'farmStaple', 'farmLife', 'farmPeople', 'farmCity', 'farmEmpire', 'farmStates', 'farmSoil', 'farmSeason']);
+export const FARMING_NAMES = { farmLand: 'Farmland', farmStaple: 'Staple food', farmLife: 'Lifestyle', farmPeople: 'People', farmCity: 'City size', farmEmpire: 'Empire', farmStates: 'States', farmSoil: 'Soil', farmSeason: 'Growing season' };
 /** The techniques chosen and the looks (the legend's chips) — every view's, for as long as the page is open. `only`: the
  *  Staple food view's one food shown alone (a Staple, or 0 for all); `life` the Lifestyle view's (a Lifestyle); `reach`
  *  the City size view's (days by cart: city-view.js). */
 export const farmOptions = { flood: true, canal: true, terrace: true, raised: true, classes: false, watered: false, only: 0, life: 0, reach: 1 };
 /** The options as a key (a picture or a legend made with other options is made again) — but the one option `skip`. */
 export const farmOptionsKey = (skip = null) => Object.entries(farmOptions).filter(([k]) => k !== skip).map(([k, v]) => `${k}=${+v}`).join(',');
+/** A farming picture's key: the options, and the Empire view's (empire-view.js) for its own. */
+export const farmPictureKey = layer => (layer === 'farmEmpire' ? `${farmOptionsKey()}|${empireKey()}` : layer === 'farmStates' ? `${farmOptionsKey()}|${statesKey()}|${statesStamp()}|${+regionsShown.on}` : farmOptionsKey());
 export const TECHNIQUE_WORDS = { flood: ['Flood farming', 'Sowing the silt a big river’s flood leaves on its plain (Egypt)'], canal: ['Canals', 'Water led off rivers and lakes onto the land beside them — farther from a bigger river (Mesopotamia)'],
     terrace: ['Terraces', 'Hillsides cut into steps: slopes farmed (the Andes, the rice terraces of Asia)'], raised: ['Raised fields', 'Waterlogged flats drained or built up (the Aztecs’ chinampas)'] };
 
@@ -119,7 +123,7 @@ const gridCache = new WeakMap();
 export function peopleGrid(fin) {
     const F = fin.raster.farming, K = fin.climate.raster, key = farmOptionsKey('reach'), kept = gridCache.get(F);
     if (kept?.key === key) return kept.grid;
-    const grid = new Float32Array(F.w * F.h), p = {}, r = { scores: new Float64Array(STAPLES.length), foods: new Float64Array(STAPLES.length) }, e = new Float64Array(2 * CROPS.length);
+    const grid = new Float32Array(F.w * F.h), life = new Uint8Array(F.w * F.h), p = {}, r = { scores: new Float64Array(STAPLES.length), foods: new Float64Array(STAPLES.length) }, e = new Float64Array(2 * CROPS.length);
     const ground = groundOf(fin), g = {}, lv = {}, kef = KOPPEN_ID.EF;
     for (let y = 0; y < F.h; y++) {
         const lat = 90 - (y + 0.5) / F.h * 180;
@@ -127,11 +131,14 @@ export function peopleGrid(fin) {
             if (!K.koppen[i] || K.koppen[i] === kef) continue;
             placeAt(F, i, p, e, farmOptions, r);
             grid[i] = livingAt(F, i, lat, (x + 0.5) / F.w * 360 - 180, p, r, ground, farmOptions, g, lv).people;
+            life[i] = lv.lifestyle;
         }
     }
-    gridCache.set(F, { key, grid });
+    gridCache.set(F, { key, grid, life });
     return grid;
 }
+/** Each pixel's way of life (living.js Lifestyle: 0 none, farming, herding, gathering), worked out with peopleGrid. */
+export function lifeGrid(fin) { peopleGrid(fin); return gridCache.get(fin.raster.farming).life; }
 /** The stripes of a second food or way of life where it does nearly as well: a band a quarter of each period, ~1.4° of
  *  the texture's width. */
 const stripe = (x, y, W) => { const P = Math.max(4, Math.round(W / 256)); return (x + y) % P < Math.max(1, P >> 2); };
@@ -173,7 +180,7 @@ export function finishedFarmingColor(layer, fin, W) {
     if (!F || !K) return (out, o, x, y, wet, kk) => { const k = shadeK(kk); const c = wet ? SEA : NONE; out[o] = c[0] * k; out[o + 1] = c[1] * k; out[o + 2] = c[2] * k; out[o + 3] = 255; };
     const p = {}, r = { scores: new Float64Array(STAPLES.length), foods: new Float64Array(STAPLES.length) }, c = [0, 0, 0], tmp = [0, 0, 0], opt = { ...farmOptions }, kef = KOPPEN_ID.EF, e = new Float64Array(2 * CROPS.length);
     const living = layer === 'farmStaple' || layer === 'farmLife' || layer === 'farmPeople', ground = living ? groundOf(fin) : null, g = {}, lv = {}, H = W >> 1;
-    const city = layer === 'farmCity' && hasHarvests(F) ? cityColorAt(fin, W) : null;
+    const city = !hasHarvests(F) ? null : layer === 'farmCity' ? cityColorAt(fin, W) : layer === 'farmEmpire' ? empireColorAt(fin, W) : layer === 'farmStates' ? statesColorAt(fin, W) : null;
     return (out, o, x, y, wet, kk, k3, v, lake) => {
         const k = shadeK(kk);
         if (wet || lake === 1 || lake === 2) { const s = wet ? SEA : LAKE; out[o] = s[0] * k; out[o + 1] = s[1] * k; out[o + 2] = s[2] * k; out[o + 3] = 255; return; }
@@ -213,6 +220,7 @@ export function finishedFarmingValue(key, fin, W) {
     const F = fin?.raster?.farming, K = fin?.climate?.raster, kef = KOPPEN_ID.EF;
     if (!F || !K) return () => NaN;
     if (key === 'city') return hasHarvests(F) ? cityValueAt(fin, W) : () => NaN;
+    if (key === 'empire') return hasHarvests(F) ? empireValueAt(fin, W) : () => NaN;
     const p = {}, r = { scores: new Float64Array(STAPLES.length), foods: new Float64Array(STAPLES.length) }, e = new Float64Array(2 * CROPS.length);
     const living = key === 'people' || key === 'staple' || key === 'lifestyle', ground = living ? groundOf(fin) : null, g = {}, lv = {}, H = W >> 1;
     return (x, y) => {
@@ -303,6 +311,14 @@ export function farmingLegendHTML(layer, fin) {
         if (!hasHarvests(fin.raster.farming)) return head('City size — add detail again to see it (this moment was detailed before the harvests were counted)');
         return cityLegendHTML(fin, { head, note, chips, bar });
     }
+    if (layer === 'farmEmpire') {
+        if (!hasHarvests(fin.raster.farming)) return head('Empire — add detail again to see it (this moment was detailed before the harvests were counted)');
+        return empireLegendHTML(fin, { head, note, bar });
+    }
+    if (layer === 'farmStates') {
+        if (!hasHarvests(fin.raster.farming)) return head('States — add detail again to see them (this moment was detailed before the harvests were counted)');
+        return statesLegendHTML(fin, { head, note });
+    }
     if (layer === 'farmPeople') {
         const count = peopleOf(fin);
         if (!count) return head('People — add detail again to see them (this moment was detailed before the harvests were counted)');
@@ -329,6 +345,7 @@ export function farmingLegendHTML(layer, fin) {
 
 /** A click on a legend chip: its option flipped; true if it was one. */
 export function farmChipClicked(target) {
+    if (empireChipClicked(target) || statesChipClicked(target)) return true;
     const one = target.closest?.('[data-farm-only]');
     if (one) { const k = Number(one.dataset.farmOnly); farmOptions.only = farmOptions.only === k ? 0 : k; return true; }
     const life = target.closest?.('[data-farm-life]');
@@ -365,6 +382,8 @@ export function farmingLines(fin, u, v, sea, layer = null) {
     const fish = lv.lifestyle !== Lifestyle.GATHERING && g.fish >= 0.05 ? ` · ~${n(g.fish)} of it on fish` : '';
     lines.push(L('People', lv.people < 0.005 ? 'too few to count' : `could feed ~${n(lv.people)} a km²${fish}${rested}${instead}`));
     if (layer === 'farmCity') lines.unshift(L('City', cityLine(fin, u, v)));
+    if (layer === 'farmEmpire') { const e = empireLine(fin, u, v); if (e) lines.unshift(L('Site', e)); }
+    if (layer === 'farmStates') lines.unshift(L('State', statesLine(fin, u, v)));
     const cls = farmClass(r.tech), clsRain = farmClass(r.rain);
     // (the harvests a year: whole ones in words, a part one as "about"; the second crop of a rotation counted in them)
     const hw = h => (h < 0.15 ? 'no sure harvest' : h < 0.75 ? 'a poor harvest' : h < 1.35 ? 'one harvest a year' : h < 1.75 ? 'one and a half harvests a year' : `about ${Math.round(h)} harvests a year`);

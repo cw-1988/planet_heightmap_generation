@@ -58,6 +58,8 @@
     --map-air: rgba(120,150,185,0.38);  /* The thin rim of air around the globe, a little bluer on the night stage. */
     --map-label: #FFFFFF;  /* Continent and sea names on the map, with map-halo behind them. */
     --map-halo: rgba(10,20,35,0.9);  /* The soft halo under map labels (text-shadow). */
+    --map-road: #C29A66;  /* The States view's roads: a dusty tan, quieter than the names' white. */
+    --map-road-casing: rgba(40,26,12,0.9);  /* The darker casing under the roads (drawn at 45 %). */
     --stage-space: #04060C;  /* Space, the optional cinematic stage (with stars). The default stage is desk. */
     /* Pins */
     --pin-fill: #FFFFFF;  /* A map pin’s face; an open pin swaps fill and ink. */
@@ -82,6 +84,26 @@
     --ore-base: #2BB3B7;  /* Ore family: Base metals (copper, tin, lead and zinc, aluminium). One metal alone takes its family’s colour, r… */
     --ore-precious: #BC871A;  /* Ore family: Precious (gold, silver, diamonds). One metal alone takes its family’s colour, richness by strengt… */
     --ore-salt: #AD68B0;  /* Ore family: Salt. One metal alone takes its family’s colour, richness by strength. The four pass every check… */
+    /* Resource badges: each resource its own colour, at most eight within a category (the drawing tells the category) */
+    --res-metal-iron: #5E7A99;  /* Iron: steel blue. */
+    --res-metal-copper: #B0643A;  /* Copper: copper brown. */
+    --res-metal-tin: #A9B0B5;  /* Tin: pale grey. */
+    --res-metal-lead: #4F5A66;  /* Lead and zinc: dark slate. */
+    --res-precious-gold: #E0B53C;  /* Gold. */
+    --res-precious-silver: #D3D8DE;  /* Silver. */
+    --res-mineral-salt: #EFE3DA;  /* Salt: pale rose white. */
+    --res-gem-diamond: #CFEAF2;  /* Diamonds: pale ice. */
+    --res-gem-green: #1F9A5E;  /* Emerald. */
+    --res-gem-red: #B3263E;  /* Ruby and sapphire, garnet. */
+    --res-gem-blue: #2F55B0;  /* Lapis lazuli, sapphire and peridot in basalt. */
+    --res-gem-violet: #8A4FB8;  /* Amethyst. */
+    --res-gem-opal: #B9D8D0;  /* Opal: milky. */
+    --res-gem-turquoise: #2FB8B0;  /* Turquoise. */
+    --res-gem-mixed: #C46FA0;  /* Pegmatite gems, gem gravels: mixed stones. */
+    --res-stone-obsidian: #1E1E24;  /* Obsidian: black glass. */
+    --res-stone-jade: #5FA77E;  /* Jade. */
+    --res-stone-agate: #B5552E;  /* Agate and jasper. */
+    --res-stone-marble: #E8E4DC;  /* Marble. */
     /* Staple food */
     --staple-paddy: #4FBCAA;  /* Staple food: Paddy grains. Paler where it feeds less well; striped where a second does nearly as well. Wild f… */
     --staple-cool: #CCB21F;  /* Staple food: Cool-season grains. Paler where it feeds less well; striped where a second does nearly as well.… */

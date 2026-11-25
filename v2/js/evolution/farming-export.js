@@ -12,6 +12,7 @@ export const FARM_SCALES = {
     people:    { unit: 'people a km² (pre-industrial)', lo: 0, hi: 1000 },
     soil:      { unit: 'soil fertility (0 barren … 1 the richest)', lo: 0, hi: 1 },
     season:    { unit: 'months crops grow', lo: 0, hi: 12 },
+    site:      { unit: 'city site score (0 none or sea … 1 the best: food, fresh water, trade and ground, as the Empire view weighs them)', lo: 0, hi: 1 },
     staple:    { unit: 'staple food index (0 = nothing or sea; the README lists them)', lo: 0, hi: 255 },
     lifestyle: { unit: 'lifestyle index (0 = uninhabited or sea; the README lists them)', lo: 0, hi: 255 },
 };
@@ -28,6 +29,8 @@ export const FOOD_GROUP = { id: 'farming', label: 'Food', rows: [
     { id: 'farmLife', label: 'Lifestyle', colour: true, needs: 'farming', data: [farmData('lifestyle', 'index', 'Lifestyle index', 'lifestyle', 8)], tip: 'How each place’s people would live — farming, herding or gathering; as data, each lifestyle’s index (the README lists them)' },
     { id: 'farmPeople', label: 'People', colour: true, needs: 'farming', data: [farmData('people', '', 'People a km²', 'people')], tip: 'How many people the land could feed, pre-industrial, a km²' },
     { id: 'farmCity', label: 'City size', colour: true, needs: 'farming', tip: `How many people the land within the City size view’s reach (days by cart, further by boat) could feed, as its legend shows it (a heat map, the richest place's count down ten-thousandfold)` },
+    { id: 'farmEmpire', label: 'Empire', colour: true, needs: 'farming', data: [farmData('empire', 'score', 'City site score', 'site')], tip: 'Where cities could best be founded, as the Empire view shows it: the heat map with the metrics chosen in its legend, the valleys in focus and the spots pinned; as data, the score itself' },
+    { id: 'farmStates', label: 'States', colour: true, needs: 'farming', tip: 'The States view as it shows: each state its colour, the borders, the contested frontier striped, the capitals, bottlenecks and flashpoints marked' },
     { id: 'farmSoil', label: 'Soil', colour: true, needs: 'farming', data: [farmData('soil', '', 'Soil fertility', 'soil')], tip: 'How fertile the ground is' },
     { id: 'farmSeason', label: 'Growing season', colour: true, needs: 'farming', data: [farmData('seasonRain', 'rain', 'Growing season by rain alone', 'season'), farmData('seasonWatered', 'watered', 'Growing season, watered', 'season')], tip: 'The months crops grow, as its legend shows; as data, by rain alone and watered' },
 ] };
