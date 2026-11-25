@@ -29,7 +29,7 @@ export const GEOLOGY_GROUP = { id: 'geology', label: 'Geology', rows: [
     row('rocks', 'Rocks', 'geology', 'geoRocks', { colour: true, data: [{ key: 'rockIndex', suffix: 'index', label: 'Rock type index', scale: ROCK_INDEX, bits: 8 }],
         tip: 'The Rocks view: what the land is made of at the surface, in a geologic map\'s colours; as data, each pixel\'s rock type as a number (the README lists them)' }),
     row('deposits', 'Deposits', 'deposits', 'geoDeposits', { colour: true, data: METALS.map(m => mask(`m.${m.id}`, kebab(m.id), `${m.name} richness`)),
-        tip: 'The Deposits view as shown: the metals and minerals together, or the metal, fuel or kind of deposit chosen there; as data, a richness mask for every metal, mineral and fuel (0 none … 255 the richest)' }),
+        tip: 'The Deposits view as shown: the metals and minerals together, or the metals, fuels and kinds of deposit ticked there, each place its richest; as data, a richness mask for every metal, mineral and fuel (0 none … 255 the richest)' }),
     ...AGES.map(a => row(`age-${a.id}`, a.name, 'deposits', 'geoAges', { age: a.id, colour: true,
         data: [...a.resources.map(r => mask(`${a.id}.${r.id}`, kebab(r.id), TECH.has(a.id) ? `${r.name}, as the ${a.name} could reach it` : `${r.name} richness`)),
             ...(a.potential ? [mask(`${a.id}.potential`, 'potential', `${a.potential.name} potential: ${a.potential.words}`)] : [])],

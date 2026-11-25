@@ -31,8 +31,14 @@ HARD[Rock.OPHIOLITE] = 0.8; HARD[Rock.LIMESTONE] = 0.8; HARD[Rock.VOLCANIC] = 0.
  *   rock is got at (0…1); ci, cw: the cell's corners on `coarse`; wd(row, v): the deposits' district writer
  */
 export function aggregates(o, G) {
-    const { mesh, ocean, lat, lon, coarse, rough, ids, q = null, till = null, glaciated = null, ice = null, erg = null,
-        coastSand = null, coastWave = null, coastWinter = null } = o;
+    const src = aggregateSources(o, G);
+    return src && aggregateWriter({ ...src, ids: o.ids, coarse: o.coarse, erg: o.erg ?? null, coastWave: o.coastWave ?? null, coastWinter: o.coastWinter ?? null }, G);
+}
+
+/** aggregates()' sources, per cell (worth: sand and gravel worth working; shoreSand) and on `coarse` (near: the share of
+ *  the ground worth working, over ~nearKm) — or null: no kinds to write. */
+export function aggregateSources(o, G) {
+    const { mesh, ocean, lat, lon, coarse, rough, ids, q = null, till = null, glaciated = null, ice = null, coastSand = null } = o;
     if (!ids || ids.gravel === undefined) return null;
     const A = G.deposits.aggregates, n = mesh.numCells, { adjOffset, adjList, edgeKm } = mesh;
     const notable = v => (v > A.floor ? (v - A.floor) / (1 - A.floor) : 0);
@@ -60,6 +66,13 @@ export function aggregates(o, G) {
     }
     // ── where sand or gravel lies near: the share of the ground worth working, over ~nearKm ──
     const near = coarse.blur(coarse.average(lat, lon, worth, c => !ocean[c]), A.nearKm);
+    return { worth, shoreSand, near };
+}
+
+/** The per-cell writer from aggregateSources()' `worth`, `shoreSand`, `near` — with ids, coarse, and per cell erg,
+ *  coastWave, coastWinter (each indexed as worth is: a range of cells' own slices will do). */
+export function aggregateWriter({ worth, shoreSand, near, ids, coarse, erg = null, coastWave = null, coastWinter = null }, G) {
+    const A = G.deposits.aggregates, notable = v => (v > A.floor ? (v - A.floor) / (1 - A.floor) : 0);
     const Lt = LITTORAL, show = G.ergShow;
     return (c, rs, J4, access, ci, cw, wd) => {
         if (worth[c] > 0) wd(ids.gravel, worth[c]);

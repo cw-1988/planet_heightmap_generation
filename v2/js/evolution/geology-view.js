@@ -157,41 +157,53 @@ const FAMILY_OF = METALS.map(m => ORE_FAMILIES.find(f => f.metals.includes(m.id)
 const METAL_INK = METALS.map((m, i) => FAMILY_OF[i]?.rgb ?? m.rgb);
 /** A pick's row in the finish's grid and what it is: a metal (METAL_PICK + id) or a system (its id). */
 function pickOf(pick) {
-    if (pick.startsWith(METAL_PICK)) { const i = METALS.findIndex(m => m.id === pick.slice(METAL_PICK.length)); return i < 0 ? null : { row: SYS + i, item: METALS[i], metal: i }; }
+    if (pick.startsWith(METAL_PICK)) { const i = METALS.findIndex(m => m.id === pick.slice(METAL_PICK.length)); return i < 0 ? null : { key: pick, row: SYS + i, item: METALS[i], metal: i }; }
     const k = DEPOSITS.findIndex(d => d.id === pick);
-    return k < 0 ? null : { row: k, item: DEPOSITS[k], metal: -1 };
+    return k < 0 ? null : { key: pick, row: k, item: DEPOSITS[k], metal: -1 };
 }
+const OFFSHORE = new Set(['oil', 'gas', METAL_PICK + 'oilGas']);
+/** What a Deposits pick holds (the picker's checklist: "all", one id, or several joined by commas — the owner, 2026-11-24:
+ *  "i also want to be able to select all gems, or at least the categories that i am interested in"): its picks, each
+ *  with its colour — in "All" the metals in their families' (four hues, the members in words), in a set of several each
+ *  its own, so they can be told apart; one alone a metal in its family's, as ever. */
+export function depositPicks(pick = DEP_ALL) {
+    if (pick === DEP_ALL) return ALL_METALS.map(i => ({ key: METAL_PICK + METALS[i].id, row: SYS + i, item: METALS[i], metal: i, rgb: METAL_INK[i] }));
+    const list = [...new Set(String(pick).split(','))].map(pickOf).filter(Boolean);
+    return list.map(p => ({ ...p, rgb: list.length > 1 ? p.item.rgb : p.metal >= 0 ? METAL_INK[p.metal] : p.item.rgb }));
+}
+/** Whether a pick is several (drawn as "All" is: each place its richest of them). */
+const isSet = pick => pick === DEP_ALL || String(pick).includes(',');
 const depositGrids = new WeakMap();
-/** The full grid of a pick's richness (0…1) — for "All" the richest metal per cell and its richness — kept per finish. */
+/** The full grid of a pick's richness (0…1) — for "All" or a set, the richest pick per cell (`sys`: its index in `items`)
+ *  and its richness — kept per finish. */
 function depositGrid(fin, pick) {
     const Dp = fin.raster.geology.deposits;
     let byPick = depositGrids.get(fin);
     if (!byPick) depositGrids.set(fin, byPick = new Map());
     if (byPick.has(pick)) return byPick.get(pick);
-    const K = Dp.cells.length, v = new Float32Array(Dp.w * Dp.h), sys = pick === DEP_ALL ? new Int16Array(Dp.w * Dp.h).fill(-1) : null;
-    let rgb = [0, 0, 0];
+    const K = Dp.cells.length, v = new Float32Array(Dp.w * Dp.h), items = depositPicks(pick), sys = isSet(pick) ? new Int16Array(Dp.w * Dp.h).fill(-1) : null;
     if (sys) {
-        // (scarcity: a metal's share of the land at moderate or better — the scarcer wins a tie of grades)
-        const share = METALS.map((m, i) => Dp.metalShares[3 * i + 1] + Dp.metalShares[3 * i + 2]), [p0, p1, p2] = GEOLOGY.deposits.grades;
-        const grade = x => (x >= p2 ? 3 : x >= p1 ? 2 : x >= p0 ? 1 : 0);
+        // (scarcity: a pick's share of the land at moderate or better — the scarcer wins a tie of grades)
+        const share = items.map(p => { const sh = p.metal >= 0 ? Dp.metalShares : Dp.shares, a = 3 * (p.metal >= 0 ? p.metal : p.row); return sh[a + 1] + sh[a + 2]; });
+        const [p0, p1, p2] = GEOLOGY.deposits.grades, grade = x => (x >= p2 ? 3 : x >= p1 ? 2 : x >= p0 ? 1 : 0);
         for (let j = 0; j < K; j++) {
             let best = -1, bg = 0, bv = 0;
-            for (const i of ALL_METALS) {
-                const x = Dp.data[(SYS + i) * K + j] / 255, g = grade(x);
+            for (let i = 0; i < items.length; i++) {
+                const x = Dp.data[items[i].row * K + j] / 255, g = grade(x);
                 if (g > bg || (g === bg && g > 0 && share[i] < share[best])) { best = i; bg = g; bv = x; }
             }
             if (best >= 0) { v[Dp.cells[j]] = bv; sys[Dp.cells[j]] = best; }
         }
-    } else {
-        const p = pickOf(pick);
-        if (p) { for (let j = 0; j < K; j++) v[Dp.cells[j]] = Dp.data[p.row * K + j] / 255; rgb = p.metal >= 0 ? METAL_INK[p.metal] : p.item.rgb; }
+    } else if (items.length) {
+        const row = items[0].row;
+        for (let j = 0; j < K; j++) v[Dp.cells[j]] = Dp.data[row * K + j] / 255;
     }
-    const grid = { w: Dp.w, h: Dp.h, step: Dp.step, v, sys, rgb };
+    const grid = { w: Dp.w, h: Dp.h, step: Dp.step, v, sys, items, inks: items.map(p => p.rgb), rgb: items[0]?.rgb ?? [0, 0, 0] };
     byPick.set(pick, grid);
     return grid;
 }
-/** A grid's richness at a place (bilinear over cell centres), and its colour — for "All" the four cells' metals' colours,
- *  each by its weight and richness (soft where metals meet, never the grid's squares); out.k the strongest of them. */
+/** A grid's richness at a place (bilinear over cell centres), and its colour — for "All" or a set the four cells' picks'
+ *  colours, each by its weight and richness (soft where they meet, never the grid's squares); out.k the strongest of them. */
 function depositAt(grid, la, lo, out) {
     const x = (lo + 180) / grid.step - 0.5, y = Math.max(0, Math.min(grid.h - 1, (90 - la) / grid.step - 0.5)), x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
     const xa = ((x0 % grid.w) + grid.w) % grid.w, xb = (xa + 1) % grid.w, y1 = Math.min(grid.h - 1, y0 + 1), V = grid.v;
@@ -202,7 +214,7 @@ function depositAt(grid, la, lo, out) {
     for (const [i, w] of [[i0, w0], [i1, w1], [i2, w2], [i3, w3]]) {
         const k = grid.sys[i], q = w * V[i];
         if (k < 0 || !(q > 0)) continue;
-        const c = METAL_INK[k];
+        const c = grid.inks[k];
         r += q * c[0]; g += q * c[1]; b += q * c[2]; sw += q;
         if (q > bw) { bw = q; best = k; }
     }
@@ -212,12 +224,12 @@ function depositAt(grid, la, lo, out) {
 }
 function depositsColor(fin, W, pick) {
     const H = W >> 1, grid = depositGrid(fin, pick), at = { v: 0, k: -1, rgb: [0, 0, 0] }, [p0] = GEOLOGY.deposits.grades, wash = {};
-    const offshore = ['oil', 'gas', METAL_PICK + 'oilGas'].includes(pick);
+    const offshore = grid.items.map(p => OFFSHORE.has(p.key)), anyOffshore = offshore.some(Boolean);
     return (out, o, x, y, wet, kk, k3, v, lake) => {
         washGround(out, o, wet, kk, lake);
-        if (wet && !offshore) return;                                 // (at sea, oil and gas only: the shelf's)
+        if (wet && !anyOffshore) return;                              // (at sea, oil and gas only: the shelf's)
         depositAt(grid, 90 - (y + 0.5) / H * 180, (x + 0.5) / W * 360 - 180, at);
-        if (at.v < p0 || at.k < 0) return;
+        if (at.v < p0 || at.k < 0 || (wet && !offshore[at.k])) return;
         inkWash(out, o, at.rgb, at.v, wet, kk, wash);
     };
 }
@@ -237,9 +249,10 @@ export function depositLines(fin, u, v, sea = false, pick = DEP_ALL) {
         const from = m.sources.map(([id, w]) => [id, w * sysAt[DEPOSITS.findIndex(d => d.id === id)]]).filter(([, y]) => y >= p0).sort((a, b) => b[1] - a[1]);
         found.push([i, x, from.slice(0, 3).map(([id]) => DEPOSITS.find(d => d.id === id).name.toLowerCase()).filter(nm => nm !== m.name.toLowerCase())]);
     });
-    const dots = x => (x >= p2 ? '●●●' : x >= p1 ? '●●○' : '●○○'), kind = pick !== DEP_ALL && !pick.startsWith(METAL_PICK) ? pickOf(pick) : null;
-    // (the kind of deposit picked, first: a gem or a stone is no metal)
-    const picked = kind && !sea ? sysAt[kind.row] : 0, head = picked >= p0 ? [`<span class="hi-label">${kind.item.name}</span> <span style="color:${css(kind.item.rgb)}">${dots(picked)}</span> — ${kind.item.yields}`] : [];
+    const dots = x => (x >= p2 ? '●●●' : x >= p1 ? '●●○' : '●○○');
+    // (the kinds of deposit picked, first, richest first: a gem or a stone is no metal)
+    const kinds = sea || pick === DEP_ALL ? [] : depositPicks(pick).filter(p => p.metal < 0).map(p => [p, sysAt[p.row]]).filter(([, x]) => x >= p0).sort((a, b) => b[1] - a[1]);
+    const head = kinds.slice(0, 4).map(([p, x]) => `<span class="hi-label">${p.item.name}</span> <span style="color:${css(p.rgb)}">${dots(x)}</span> — ${p.item.yields}`);
     if (!found.length) return sea ? [] : [...head, '<span class="hi-label">Deposits</span> no metals to speak of'];
     found.sort((a, b) => b[1] - a[1]);
     return [...head, ...found.slice(0, 5).map(([i, x, from], n) => `<span class="hi-label">${n ? '' : 'Deposits'}</span> ${METALS[i].name} <span style="color:rgb(${METAL_INK[i].join(',')})">${dots(x)}</span>${from.length ? ` — ${from.join(', ')}` : ''}`)];
@@ -255,15 +268,23 @@ function depositsLegendHTML(fin, pick, sw, head) {
             .sort((a, b) => share(b) - share(a)) })).filter(g => g.members.length);
         return head('Deposits — metals and minerals by family, each place its richest') +
             fams.map(g => `<div class="evo-ore-family">${sw(inkRgb(g.f.rgb, 1), g.f.name)}<span class="evo-ore-members">${g.members.map(i => `${METALS[i].name.toLowerCase()} ${pct(share(i))}%`).join(' · ')}</span></div>`).join('') +
-            '<div class="evo-legend-note">% of the land moderate or rich. Faint where poor, solid where moderate, full where rich; a tie goes to the scarcer. Pick one metal above to see it alone — or a fuel, or a kind of deposit</div>';
+            '<div class="evo-legend-note">% of the land moderate or rich. Faint where poor, solid where moderate, full where rich; a tie goes to the scarcer. Tick metals, fuels or kinds of deposit above to see them alone or together</div>';
     }
-    const p = pickOf(pick);
-    if (!p) return '';
+    const picks = depositPicks(pick);
+    if (!picks.length) return head('Deposits — nothing ticked: tick metals, fuels or kinds of deposit above');
+    if (picks.length > 1) {
+        // (a set: each pick its colour and its share, the commonest first)
+        const share = p => { const sh = p.metal >= 0 ? Dp.metalShares : Dp.shares, a = 3 * (p.metal >= 0 ? p.metal : p.row); return sh[a + 1] + sh[a + 2]; };
+        return head(`Deposits — ${picks.length} picked, each place its richest`) +
+            `<div class="evo-koppen">${[...picks].sort((a, b) => share(b) - share(a)).map(p => sw(inkRgb(p.rgb, 1), p.item.name, pct(share(p)))).join('')}</div>` +
+            '<div class="evo-legend-note">% of the land moderate or rich. Faint where poor, solid where moderate, full where rich; a tie goes to the scarcer</div>';
+    }
+    const p = picks[0];
     const d = p.item, sh = p.metal >= 0 ? Dp.metalShares : Dp.shares, at3 = p.metal >= 0 ? 3 * p.metal : 3 * p.row;
     // (each grade's swatch at the middle of its range, as the wash inks it)
     const [p0, p1, p2] = GEOLOGY.deposits.grades, mids = [(p0 + p1) / 2, (p1 + p2) / 2, (p2 + 1) / 2];
     const from = p.metal >= 0 ? ` From: ${d.sources.map(([id]) => DEPOSITS.find(s => s.id === id).name.toLowerCase()).join(', ')}.` : '';
-    const rgb = p.metal >= 0 ? METAL_INK[p.metal] : d.rgb;                         // (a metal in its family's colour, as on the map)
+    const rgb = p.rgb;                                                             // (a metal in its family's colour, as on the map)
     return head(p.metal >= 0 ? d.name : `${d.name} — ${d.yields}`) + `<div class="evo-koppen">${mids.map((v, g) => sw(inkRgb(rgb, v), GRADE_WORDS[g], pct(sh[at3 + g]))).join('')}</div>` +
         `<div class="evo-legend-note">${d.words[0].toUpperCase()}${d.words.slice(1)}.${from} % of the land</div>`;
 }
@@ -440,11 +461,10 @@ export function subjectsOf(fin, layer, pick = DEP_ALL, age = 'bronze', agePick =
             out = A.age.resources.map((r, i) => ({ id: r.id, name: r.name, rgb: r.rgb, field: A.fields[i], bytes: false, from: r.from }))
                 .filter(s => agePick === DEP_ALL ? s.id !== 'wood' : s.id === agePick);
         }
-    } else if (pick === DEP_ALL) {
-        out = ALL_METALS.map(i => { const m = METALS[i]; return { id: m.id, name: m.name, rgb: METAL_INK[i], field: row(SYS + i), bytes: true, from: m.sources }; });
     } else {
-        const p = pickOf(pick);
-        if (p && !NO_DISTRICTS.has(p.item.id)) out = [{ id: p.item.id, name: p.item.name, rgb: p.metal >= 0 ? METAL_INK[p.metal] : p.item.rgb, field: row(p.row), bytes: true, from: p.metal >= 0 ? p.item.sources : [[p.item.id, 1]] }];
+        // ("All", one pick, or a set: each with districts its own subject, `key` its pick)
+        out = depositPicks(pick).filter(p => p.metal >= 0 || !NO_DISTRICTS.has(p.item.id))
+            .map(p => ({ key: p.key, id: p.item.id, name: p.item.name, rgb: p.rgb, field: row(p.row), bytes: true, from: p.metal >= 0 ? p.item.sources : [[p.item.id, 1]] }));
     }
     byKey.set(key, out);
     return out;
@@ -494,7 +514,8 @@ export function districtLines(fin, frame, layer, pick, age, agePick, u, v) {
     // (the district here: of the subject the view shows here — in All, the one painted here — in this grid cell or next to it)
     let found = null;
     if (subs.length) {
-        const painted = layer === 'geoAges' ? (agePick === DEP_ALL ? ageGrid(fin, age, DEP_ALL).k : null) : pick === DEP_ALL ? depositGrid(fin, DEP_ALL).sys : null;
+        const dg = layer === 'geoAges' ? null : depositGrid(fin, pick);
+        const painted = layer === 'geoAges' ? (agePick === DEP_ALL ? ageGrid(fin, age, DEP_ALL).k : null) : dg.sys;
         for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) {
             const yy = gy + dy;
             if (yy < 0 || yy >= Dp.h) continue;
@@ -504,7 +525,7 @@ export function districtLines(fin, frame, layer, pick, age, agePick, u, v) {
             if (painted) {
                 const k = painted[g];
                 if (k < 0) continue;
-                s = layer === 'geoAges' ? subs.find(x => x.id === ageOf(age).resources[k].id) : subs.find(x => x.id === METALS[k].id);
+                s = layer === 'geoAges' ? subs.find(x => x.id === ageOf(age).resources[k].id) : subs.find(x => x.key === dg.items[k].key);
                 if (!s) continue;
             }
             const D = districtsOf(fin, s), i = D.of[j];

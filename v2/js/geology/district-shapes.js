@@ -162,8 +162,9 @@ export class DistrictShapes {
     /** The cell's shared parts, made the first time a system there asks (most cells have none). */
     prepare() {
         this.ready = true;
-        const { x, y, z, pB: psiB, wB0: wB, pC: psiC, wC0: wC } = this, F = this.fine, d = F.data, s = this.fs, q = this.fw;
+        const { x, y, z, pB: psiB, wB0: wB, pC: psiC, wC0: wC } = this, F = this.fine, s = this.fs, q = this.fw;
         F.corners(this.lat, this.lon, s, q);
+        const d = F.data;                                  // (read after corners(): a node made there may have grown it)
         let dx = 0, dy = 0, dz = 0, ts = 0, bg = 0;
         for (let k = 0; k < 4; k++) { const o = 5 * s[k], u = q[k]; dx += u * d[o]; dy += u * d[o + 1]; dz += u * d[o + 2]; ts += u * d[o + 3]; bg += u * d[o + 4]; }
         this.wx = x + dx; this.wy = y + dy; this.wz = z + dz;

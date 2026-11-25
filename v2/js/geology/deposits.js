@@ -26,7 +26,8 @@ import { Biome } from '../finish/finish-cover.js';
 import { Rock, ROCK_COUNT, simRocks, hash01, bedTops, B_GRANITE, NB } from './rocks.js';
 import { GEOLOGY } from './geology-config.js';
 import { DistrictShapes } from './district-shapes.js';
-import { aggregates } from './aggregates.js';
+import { aggregateSources, aggregateWriter } from './aggregates.js';
+import { sharedAll } from '../core/shared-memory.js';
 import { report } from '../core/progress.js';
 
 const R = 6371;
@@ -367,9 +368,73 @@ export function districtSystems(G = GEOLOGY) {
  *   metalShares: Float32Array}} data: rows × K bytes (row-major, K = cells.length), richness × 255 — the systems
  *   (DEPOSITS), then the metals (METALS); shares, metalShares: the land's share poor / moderate / rich of each
  */
-export function depositFields({ mesh, z, ocean, frame, simMesh, seed, rock, rec, on, local = {} }, G = GEOLOGY) {
-    const n = mesh.numCells, { xyz } = mesh, Dp = G.deposits, { lat, lon } = on;
-    const { glaciated = null, till = null, lake = null, q = null, recv = null, order = null, biome = null, clim = null, ice = null, colS = null, colT = null, colArch = null } = local;
+export function depositFields(o, G = GEOLOGY) {
+    const S = depositSetup(o, G);
+    return depositFinish(S, [depositCells({ ...S.grids, ...rangeInput(S, 0, S.n, false) }, G, f => report(0.25 + 0.65 * f))], G);
+}
+
+/** depositFields' work with the cells' part on worker threads (deposit-worker.js), by ranges of cells, from
+ *  POOL_FROM_CELLS up: the same values, bit for bit (each grid cell keeps its richest, whichever range wrote it). On this
+ *  thread where no worker starts. `workers`: how many (default: terrain-pool.js defaultPoolSize). */
+export async function depositFieldsOnWorkers(o, G = GEOLOGY, { workers = null } = {}) {
+    const S = depositSetup(o, G), pool = S.n >= POOL_FROM_CELLS ? await import('../terrain/terrain-pool.js') : null;
+    const W = pool ? (workers ?? await pool.defaultPoolSize()) : 0;
+    let parts = null;
+    if (W > 1) parts = await cellsOnWorkers(S, W, G, pool.spawn).catch(() => null);           // (no worker starts: on this thread)
+    parts ??= [depositCells({ ...S.grids, ...rangeInput(S, 0, S.n, false) }, G, f => report(0.25 + 0.65 * f))];
+    return depositFinish(S, parts, G);
+}
+const POOL_FROM_CELLS = 300000;       // (below this the workers' start costs more than they save)
+const RANGES_PER_WORKER = 4;          // (land and sea even out: each worker takes the next range as it finishes one)
+// (the per-cell inputs the cells' loop reads, each a range's slice; xyz 3 a cell)
+const PER_CELL = ['xyz', 'lat', 'lon', 'z', 'ocean', 'rock', 'glaciated', 'till', 'lake', 'biome', 'ice', 'colS', 'colT', 'colArch', 'worth', 'shoreSand', 'erg', 'coastWave', 'coastWinter'];
+const CLIM_TESTS = ['baux', 'ni', 'ironLat', 'evap', 'peat', 'semi', 'arid'];
+const AGG_IDS = { gravel: D.gravel, desertSand: D.desertSand, crushedRock: D.crushedRock, silicaSand: D.silicaSand };
+
+async function cellsOnWorkers(S, W, G, spawnWorker) {
+    const workers = await Promise.all(Array.from({ length: W }, () => spawnWorker('../geology/deposit-worker.js')));
+    try {
+        const n = S.n, count = W * RANGES_PER_WORKER, parts = new Array(count), grids = sharedAll(S.grids);
+        let next = 0, done = 0;
+        await new Promise((resolve, reject) => {
+            const give = w => {
+                if (next >= count) return;
+                const i = next++, I = rangeInput(S, Math.floor(i * n / count), Math.floor((i + 1) * n / count), true);
+                w.post({ type: 'range', i, I }, rangeBuffers(I));
+            };
+            for (const w of workers) {
+                w.listen(msg => {
+                    if (msg.type === 'error') { reject(new Error(`deposit worker: ${msg.message}`)); return; }
+                    parts[msg.i] = msg.part;
+                    report(0.25 + 0.65 * ++done / count);
+                    if (done === count) resolve(); else give(w);
+                });
+                w.onCrash(m => reject(new Error(`deposit worker stopped (${m})`)));
+                w.hold(true);
+                w.post({ type: 'grids', grids, G });
+                give(w);
+            }
+        });
+        return parts;
+    } finally { for (const w of workers) w.terminate(); }
+}
+
+/** The buffers a range's input or result can hand over (each its own: a range's slices, never the shared grids). */
+export function rangeBuffers(o) {
+    const out = new Set();
+    const walk = v => {
+        if (!v || typeof v !== 'object') return;
+        if (!ArrayBuffer.isView(v)) { for (const x of Object.values(v)) walk(x); return; }
+        if (!(typeof SharedArrayBuffer !== 'undefined' && v.buffer instanceof SharedArrayBuffer)) out.add(v.buffer);
+    };
+    walk(o);
+    return [...out];
+}
+
+/** The whole planet's part before the cells: the record's systems on the 0.5° grid, the ground's roughness and height over
+ *  its surroundings, the aggregates' sources, the output grid and each grid cell's rock shares. */
+function depositSetup({ mesh, z, ocean, frame, simMesh, seed, rock, rec, on, local = {} }, G) {
+    const n = mesh.numCells, Dp = G.deposits, { lat, lon } = on;
     const P = simDeposits(frame, simMesh, seed, G);
     // (the shelf: sea over continental crust, shallow — oil and gas only)
     const shelf = c => ocean[c] && z[c] > Dp.shelfKm && frame.owner[rec[c]] >= 0 && frame.type[rec[c]] !== CrustType.OCEAN;
@@ -396,18 +461,10 @@ export function depositFields({ mesh, z, ocean, frame, simMesh, seed, rock, rec,
     for (let c = 0; c < n; c++) z2[c] = z[c] * z[c];
     const [zMean, zSq] = coarse.blurMany([coarse.average(lat, lon, z, onLand), coarse.average(lat, lon, z2, onLand)], 50), rough = new Float32Array(coarse.size);
     for (let q = 0; q < coarse.size; q++) rough[q] = zMean[q] === zMean[q] ? Math.sqrt(Math.max(0, zSq[q] - zMean[q] * zMean[q])) : NaN;
-    const agg = aggregates({ ...local, mesh, ocean, lat, lon, coarse, rough, ids: { gravel: D.gravel, desertSand: D.desertSand, crushedRock: D.crushedRock, silicaSand: D.silicaSand } }, G);
-    // ── districts: each system's permissive ground broken into districts — clusters of clusters, drawn out along the
-    // grain, gathered on lineaments, bent and lobed (district-shapes.js), each its share of the ground ──
-    const nz = new FastNoise(((seed | 0) * 0x6c8b + 0x3d) >>> 0), SH = Dp.shapes;
-    // (the beds: the column's contacts as the Rocks map counts them, and which of them are ironstone horizons — a sea's
-    // condensed beds, seeded)
-    const tops = bedTops(seed, G), B = Dp.beds, horizon = tops.map((_, k) => hash01(seed ^ 0x1e05, k) < B.ironHorizonShare);
-    const scale = DEPOSITS.map(d => Dp.scale[d.id] ?? 1), kimbF = R / Dp.kimberliteFieldKm, layeredF = R / Dp.layeredKm, reefF = R / Dp.reefKm, ruleIce = G.guideRules.iceStripsPlacers;
+    const aggSrc = aggregateSources({ ...local, mesh, ocean, lat, lon, coarse, rough, ids: AGG_IDS }, G);
     // ── the grid each cell writes into: each 0.25° cell the richest of its cells, kept where there is land or shelf ──
     // (no finer than the mesh: a grid cell holds a terrain cell or more — 0.25° from ~2.5M cells, 0.5° at 640K, 1° at 160K)
     const step = [Dp.gridDeg, 0.5, 1, 2].find(d => d >= Dp.gridDeg && d * 111 >= 1.25 * mesh.edgeKm) ?? 2;
-    const shapes = new DistrictShapes(seed, districtSystems(G), SH, step);
     const out = new LatLonGrid(step), gi = new Int32Array(out.size).fill(-1), list = [], cellG = new Int32Array(n).fill(-1);
     report(0.2);
     for (let c = 0; c < n; c++) {
@@ -416,7 +473,52 @@ export function depositFields({ mesh, z, ocean, frame, simMesh, seed, rock, rec,
         if (gi[k] < 0) { gi[k] = list.length; list.push(k); }
         cellG[c] = gi[k];
     }
-    const K = list.length, data = new Uint8Array(SYS * K), shares = new Float32Array(3 * SYS), [gPoor, gMod, gRich] = Dp.grades;
+    const K = list.length;
+    // (each grid cell's rocks: each kind's share of its land cells — a grid cell's together)
+    const rs = new Float32Array(ROCK_COUNT * K), cnt = new Float32Array(K);
+    for (let c = 0; c < n; c++) if (!ocean[c] && cellG[c] >= 0) { rs[cellG[c] * ROCK_COUNT + rock[c]]++; cnt[cellG[c]]++; }
+    for (let j = 0; j < K; j++) if (cnt[j]) for (let r = 0; r < ROCK_COUNT; r++) rs[j * ROCK_COUNT + r] /= cnt[j];
+    const cellArrays = { ...local, xyz: mesh.xyz, lat, lon, z, ocean, rock, worth: aggSrc?.worth ?? null, shoreSand: aggSrc?.shoreSand ?? null };
+    // (what every range reads whole: the record's fields and the ground's, on their grids)
+    const grids = { seed, step, coarseStep: coarse.step, fineStep: fine.step, F, anyRec, anyGem, edgeGrid, rough, ref, near: aggSrc?.near ?? null, agg: !!aggSrc };
+    return { n, mesh, ocean, lat, lon, local, out, gi, list, cellG, K, rs, cnt, coarse, rough, cellArrays, grids };
+}
+
+/** Cells from…to's own input to depositCells: their slices (copies when `copy`, to hand to a worker; else views), their
+ *  grid cells numbered from the first they touch (j0, the grid cells being numbered in cell order as first met, so a
+ *  range's lie close together) and those grid cells' rock shares. */
+function rangeInput(S, from, to, copy) {
+    const A = S.cellArrays, cut = (a, per = 1) => (a ? (copy ? a.slice(per * from, per * to) : a.subarray(per * from, per * to)) : null);
+    const I = { from, length: to - from };
+    for (const k of PER_CELL) I[k] = cut(A[k], k === 'xyz' ? 3 : 1);
+    I.clim = A.clim ? Object.fromEntries(CLIM_TESTS.map(k => [k, cut(A.clim[k])])) : null;
+    let j0 = Infinity, j1 = -1;
+    for (let c = from; c < to; c++) { const j = S.cellG[c]; if (j >= 0) { if (j < j0) j0 = j; if (j > j1) j1 = j; } }
+    if (j1 < 0) j0 = j1 = 0;
+    const cellG = new Int32Array(to - from);
+    for (let c = from; c < to; c++) { const j = S.cellG[c]; cellG[c - from] = j >= 0 ? j - j0 : -1; }
+    I.cellG = cellG; I.j0 = j0; I.K = j1 - j0 + 1;
+    I.rs = copy ? S.rs.slice(j0 * ROCK_COUNT, (j1 + 1) * ROCK_COUNT) : S.rs.subarray(j0 * ROCK_COUNT, (j1 + 1) * ROCK_COUNT);
+    return I;
+}
+
+/** A range of cells' own work (`I`: rangeInput's with depositSetup's grids): each writes its richness into its grid cell,
+ *  the richest kept, and the placers' sources. A cell's own, but for each grid cell's richest — the same at any split.
+ *  @returns {{from, j0, K, data: Uint8Array, goldSrc, tinSrc, diaSrc, gemSrc}} data: SYS × K, the range's grid cells */
+export function depositCells(I, G = GEOLOGY, onShare = null) {
+    const { seed, step, F, anyRec, anyGem, edgeGrid, rough, ref, xyz, lat, lon, z, ocean, rock, cellG, K, rs } = I;
+    const { glaciated, till, lake, biome, clim, ice, colS, colT, colArch } = I;
+    const n = I.length, Dp = G.deposits, coarse = new LatLonGrid(I.coarseStep), fine = new LatLonGrid(I.fineStep);
+    const agg = I.agg ? aggregateWriter({ worth: I.worth, shoreSand: I.shoreSand, near: I.near, ids: AGG_IDS, coarse, erg: I.erg, coastWave: I.coastWave, coastWinter: I.coastWinter }, G) : null;
+    // ── districts: each system's permissive ground broken into districts — clusters of clusters, drawn out along the
+    // grain, gathered on lineaments, bent and lobed (district-shapes.js), each its share of the ground ──
+    const nz = new FastNoise(((seed | 0) * 0x6c8b + 0x3d) >>> 0), SH = Dp.shapes;
+    // (the beds: the column's contacts as the Rocks map counts them, and which of them are ironstone horizons — a sea's
+    // condensed beds, seeded)
+    const tops = bedTops(seed, G), B = Dp.beds, horizon = tops.map((_, k) => hash01(seed ^ 0x1e05, k) < B.ironHorizonShare);
+    const scale = DEPOSITS.map(d => Dp.scale[d.id] ?? 1), kimbF = R / Dp.kimberliteFieldKm, layeredF = R / Dp.layeredKm, reefF = R / Dp.reefKm;
+    const shapes = new DistrictShapes(seed, districtSystems(G), SH, step);
+    const data = new Uint8Array(SYS * K);
     const write = (c, k, v) => {
         v = clamp01(scale[k] * v);
         const b = Math.round(255 * v), j = k * K + cellG[c];
@@ -424,10 +526,6 @@ export function depositFields({ mesh, z, ocean, frame, simMesh, seed, rock, rec,
         return v;
     };
     const goldSrc = new Float32Array(n), tinSrc = new Float32Array(n), diaSrc = new Float32Array(n), gemSrc = new Float32Array(n);
-    // (each grid cell's rocks: each kind's share of its land cells — a grid cell's together)
-    const rs = new Float32Array(ROCK_COUNT * K), cnt = new Float32Array(K);
-    for (let c = 0; c < n; c++) if (!ocean[c] && cellG[c] >= 0) { rs[cellG[c] * ROCK_COUNT + rock[c]]++; cnt[cellG[c]]++; }
-    for (let j = 0; j < K; j++) if (cnt[j]) for (let r = 0; r < ROCK_COUNT; r++) rs[j * ROCK_COUNT + r] /= cnt[j];
     // (a system's richness here: its district's noise read only where it can be at all)
     let C = 0, X = 0, Y = 0, Z = 0, J = 0, J4 = 0;     // (J4: the grid cell's rock shares in rs)
     const ci = new Int32Array(4), cw = new Float64Array(4);
@@ -443,7 +541,7 @@ export function depositFields({ mesh, z, ocean, frame, simMesh, seed, rock, rec,
     // (a value of the record's that may be negative — a shield's axis — or missing: 0)
     const gs = f => { const v = coarse.atCorners(f, ci, cw); return v === v ? v : 0; };
     for (let c = 0; c < n; c++) {
-        if ((c & 0xffff) === 0) report(0.25 + 0.65 * c / n);
+        if (onShare && (c & 0xffff) === 0) onShare(c / n);
         if (cellG[c] < 0) continue;
         const x = xyz[3 * c], y = xyz[3 * c + 1], zz = xyz[3 * c + 2], la = lat[c], lo = lon[c];
         C = c; X = x; Y = y; Z = zz;
@@ -609,6 +707,35 @@ export function depositFields({ mesh, z, ocean, frame, simMesh, seed, rock, rec,
         write(c, D.clay, Math.min(1, (1.1 * young + 0.6 * rs[J4 + Rock.SHALE]) * (BS.clayHills + (1 - BS.clayHills) * (1 - hills))));
         agg?.(c, rs, J4, access, ci, cw, wd);
     }
+    return { from: I.from, j0: I.j0, K, data, goldSrc, tinSrc, diaSrc, gemSrc };
+}
+
+/** The ranges' work as one (each grid cell its richest), then the whole planet's part after the cells: the placers down
+ *  the rivers, the land's shares, the metals and the grid's holes filled. */
+function depositFinish(S, parts, G) {
+    const { n, mesh, ocean, lat, lon, local, out, gi, list, cellG, K, cnt, coarse, rough } = S, { xyz } = mesh, Dp = G.deposits, step = S.grids.step;
+    const { glaciated = null, till = null, q = null, recv = null, order = null } = local;
+    let data, goldSrc, tinSrc, diaSrc, gemSrc;
+    if (parts.length === 1 && parts[0].K === K && parts[0].j0 === 0) ({ data, goldSrc, tinSrc, diaSrc, gemSrc } = parts[0]);
+    else {
+        data = new Uint8Array(SYS * K);
+        goldSrc = new Float32Array(n); tinSrc = new Float32Array(n); diaSrc = new Float32Array(n); gemSrc = new Float32Array(n);
+        for (const p of parts) {
+            for (let k = 0; k < SYS; k++) {
+                const from = p.data.subarray(k * p.K, (k + 1) * p.K), at = k * K + p.j0;
+                for (let j = 0; j < p.K; j++) if (from[j] > data[at + j]) data[at + j] = from[j];
+            }
+            goldSrc.set(p.goldSrc, p.from); tinSrc.set(p.tinSrc, p.from); diaSrc.set(p.diaSrc, p.from); gemSrc.set(p.gemSrc, p.from);
+        }
+    }
+    const scale = DEPOSITS.map(d => Dp.scale[d.id] ?? 1), ruleIce = G.guideRules.iceStripsPlacers;
+    const shares = new Float32Array(3 * SYS), [gPoor, gMod, gRich] = Dp.grades;
+    const write = (c, k, v) => {
+        v = clamp01(scale[k] * v);
+        const b = Math.round(255 * v), j = k * K + cellG[c];
+        if (b > data[j]) data[j] = b;
+        return v;
+    };
     // ── placers: gold, tin and diamonds carried down the rivers from where they lie bared, fading with distance; laid
     // where a river runs gentle. Ice strips them (guideRules.iceStripsPlacers): poor under the old ice, moderate at its
     // edge, richest where it never came — or, by her rule, richest near the old ice ──
