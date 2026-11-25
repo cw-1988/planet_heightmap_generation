@@ -42,6 +42,9 @@ for it):
   each unshared worker held its own copy; sampled every 50 ms from a thread of its own (workers are threads of the same
   process). The cost: the mesh's shared copy (~0.1–0.2 GB at 2.5M) stays between finishes.
 - The 126 hashed arrays are the same as without it, at 2.5M and 250K.
+- Generate and Import: the planet worker builds the terrain mesh's positions and neighbour lists in shared buffers
+  (`presentTerrainMesh`, v2/js/present/world.js), and the page and the finish are sent that same mesh instead of a copy
+  each: ~0.7 GB less at 10M ([generate-memory.md](generate-memory.md)). Off, each gets its own copy as before.
 
 Checked in the page (local dev server, no headers of its own): `?isolate=1` → `crossOriginIsolated` true, the globe and
 the history run, Add detail at 160K finishes with the picture painted, no console errors; `?isolate=0` → unregistered,

@@ -2,20 +2,29 @@
 // browser's CompressionStream — V1's encoder, js/planet-mesh.js encode16BitGrayscalePNG), whole or as their rows come
 // (PngStream: a file too big to hold); a canvas's picture; and the download.
 
-const CRC_TABLE = (() => {
-    const t = new Uint32Array(256);
+// (slice by 8: eight tables, eight bytes a step — the same CRC several times faster, which a planet file's hundreds of MB
+// read or written on the page's thread need)
+const CRC_TABLES = (() => {
+    const t = new Uint32Array(8 * 256);
     for (let n = 0; n < 256; n++) {
         let c = n;
         for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
         t[n] = c;
     }
+    for (let n = 0; n < 256; n++) for (let k = 1; k < 8; k++) t[k * 256 + n] = (t[(k - 1) * 256 + n] >>> 8) ^ t[t[(k - 1) * 256 + n] & 0xFF];
     return t;
 })();
 
 /** The CRC-32 of `buf` — or, given `prev` (the CRC of the bytes before), of those bytes and these: one file in pieces. */
 export function crc32(buf, prev = 0) {
-    let crc = (prev ^ 0xFFFFFFFF) >>> 0;
-    for (let i = 0; i < buf.length; i++) crc = CRC_TABLE[(crc ^ buf[i]) & 0xFF] ^ (crc >>> 8);
+    const T = CRC_TABLES, n = buf.length, end8 = n - (n & 7);
+    let crc = (prev ^ 0xFFFFFFFF) >>> 0, i = 0;
+    for (; i < end8; i += 8) {
+        const a = (crc ^ (buf[i] | (buf[i + 1] << 8) | (buf[i + 2] << 16) | (buf[i + 3] << 24))) >>> 0;
+        crc = T[1792 + (a & 0xFF)] ^ T[1536 + ((a >>> 8) & 0xFF)] ^ T[1280 + ((a >>> 16) & 0xFF)] ^ T[1024 + (a >>> 24)]
+            ^ T[768 + buf[i + 4]] ^ T[512 + buf[i + 5]] ^ T[256 + buf[i + 6]] ^ T[buf[i + 7]];
+    }
+    for (; i < n; i++) crc = T[(crc ^ buf[i]) & 0xFF] ^ (crc >>> 8);
     return (crc ^ 0xFFFFFFFF) >>> 0;
 }
 

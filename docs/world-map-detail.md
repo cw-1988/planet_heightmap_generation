@@ -119,6 +119,13 @@ showed out at sea as a 2.8 m step along a straight line. This change also applie
 ## Lakes
 
 - Lakes have a bed and a depth; the water fades by Beer–Lambert down to the bed and back: [lake-water.md](lake-water.md).
+- The shore: the sea is the 0 m contour, and the sea and lakes show their bed through a ramp at least 0.5 km wide:
+  [shore-transition.md](shore-transition.md).
+- The Satellite's sea: a dark bathymetric shade (the shelf flat, darker past its break), its floor's relief shaded, its
+  bed showing only through the last few metres:
+  [satellite-sea.md](satellite-sea.md).
+- The sea's work on each coast (waves, tides, sand: cliffs, platforms, beaches, flats, marsh, surf):
+  [coast-processes.md](coast-processes.md).
 
 ## Coast distance past the tile's margin
 
@@ -139,15 +146,15 @@ Checked at level 14 over an archipelago coast, on the globe and the map:
 - Sea floor: over 1.8 M sea pixels, none with a crease over 2 m (there were 1,340 before the `detailOf` fix).
 - Speed: a level-14 tile takes about 0.4–0.6 s in a worker, with the ladder about 150–190 ms of it. A view of 110
   tiles fills in under 9 s.
+- Since 2026-11-22 (from PR #155): an octave whose wave spans 16 pixels or more is read on a grid of the planet's own
+  pixels and drawn between them by Catmull-Rom (`GRID_PER_WAVE` in fine-ladder.js). A level-14 tile's ladder went from
+  about 120 ms to 50 ms, 0.70% rms off the per-pixel waves, with no seams (`v2/tools/bench-fine-ladder.mjs`).
 
 Rivers, checked in Node on a synthetic river (2026-11-18):
 
 - Bent line: no gap at any joint. It swings at most about 4 km at every level from 8 to 14. Its steps are 2–3 px with
   corners of at most 20°, apart from one step of 8 px at level 14.
 - Valley: at levels 10 to 14 the drawn line lies at 97–100% of the floor's depth. The steepest side is 0.024–0.057,
-- Since 2026-11-22 (from PR #155): an octave whose wave spans 16 pixels or more is read on a grid of the planet's own
-  pixels and drawn between them by Catmull-Rom (`GRID_PER_WAVE` in fine-ladder.js). A level-14 tile's ladder went from
-  about 120 ms to 50 ms, 0.70% rms off the per-pixel waves, with no seams (`v2/tools/bench-fine-ladder.mjs`).
   against about 0.3 before. A 320 × 320 window carves in at most 90 ms.
 - Across a picture sloping 1.5% across the river, 1,000 m³/s (2026-11-18, second round): at levels 10–14 the ground under
   the line is at most 1.7–2.3 m above the valley's lowest, both sides 2.5 km out stand 36–44 m above the floor, and

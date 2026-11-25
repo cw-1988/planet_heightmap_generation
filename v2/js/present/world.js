@@ -3,6 +3,7 @@
 // terrain synthesis and carving on Generate's own render mesh, in km.
 
 import { meshFromArrays } from '../core/sim-mesh.js';
+import { SHARED, shared } from '../core/shared-memory.js';
 import { preparePlan, surfaceRange, carveInputs, settleFields, carveLadder, carveSettings } from '../terrain/synthesize.js';
 import { sampleOnto, terrainMesh } from '../terrain/terrain-mesh.js';
 import { carveTerrain, forgetMesh } from '../terrain/carve.js';
@@ -27,11 +28,14 @@ import { presentRecord } from './record.js';
 import { PRESENT, PRESENT_TERRAIN } from './present-config.js';
 
 const tMeshes = new WeakMap();
-/** Generate's render mesh as a terrain mesh (SimMesh-shaped), its positions turned into Evolution's z-up frame. */
+/** Generate's render mesh as a terrain mesh (SimMesh-shaped), its positions turned into Evolution's z-up frame. Where
+ *  memory is shared (core/shared-memory.js), its arrays are in shared memory — the render mesh's adjacency moved there
+ *  too — so the page, the finish and the terrain pool read this one mesh rather than each a copy (docs/generate-memory.md). */
 export function presentTerrainMesh(genMesh, r_xyz) {
     let t = tMeshes.get(genMesh);
     if (t && t.numCells === genMesh.numRegions) return t;
-    const n = genMesh.numRegions, xyz = new Float32Array(3 * n);
+    const n = genMesh.numRegions, xyz = new Float32Array(SHARED ? new SharedArrayBuffer(12 * n) : 3 * n);
+    if (SHARED) { genMesh.adjOffset = shared(genMesh.adjOffset); genMesh.adjList = shared(genMesh.adjList); }
     for (let r = 0; r < n; r++) { xyz[3 * r] = r_xyz[3 * r + 2]; xyz[3 * r + 1] = r_xyz[3 * r]; xyz[3 * r + 2] = r_xyz[3 * r + 1]; }
     t = meshFromArrays({ numCells: n, xyz, adjOffset: genMesh.adjOffset, adjList: genMesh.adjList });
     tMeshes.set(genMesh, t);
@@ -143,6 +147,26 @@ export function presentGroundOf(frame, sim, genMesh, r_xyz, o) {
         forgetMesh(tMesh); forgetEdgeKm(tMesh);
         return { heightKm: T.heightKm, drainage: T.drainage ?? null, receivers: T.receivers ?? null, order: T.order ?? null, lava: T.lava ?? null, young: T.young ?? null, cut: T.cut ?? null, surface: T.surface ?? null, ms };
     });
+}
+/**
+ * The rest of a ground's surface for the finish, drawn again (presentGroundOf's `surface` but its heights): the carving's
+ * inputs at the finish's strength, each cell's record and its cues — the same, bit for bit, as presentGroundOf kept with
+ * the same `o` (check-present.mjs). The planet worker sends them to a finish as they are (docs/generate-memory.md) and
+ * draws them again for the next finish on the same ground. `o`: presentGroundOf's (seed, knobs, finish, pool).
+ */
+export async function presentSurfaceRest(frame, sim, genMesh, r_xyz, o) {
+    const tMesh = presentTerrainMesh(genMesh, r_xyz), n = tMesh.numCells, cfg = terrainConfig(presentTerrainOverrides(o));
+    const scfg = { ...cfg, carveAlt: surfaceConfig(o.finish, cfg) };
+    let carveIn, recCell, cues;
+    if (o.pool) ({ carveIn, recCell, cues } = await o.pool.synthesize(frame, tMesh, { cfg: scfg, seed: o.seed, records: false, carveInputs: true, recCells: true }));
+    else {
+        const plan = preparePlan(frame, sim, cfg, o.seed, tMesh.edgeKm), S = sampleOnto(sim, tMesh, cfg, o.seed);
+        carveIn = carveInputs(n, scfg); recCell = new Int32Array(n); cues = new Int8Array(3 * n);
+        surfaceRange(plan, scfg, o.seed, tMesh.edgeKm, tMesh.xyz, S.cells, S.weights, 0, n, new Float32Array(n), null, carveIn, recCell, cues);
+    }
+    forgetMesh(tMesh); forgetEdgeKm(tMesh);
+    const { kAlt, ...inputs } = carveIn;
+    return { carveIn: { ...inputs, k: kAlt }, recCell, cues };
 }
 /** The terrain config's overrides the present-day ground is drawn with (its own, the sculpting knobs', any given) — the
  *  finish's too (finish-worker.js `terrain`). */

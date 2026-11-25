@@ -19,8 +19,7 @@ two tabs could each start a build that size, together using the machine's whole 
    failed". The pages catch it. Generate and Import show "Not enough memory to finish this planet — try a lower
    Detail". Evolution lets go of the moment it kept in detail, retries once in a fresh worker, then says the same.
 3. **The browser closes the tab** ("Aw, Snap!", Out of Memory). A tab's workers live in its renderer process, so they
-   all go with it. Nothing on the page can catch this. The next load sees it and lowers that page's slider by one stop
-   (below).
+   all go with it. Nothing on the page can catch this.
 
 The browser gives a page no reading of free memory. `navigator.deviceMemory` is the total, rounded. So memory that
 other programs use is not counted: the budget's other half is their room.
@@ -49,16 +48,13 @@ other programs use is not counted: the budget's other half is their room.
   truly running.
 - Where Web Locks are missing, builds are not gated.
 
-## A closed tab lowers the slider
+## No crash cap
 
-- A running build also writes `detailBuilding:<page>:<tab>` (its cells, and when it started) to localStorage. The
-  marker is removed when the build ends or the page is left normally.
-- At each load, the page looks for markers whose tab holds no lock any more: the browser closed that tab mid-build.
-  That page's slider then ends one stop below that Detail (`detailCap:<page>`). Sliders already open move down at once.
-- A later build that succeeds above the cap removes it.
-- Without Web Locks, only a marker at least a day old counts as a crash.
+Until 2026-11-24, a tab the browser closed mid-build lowered that page's slider by one stop, kept in localStorage
+(`detailCap:<page>`) until a build above it succeeded or the build code changed. The owner removed it: the cap rarely let
+go in practice, so one bad build took the top stops away for good. The page now drops the keys it left
+(`detailCap:*`, `detailBuilding:*`) on load.
 
 Tested on 2026-11-22 with two tabs:
 - One tab held 15.1 GB of build locks. A 180K Generate build in the other tab waited and showed the line above.
 - When the first tab's 10.5 GB build ended, the waiting build started at once, and no lock request was left queued.
-- A marker planted for a dead tab lowered Generate's slider from 10M to 6.7M on the next load.

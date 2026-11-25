@@ -24,7 +24,9 @@ less. The zoomed tiles' own share is in [tile-disk.md](tile-disk.md).
   receivers, order, lava, young rock and cut flags, read only while it is drawn.
 - **One copy of the uncarved surface.** The finish's surface ({heightKm, recCell, cues, carveIn}, ~150 MB at 2.56M)
   stays in the planet worker; the page asks for it when a finish starts (js/surface-ask.js, the worker's `surface`
-  command) and hands it to the finish worker as transfers. The page held a second copy for as long as the world.
+  command) and hands it to the finish worker as transfers. The page held a second copy for as long as the world. The
+  planet worker now hands its own copy over too and keeps only the heights; a second finish on the same world has the
+  rest drawn again ([generate-memory.md](generate-memory.md)).
 - **Textures' images made when first painted into.** planet-view.js `texture()` creates its ImageData lazily: the GPU
   painter never uses it (8 MB a 2048 texture).
 - **The Satellite styling's inputs let go once styled.** evolution/sat-style.js drops a picture's shares, riverside,

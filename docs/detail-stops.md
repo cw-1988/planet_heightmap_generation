@@ -17,7 +17,7 @@ figures):
 | Evolution, Add detail | `#finishCells` | 120K | 3M |
 | Evolution, Terrain detail | `#terrainCells` (a menu) | its options | — options above the machine's finest are removed |
 
-The label reads, for example, "2M cells" (Add detail adds its time: "2M cells · ~1 min"). How far apart the cells sit on
+The label reads, for example, "2M" (Add detail adds its time: "2M · ~1 min"); the tooltip says it counts cells (the owner, 2026-11-23). How far apart the cells sit on
 an Earth-sized planet is in the tooltip, given at the slider's two ends (57 km at 180K, 8 km at 10M): beside the count,
 a km that shrank as the count grew read wrong (the owner, 2026-11-22). Evolution's Plates and Terrain detail menus do
 the same.
@@ -39,12 +39,12 @@ Each page's slider ends at the finest stop whose modelled peak memory fits the p
 
   | Page | Peak | Where it comes from |
   |------|------|---------------------|
-  | Generate, Import | 1.5 + 0.9·M | the measurement below (Import builds through the same worker and finish) |
+  | Generate, Import | 1.2 + 0.65·M | the measurement below (Import builds through the same worker and finish); where it goes: [generate-memory.md](generate-memory.md) |
   | Evolution | 3.1 + 0.33·M | the finish's 1.6 + 0.33·M in Node ([finish-ceiling.md](finish-ceiling.md)), plus the page |
 
-- **A closed tab lowers it** by one stop, and **every tab shares the budget**: a build waits while other tabs' builds
+- **Every tab shares the budget**: a build waits while other tabs' builds
   leave no room for it ([build-gate.md](build-gate.md)).
-- **Developer override:** `?maxdetail=<cells>` in the address bar sets the finest stop directly and ignores the cap.
+- **Developer override:** `?maxdetail=<cells>` in the address bar sets the finest stop directly, past the memory budget.
 
 The warning under the slider uses the same model. Above 3/4 of the budget it is red: "Near this machine's memory —
 slow, and the tab may close". Above 2/5 it is orange: "High detail — slow to build".
@@ -59,19 +59,26 @@ twice a second.
 |--------|---------------------|------------------------|---------------|------|
 | 2.56M (from a page already holding 2.56M) | +4.7 GB | 5.1 GB | — | — |
 | 10M | +10.2 GB | 11.4 GB | 133 s | ~300 s |
+| 10M, 2026-11-24, after the three cuts below | +7.4 GB | 7.5 GB | 146 s | ~365 s |
 
 At 10M the progressive steps came at 2.3 s (5K), 40.6 s (2.56M) and 80.3 s (5.12M). The finish's terrain landed
-94 s after the first picture, and the rest about 70 s later. The model, 1.5 + 0.9·M, gives 10.5 GB at 10M: just over
-the measured peak, with room for the page itself. It also gives 3.8 GB at 2.56M, under that run's +4.7 GB, but that
-run started with a 2.56M world already held.
+94 s after the first picture, and the rest about 70 s later. The model was then 1.5 + 0.9·M: 10.5 GB at 10M, just
+over the measured peak, with room for the page itself.
 
-With this model, the slider ends at these stops (desktop, no crash cap):
+On 2026-11-24 three changes took ~2.35 GB off the 10M peak in Node, ~1.1 GB at 2.5M (the terrain pool let go during the
+finish, the surface handed over rather than copied, one shared mesh; [generate-memory.md](generate-memory.md)). In the
+browser, measured the same way from a 180K world, the 10M peak fell to +7.4 GB, at the finish's end (its picture and
+the world cache's save). The model, 1.2 + 0.65·M, gives 7.7 GB at 10M: the same 0.3 GB over the measured peak as
+before. With `?isolate=0` the mesh is copied again, ~0.7 GB more at 10M than the model. The run was slower than the
+first (146 s to the first picture, against 133), most of it in the ground, before any of the changes take effect.
+
+With this model, the slider ends at these stops (desktop):
 
 | Memory reported | Budget | Generate, Import | Evolution |
 |-----------------|--------|------------------|-----------|
 | 32 GB or more, or 8 (taken as 16) | 16 GB | 10M | 10M |
-| 16 GB, or nothing reported | 8 GB | 6.7M | 10M |
-| 4 GB | 2 GB | 410K | none fits, so its lowest stop, 120K |
+| 16 GB, or nothing reported | 8 GB | 10M | 10M |
+| 4 GB | 2 GB | 910K | none fits, so its lowest stop, 120K |
 
 ## Planet codes
 

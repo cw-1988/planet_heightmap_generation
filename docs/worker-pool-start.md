@@ -6,7 +6,7 @@ Generate's first build, the one the page starts on load, failed every time in th
 
 ## What happened
 
-The planet worker (`js/planet-worker.js`) makes its terrain pool (`v2/js/terrain/terrain-pool.js`) as it starts: seven
+The planet worker (`js/planet-worker.js`) makes its terrain pool (`v2/js/terrain/terrain-pool.js`) as it starts, and again after a finish has let it go ([generate-memory.md](generate-memory.md)): seven
 terrain workers, each a module worker that the planet worker starts. The pane's Chromium (Claude 6.28899, Chrome 156)
 loads no worker that another worker starts from a script URL. A nested worker from a blob URL loads. A nested worker of a
 module with no imports, from a URL, does not. A worker started by the page itself loads.

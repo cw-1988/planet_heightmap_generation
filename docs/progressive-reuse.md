@@ -30,7 +30,8 @@ ways to cut that:
 
 1. **Fewer coarse steps**: stop the ladder at N/8 and then build N. The coarse steps add about 1/4 of the final step's
    time instead of 1/1 (+25 %, not +100 %). The last jump is ×8 in cells (×2.8 in sharpness). One line in
-   `detailRungs`.
+   `detailRungs`. (Tried at N/4 on 2026-11-24; the owner chose every jump ×2 instead, the last one too:
+   [progressive-detail.md](progressive-detail.md).)
 2. **The coarse steps beside the final step, not before it**: start the final build at once and draw the coarse steps
    on a second worker. The screen fills from about 2 s as now, and the final planet comes close to the off time. The
    cost is CPU contention: the surface already uses every core, so this works best while the final step carves on its

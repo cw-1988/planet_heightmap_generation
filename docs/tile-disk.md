@@ -53,10 +53,29 @@ Same world, page and pane, 2026-11-22, zoomed in over land:
 - One database per page (`orogen-tiles-<time>-<id>`), held by a Web Lock while the page lives. On start, every such
   database whose lock is free (its page gone) is deleted, so a closed or crashed tab leaves nothing for long, and a
   tab still open keeps its own. On leaving, the page deletes its own.
-- Only the world shown: a new world clears it. At most 2,500 tiles (~4 GB), the oldest dropped past it (drawn again if
+- Only the world shown: a new world clears it (a world kept in the world cache keeps its own: [Kept worlds](#kept-worlds)). At most 2,500 tiles (~4 GB), the oldest dropped past it (drawn again if
   wanted).
 - Wherever the disk fails (no IndexedDB, the disk full, the page restored from the back-forward cache with its
   database closed), the tile is drawn again: the view never waits on it.
+
+## Kept worlds
+
+Asked for by the owner, 2026-11-24, after Generate's world cache ([world-cache.md](world-cache.md#generate)) made a
+reload open the finished world in about a second: the zoomed-in tiles should survive the reload too, not be drawn again.
+
+- **Which worlds:** those Generate keeps in its world cache. Their finished layers carry a `keptId` (made in `main.js`
+  `finish()` when the world is kept, saved with it), and `DetailTiles.reset` hands it to `TileStore.reset(keptId)`.
+  Evolution's and Import's worlds have none: their tiles stay per page, as above.
+- **Where:** one database every page shares, `orogen-kept-tiles`: store `t` (the tiles, keyed `<keptId>|<rivers>|<tile>`)
+  and store `w` (each world's `usedAt`). On opening a kept world the page lists its tiles there (reads wait for that, a
+  few ms) and finds those drawn before, by itself or a page before it; new ones are added as they are drawn.
+- **How many:** the tiles of the three most recently opened kept worlds (as the world cache keeps three); an older
+  world's are deleted when another is opened. At most 1,000 tiles a world (~1.6 GB), the oldest dropped past it.
+- **Code changes:** the world cache's fingerprint covers `evolution/detail-view.js` and what it loads (the detail worker,
+  `fine-detail.js`), so a change to how tiles are drawn builds the world again, with a new `keptId`: the old tiles are
+  never shown, and go with the world they belonged to.
+- Measured, 2026-11-24 (180K, zoomed over land): 234 tiles drawn and kept; after a reload the same view showed with the
+  tile count unchanged and no detail worker started, every tile read from disk. Panning on drew and kept 147 more.
 
 ## Keep it so
 

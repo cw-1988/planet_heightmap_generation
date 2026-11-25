@@ -1,19 +1,23 @@
 # The Detail ladder: a new planet built coarse first, then finer step by step
 
-A new planet (Generate or Import) is shown at 5,000 Detail first. Then it is shown at twice as many cells each step
-(10,000, 20,000, 40,000 … 1,280,000) while that is below the Detail chosen, and then at the Detail itself. Each step
-replaces the last on screen, as if the Detail slider were slid from left to right while it builds. Asked for by the owner,
-2026-11-20. Back to [shared.md](shared.md); the rest of the load: [generate-load.md](generate-load.md).
+A new planet (Generate or Import) is shown coarse first, then at twice as many cells each step, up to the Detail
+chosen. The steps are halved down from that Detail (`detailRungs`), so each is exactly half the next and the coarsest
+lands between 5,000 and 10,000: at 1,400,000 they are 5.5k · 11k · 22k · 44k · 88k · 175k · 350k · 700k, then 1.4M.
+Each step replaces the last on screen, as if the Detail slider were slid from left to right while it builds. Asked for
+by the owner, 2026-11-20. Back to [shared.md](shared.md); the rest of the load: [generate-load.md](generate-load.md).
 
 **Why ×2** (`RUNG_STEP`, the owner, 2026-11-20): ×4 the cells is ×2 the sharpness (cells per km grow as the square
 root), and that jumped too far between pictures. ×2 the cells is ×1.41 the sharpness: twice the pictures, each a smaller
-step. The cost: the coarse steps together cost about as much as the last one does (1/2 + 1/4 + … of it), where at ×4
-they cost a third of it.
+step. The cost: the coarse steps together cost about as much as the last one does (1/2 + 1/4 + … of it).
+
+**Why halved from the Detail, not doubled from 5,000** (the owner, 2026-11-24): doubled from 5,000, the last coarse step
+could sit just under the Detail (1,280,000 before 1,400,000), a whole step's ground spent on 9 % more cells. Halved
+from the Detail, every jump is ×2, the last one too.
 
 **Progressive generation** (the switch under the Detail slider on Generate and Import, on by default, remembered on
 the browser as `progressiveDetail`; the owner, 2026-11-20): off, the planet is built at the chosen Detail alone
 (`detailSteps(N, false)` is `[N]`). It is faster, since none of the coarse steps' ground is drawn (about as much as the
-last step at ×2), but nothing is shown until it is done. Which is better depends on the moment: watching it grow, or
+last step), but nothing is shown until it is done. Which is better depends on the moment: watching it grow, or
 getting the final planet sooner. Measured in the browser pane, 2026-11-20, at 204,000 Detail on a new seed: 8.6 s to
 the button freed with it off, 17.8 s with it on (6 coarse steps).
 
@@ -58,6 +62,8 @@ comes twice as often):
 | 204,000 | 5k 3.0 · 20k 3.9 · 80k 5.3 | 8.4 s (was ~4 s without the ladder) |
 | 2,560,000 | 5k 1.9 · 20k 2.7 · 80k 3.7 · 320k 7.1 · 1.28M 19.0 | 35.2 s (42.3 s before the meshes were built ahead) |
 
-The steps add their own ground on top; at 2,560,000 the 1,280,000 step (~12 s) is most of it. What a step still spends
+The steps add their own ground on top; at 2,560,000 the 1,280,000 step (~12 s) was most of it. At 1,400,000
+(2026-11-24, ×2 steps doubled from 5,000): 5k 3.3 · 10k 4.1 · 20k 4.9 · 40k 5.8 · 80k 7.0 · 160k 8.5 · 320k 11.4,
+the chosen Detail's first picture at 21.3 s (not yet measured halved from the Detail, which adds a 700k step there). What a step still spends
 besides its ground is projecting the pieces on its mesh (`piecesOn`), not the mesh itself. Something is on screen from
 ~2 s, and it sharpens every few seconds instead of standing still.

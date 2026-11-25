@@ -4,12 +4,17 @@
 // checked. Under 4 GB in all (no ZIP64), as view/zip.js (the exports' ZIP: stored, its PNGs compressed already).
 
 import { crc32 } from '../view/png.js';
+import { nextTask } from '../core/steps.js';
 
 /** The time now as DOS time and date (what ZIP records). */
 function dosTime(d = new Date()) {
     return { time: (d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1), date: ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate() };
 }
 const enc = new TextEncoder(), dec = new TextDecoder();
+// (a turn of the event loop between reads (core/steps.js nextTask): a stream's reads resolve as microtasks, so a read of
+// hundreds of MB would otherwise hold the page in one task, the globe frozen until the last byte)
+/** The longest the read works between turns of the page's event loop. */
+const BREATHE_MS = 8;
 
 export class ZipWriter {
     constructor() { this.parts = []; this.central = []; this.offset = 0; Object.assign(this, dosTime()); }
@@ -91,12 +96,13 @@ export class ZipReader {
         if (e.method === 8) stream = stream.pipeThrough(new DecompressionStream('deflate-raw'));
         else if (e.method !== 0) throw new Error(`the planet file uses a compression this page cannot read (${name})`);
         const reader = stream.getReader();
-        let crc = 0, size = 0;
+        let crc = 0, size = 0, since = performance.now();
         for (;;) {
             const { done, value } = await reader.read();
             if (done) break;
             crc = crc32(value, crc); size += value.length;
             yield value;
+            if (performance.now() - since > BREATHE_MS) { await nextTask(); since = performance.now(); }
         }
         if (size !== e.size || crc !== e.crc) throw new Error(`the planet file is damaged (${name})`);
     }

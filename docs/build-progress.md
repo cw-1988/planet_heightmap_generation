@@ -6,12 +6,24 @@ the owner, 2026-11-20, after zooming did nothing for a long time once the waterw
 
 ## What it shows
 
-- **Step 1 of 2 · Building the planet**: the planet worker's own progress and words (plates, the history, the Detail
+Generate counts three steps, Import two (it has no states).
+
+- **Step 1 of 3 · Building the planet**: the planet worker's own progress and words (plates, the history, the Detail
   ladder).
-- **Step 2 of 2 · Finishing the world**: the finish's stages, one bar for all of them, each named in plain words
+- **Step 2 of 3 · Finishing the world**: the finish's stages, one bar for all of them, each named in plain words
   (`v2/js/finish/stage-words.js`, shared with Evolution): the surface, the climate, the rivers, the ice age, the fine
   detail, the rocks, the farming, the picture; and under the bar a thin one for the stage under way, its % after its
   words ([finish-progress.md](finish-progress.md)).
+- **Step 3 of 3 · Founding the states** (Generate): the states and empires of the Civilizations tab
+  (`v2/js/evolution/states-view.js`), worked out once the world is finished, also when it opens from the world cache.
+  `statesBuild` hands the work to a worker (`v2/js/evolution/states-worker.js`), which reports each step (reading the
+  land, founding the capitals, drawing the borders, placing the cities, towns and villages, laying the roads, raising
+  the forts, counting the people, dividing the regions), so the bar moves and the page stays live (5–10 s in all on a
+  1.4M-Detail world at 4,096 px, reading the land the longest). The worker gets a copy of the rasters the states read
+  (about 200 MB at 4,096 px, sent in 8 MB slices with a turn for the page between each, taken by a message rather than a timer, since a hidden
+  tab's timers wake only once a second, then once a minute; the console splits the time into sending and working out) and is ended once the states
+  are back, so the copy lasts only as long as the build. Until the first states come, the States view shows plain
+  paper and the overlay waits.
 - **Zoom in for detail**: "waiting" until the fine detail is drawn, then "ready".
 - **Done**: shown, then the card hides after 2.5 s. A finish that failed keeps the card up with its problem.
 

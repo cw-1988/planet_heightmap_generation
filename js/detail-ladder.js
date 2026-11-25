@@ -1,5 +1,5 @@
 // The Detail ladder (docs/progressive-detail.md): a new planet built coarse first, then finer step by step up to the
-// Detail chosen — 5,000 cells, then twice as many each step, then the Detail itself — each step's ground sent to
+// Detail chosen — each step half the next, from the Detail itself down to 5,000–10,000 cells — each step's ground sent to
 // the page as a `rung` and shown in place of the last. The plates, their motion, the past and the Frame are worked out
 // once (on the sim mesh, free of Detail); each step draws only the ground on its own mesh. The last step is the
 // planet as it always was: the same mesh, the same ground, bit for bit.
@@ -14,14 +14,16 @@ import { plainCarveInputs } from '../v2/js/terrain/synthesize.js';
 import { surfaceConfig } from '../v2/js/finish/finish.js';
 import { terrainConfig } from '../v2/js/terrain/terrain-config.js';
 
-/** The ladder's first step, and how much finer each next one is: twice the cells, √2 the sharpness (×4 jumped too far
- *  between pictures: the owner, 2026-11-20). */
+/** The ladder's coarsest step is at least this many cells, and each next one is twice the cells, √2 the sharpness
+ *  (×4 jumped too far between pictures: the owner, 2026-11-20). */
 export const RUNG_FIRST = 5000, RUNG_STEP = 2;
 
-/** The coarser steps shown before Detail `N` (none at 5,000 or less): 5,000, 10,000, 20,000 … while below N. */
+/** The coarser steps shown before Detail `N` (none under 10,000): N/2, N/4 … down to the last at or above 5,000,
+ *  coarsest first. Halved from N, not doubled from 5,000, so every step is ×2, the last jump too: doubled from 5,000,
+ *  1.4M came after 1.28M, a whole step's ground spent on 9 % more cells (the owner, 2026-11-24). */
 export function detailRungs(N) {
     const out = [];
-    for (let n = RUNG_FIRST; n < N; n *= RUNG_STEP) out.push(n);
+    for (let k = 1; N / RUNG_STEP ** k >= RUNG_FIRST; k++) out.unshift(Math.round(N / RUNG_STEP ** k));
     return out;
 }
 /** Every Detail a build draws, the last N: the ladder, or N alone with Progressive generation off (the page's

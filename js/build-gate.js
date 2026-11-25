@@ -1,44 +1,18 @@
 // The builds every World Orogen tab runs share one memory budget (docs/build-gate.md): a build starts once the builds
 // under way in all the tabs, its own peak added, fit this machine's budget (detail-stops.js) — else it waits for one of
-// them to end. And a build the browser closed its tab under (out of memory) lowers that page's Detail slider after.
+// them to end.
 //
 // Each build under way holds a Web Lock named for its tab and its modelled peak; the browser lets a lock go when its tab
-// ends, closed or crashed, so the locks held are the builds truly running. A build also writes a marker to localStorage
-// while it runs: a marker whose tab holds no lock any more is a build that tab died under.
-import { DETAIL_STOPS, peakGb, budgetGb } from './detail-stops.js';
+// ends, closed or crashed, so the locks held are the builds truly running.
+import { peakGb, budgetGb } from './detail-stops.js';
 
 const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
-const store = {
-    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
-    set(k, v) { try { localStorage.setItem(k, v); } catch { /* not remembered where the browser forbids it */ } },
-    drop(k) { try { localStorage.removeItem(k); } catch { /* likewise */ } },
-    keys() { try { return Object.keys(localStorage); } catch { return []; } },
-};
 const TAB = Math.random().toString(36).slice(2, 10);
 const PREFIX = 'detail-build:';                          // (the lock: detail-build:<page>:<tab>:<GB>)
-const marker = page => `detailBuilding:${page}:${TAB}`;  // (the marker: the cells being built)
 
-/** Lowers `page`'s cap to the stop below `n` cells: its slider ends there from now on (detail-stops.js's maxStop). */
-function lowerCap(page, n) {
-    const cap = Math.max(...DETAIL_STOPS.filter(c => c < n), DETAIL_STOPS[0]);
-    if (cap < (Number(store.get(`detailCap:${page}`)) || Infinity)) store.set(`detailCap:${page}`, String(cap));
-    globalThis.dispatchEvent?.(new Event('detail-cap'));  // (the sliders on this page refit: detail-stops.js's fitSlider)
-}
-// (the markers left by a tab that died mid-build: its lock gone with it. Without Web Locks a marker can't be told from a
-// build running in another tab, so only one at least a day old is taken for a crash)
-async function sweep() {
-    const live = locks ? new Set((await locks.query()).held.map(l => l.name?.split(':')[2])) : null;
-    for (const k of store.keys()) {
-        const m = /^detailBuilding:(\w+):(\w+)$/.exec(k);
-        if (!m || m[2] === TAB || live?.has(m[2])) continue;
-        const [n, at] = (store.get(k) ?? '').split('@').map(Number);
-        if (!live && Date.now() - at < 864e5) continue;
-        store.drop(k);
-        if (n) lowerCap(m[1], n);
-    }
-    for (const k of store.keys()) if (/^detailBuilding:\w+$/.test(k)) store.drop(k);   // (the old one-marker-a-page form)
-}
-sweep().catch(err => console.warn('[build-gate] could not check for builds a closed tab left:', err));
+// (an earlier version kept crash caps and build markers here: a tab closed mid-build lowered its page's slider for good.
+// That is gone, so what it left is let go — the sliders get their whole range back)
+try { for (const k of Object.keys(localStorage)) if (/^detail(Cap|Building):/.test(k)) localStorage.removeItem(k); } catch { /* no storage */ }
 
 /** What a page shows while its build waits. */
 export const WAIT_WORDS = 'Waiting for another tab’s build — both at once wouldn’t fit in memory…';
@@ -55,7 +29,7 @@ export async function buildStarted(page, n, onWait) {
     slots.get(page)?.stop();
     let release, stopped = false;
     const ac = new AbortController(), hold = new Promise(r => { release = r; });
-    const slot = { waiting: true, stop() { stopped = true; ac.abort(); release(); if (slots.get(page) === slot) slots.delete(page); store.drop(marker(page)); } };
+    const slot = { waiting: true, stop() { stopped = true; ac.abort(); release(); if (slots.get(page) === slot) slots.delete(page); } };
     slots.set(page, slot);
     if (locks) {
         const gb = Math.round(peakGb(page, n) * 10) / 10, mine = `${PREFIX}${page}:${TAB}:${gb}`;
@@ -82,16 +56,10 @@ export async function buildStarted(page, n, onWait) {
     }
     if (stopped) return false;
     slot.waiting = false;
-    store.set(marker(page), `${n}@${Date.now()}`);
     return true;
 }
-/** The build on `page` ended — done, failed or dropped, not a closed tab: its place let go. Done above a crash's cap
- *  (`ok`), the cap goes. */
-export function buildEnded(page, ok = false) {
-    const n = Number((store.get(marker(page)) ?? '').split('@')[0]);
-    slots.get(page)?.stop();
-    if (ok && n > (Number(store.get(`detailCap:${page}`)) || Infinity)) store.drop(`detailCap:${page}`);
-}
+/** The build on `page` ended — done, failed or dropped: its place let go. */
+export function buildEnded(page) { slots.get(page)?.stop(); }
 /** A build on `page` still waiting for its place is dropped (its buildStarted resolves false); one running goes on. */
 export function stopWaiting(page) { if (slots.get(page)?.waiting) slots.get(page).stop(); }
 if (typeof addEventListener === 'function') addEventListener('pagehide', () => { for (const s of [...slots.values()]) s.stop(); });

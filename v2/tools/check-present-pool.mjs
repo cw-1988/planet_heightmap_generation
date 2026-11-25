@@ -1,6 +1,7 @@
 // The present-day ground drawn on a TerrainPool (js/planet-worker.js: its surface on worker threads) is the ground drawn
 // on one thread, bit for bit: the first picture, the finish's surface (its heights, carving inputs — the finish's
-// erodibility, kAlt, among them — records and cues), the carving's rivers, lava and cut.
+// erodibility, kAlt, among them — records and cues), the carving's rivers, lava and cut; and the surface's rest drawn again
+// for a second finish (present/world.js presentSurfaceRest) the same as the first.
 //
 //   node v2/tools/check-present-pool.mjs
 
@@ -12,7 +13,7 @@ import { buildSphere } from '../../js/sphere-mesh.js';
 import { makeRng } from '../../js/rng.js';
 import { buildPresentPlates } from '../js/present/plates.js';
 import { presentLayout } from '../js/present/layout.js';
-import { presentWorld, presentTerrainMesh, presentSynthesize, presentTerrainOverrides } from '../js/present/world.js';
+import { presentWorld, presentTerrainMesh, presentSynthesize, presentTerrainOverrides, presentSurfaceRest } from '../js/present/world.js';
 import { finishConfigOf, reliefShareOf } from '../js/present/knobs.js';
 import { terrainConfig } from '../js/terrain/terrain-config.js';
 import { TerrainPool } from '../js/terrain/terrain-pool.js';
@@ -42,7 +43,11 @@ for (const seed of [2, 777]) {
     // (the synthesis alone, too, as Reapply draws it)
     const tm = presentTerrainMesh(mesh, r_xyz), cfg = terrainConfig(presentTerrainOverrides({})), relief = reliefShareOf({});
     const a = presentSynthesize(A.frame, L.sim, tm, cfg, seed, relief, A.mask, A.frontKm, F), b = await presentSynthesize(A.frame, L.sim, tm, cfg, seed, relief, A.mask, A.frontKm, F, pool);
+    // (the surface's rest drawn again for a second finish — the planet worker sends the first away: docs/generate-memory.md)
+    const t3 = performance.now(), R = await presentSurfaceRest(A.frame, L.sim, mesh, r_xyz, { ...o, pool }), t4 = performance.now(), R1 = await presentSurfaceRest(A.frame, L.sim, mesh, r_xyz, o);
     pool.terminate();
+    const restSame = r => Object.keys(r.carveIn).length === Object.keys(A.surface.carveIn).length && Object.keys(A.surface.carveIn).every(k => same(A.surface.carveIn[k], r.carveIn[k])) && same(A.surface.recCell, r.recCell) && same(A.surface.cues, r.cues);
+    check(`seed ${seed}: the surface's rest drawn again the same, on the pool (${((t4 - t3) / 1000).toFixed(1)} s) and on one thread`, restSame(R) && restSame(R1));
     const keys = Object.keys(A.surface.carveIn), carveSame = keys.every(k => same(A.surface.carveIn[k], B.surface.carveIn[k])) && keys.length === Object.keys(B.surface.carveIn).length;
     check(`seed ${seed}: the ground the same (${((t1 - t0) / 1000).toFixed(1)} s on one thread, ${((t2 - t1) / 1000).toFixed(1)} s on the pool)`,
         same(A.heightKm, B.heightKm) && same(A.drainage, B.drainage) && same(A.lava, B.lava) && same(A.cut, B.cut) && same(A.young, B.young));

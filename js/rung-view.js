@@ -3,7 +3,7 @@
 // Generate (js/main.js) and Import (js/import-main.js) share it.
 // With Progressive generation, a step comes with its finish's job: run here to its terrain only (its rivers, lakes
 // and the valleys they cut: finish-worker.js terrainOnly) on a finishing worker of its own, beside the build — the newest
-// step waiting while one runs, those passed over dropped. Once a step's water is shown, only steps with their water
+// step waiting while one runs, those passed over dropped, and a step's water never shown over a finer step. Once a step's water is shown, only steps with their water
 // follow (a bare finer step would take the water away); the last stays shown until the world's own terrain lands.
 
 import { meshFromArrays } from '../v2/js/core/sim-mesh.js';
@@ -33,7 +33,8 @@ export function rungView(pv, overlay, { width, climate }) {
                 await (finisher ??= new FinishService()).finish({ ...msg.finish, mesh: msg.mesh, cells, width: width(cells), climateOptions: climate(), valleyQ: pv.view.riverQ, terrainOnly: true },
                     { onTerrain: (d) => { fin = terrainFin(cells, d); }, keep: true });
                 if (t !== token || !fin) break;
-                shown({ ...step, fin });
+                // (never over a finer step: its terrain would revert to this coarser one's — the finer's own water follows)
+                if (!live || live.detail <= step.detail) shown({ ...step, fin });
                 console.info(`[build] Detail ${msg.detail.toLocaleString('en-US')}: its rivers and lakes in ${((performance.now() - at) / 1000).toFixed(1)} s`);
             } catch (err) {
                 if (err.name !== 'AbortError') console.warn('[build] a step\'s rivers and lakes failed:', err);
