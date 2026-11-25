@@ -1814,7 +1814,7 @@ const ISLE_KM2 = 2.5 * PROVINCE_KM2, ISLE_ALL = 0.9, ISLE_ONE = 0.85;
 // and where two regions meet is found through the ground, as a state's border is: along a river, a crest. Once the core
 // was all but the outer 90 km, and the borders kept the natural regions' blocky edges across ranges and rivers: the
 // owner, 2026-11-25)
-const CORE_SHARE = 0.6, CORE_CREST = 0.25, CREST_KM = 1200;
+const CORE_SHARE = 0.6, CREST_KM = 1200;
 /** Each seed's core: its cells at least CORE_SHARE as far from another seed's land (or land no seed holds) as its
  *  farthest. The coast is not an edge. */
 function coresOf(S, seeds) {
@@ -1836,7 +1836,7 @@ function coresOf(S, seeds) {
         if (!k.cells) continue;
         let far = 0;
         for (const c of k.cells) if (hop[c] > far) far = hop[c];
-        const at = Math.ceil(CORE_SHARE * far), core = k.cells.filter(c => (hop[c] < 0 || hop[c] >= at) && !(S.crest?.[c] > CORE_CREST));
+        const at = Math.ceil(CORE_SHARE * far), core = k.cells.filter(c => (hop[c] < 0 || hop[c] >= at));
         if (core.length) { k.cells = core; k.c = core[0]; }
     }
 }
